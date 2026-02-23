@@ -637,10 +637,8 @@ func TestValidateHasOperator(t *testing.T) {
 						err,
 					)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("validateHasOperator() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("validateHasOperator() unexpected error: %v", err)
 			}
 		})
 	}
