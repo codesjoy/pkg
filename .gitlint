@@ -1,5 +1,5 @@
 [general]
-ignore=merge-commits,revert-commits,fixup-commits,squash-commits
+ignore=merge-commits,revert-commits,fixup-commits,squash-commits,B6
 
 [title-max-length]
 line-length=72

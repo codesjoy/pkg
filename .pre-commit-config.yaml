@@ -27,7 +27,6 @@ repos:
     hooks:
       - id: gitlint
         stages: [commit-msg]
-        args: [--config, .gitlint]
 
   - repo: local
     hooks:
