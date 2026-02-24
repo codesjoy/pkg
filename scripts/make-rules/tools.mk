@@ -25,9 +25,9 @@ PATH  := $(GOBIN):$(PATH)
         install.golangci-lint install.golangci-lint.rebuild install.gofumpt install.goimports install.golines \
         install.git-chglog install.addlicense install.go-junit-report
 
-## tools.install: Install all tools and git hooks
-tools.install: $(addprefix tools.install., $(TOOLS)) githooks.install
-	@$(LOG_SUCCESS) "All tools and git hooks installed"
+## tools.install: Install all tools and pre-commit hooks
+tools.install: $(addprefix tools.install., $(TOOLS)) hooks.install
+	@$(LOG_SUCCESS) "All tools and pre-commit hooks installed"
 
 ## tools.verify: Verify all tools are installed
 tools.verify: $(addprefix tools.verify., $(TOOLS))

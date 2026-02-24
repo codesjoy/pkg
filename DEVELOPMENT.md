@@ -6,6 +6,7 @@ This guide describes how to develop, test, and maintain `codesjoy/pkg`.
 
 - Go 1.25.7 or later
 - Make
+- Python 3 (for `pre-commit` hook management)
 - Docker (needed for integration tests that depend on external services)
 - Git
 
@@ -16,6 +17,7 @@ git clone https://github.com/codesjoy/pkg.git
 cd pkg
 
 make tools
+make hooks.install
 make sync
 make tidy
 ```
@@ -98,7 +100,9 @@ pkg/
 │   └── xjwt/
 ├── utils/                    # General utilities module
 ├── scripts/                  # Build scripts and Make rule modules
-├── githooks/                 # Git hooks installed by `make tools`
+├── scripts/hooks/            # Local pre-commit helper hooks
+├── .pre-commit-config.yaml   # Hook orchestration entry
+├── .gitlint                  # Commit message policy
 ├── Makefile                  # Root orchestration
 ├── README.md                 # Repository overview
 └── DEVELOPMENT.md            # This guide
@@ -195,11 +199,11 @@ make sync
 make tidy
 ```
 
-### Git hooks not installed
+### Pre-commit hooks not installed
 
 ```bash
-make githooks.verify
-make githooks.install
+make hooks.verify
+make hooks.install
 ```
 
 ### Coverage gate fails

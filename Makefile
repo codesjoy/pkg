@@ -10,7 +10,7 @@ include scripts/make-rules/common.mk
 include scripts/make-rules/deps.mk
 include scripts/make-rules/golang.mk
 include scripts/make-rules/copyright.mk
-include scripts/make-rules/githooks.mk
+include scripts/make-rules/precommit.mk
 include scripts/make-rules/tools.mk
 
 
@@ -24,7 +24,7 @@ include scripts/make-rules/tools.mk
         fmt fmt.check lint fix \
         test test.race test.bench coverage \
         clean copyright tools sync help help.targets \
-        githooks.install githooks.verify githooks.clean
+        hooks.install hooks.verify hooks.run hooks.run-all hooks.clean
 
 ## all: Run format, lint, and test
 all: fmt lint test
@@ -107,8 +107,10 @@ help:
 	@echo "  make coverage                 Run tests with coverage"
 	@echo "  make test INCLUDE_EXAMPLES=1  Run tests including example modules"
 	@echo "  make coverage INCLUDE_EXAMPLES=1 Run coverage including example modules"
-	@echo "  make tools                    Install all required tools and git hooks"
-	@echo "  make githooks.install         Install git hooks manually"
+	@echo "  make tools                    Install all required tools and pre-commit hooks"
+	@echo "  make hooks.install            Install pre-commit hooks manually"
+	@echo "  make hooks.run                Run hooks on staged files"
+	@echo "  make hooks.run-all            Run hooks on all files"
 	@echo "  make copyright                Add copyright headers"
 	@echo "  make sync                     Sync go workspace"
 	@echo "  make MODULES=\"utils\" lint    Lint only utils module"

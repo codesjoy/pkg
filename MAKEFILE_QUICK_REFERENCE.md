@@ -8,6 +8,7 @@ Fast reference for day-to-day commands in `codesjoy/pkg`.
 
 ```bash
 make tools
+make hooks.install
 make sync
 make tidy
 ```
@@ -45,10 +46,12 @@ make coverage COVERAGE=80
 | Dependencies | `make sync` | Rebuild `go.work` from discovered modules |
 | Dependencies | `make tidy` | `go mod tidy` for all modules |
 | Dependencies | `make download` | Download module dependencies |
-| Tooling | `make tools` | Install tools and git hooks |
+| Tooling | `make tools` | Install tools and pre-commit hooks |
 | Tooling | `make tools.list` | Show tool categories and install status |
-| Git hooks | `make githooks.install` | Install hooks into `.git/hooks` |
-| Git hooks | `make githooks.verify` | Verify hooks are installed |
+| Hooks | `make hooks.install` | Install pre-commit + commit-msg hooks |
+| Hooks | `make hooks.verify` | Verify hooks are installed |
+| Hooks | `make hooks.run` | Run hooks on staged files |
+| Hooks | `make hooks.run-all` | Run hooks on all files |
 | Maintenance | `make clean` | Remove build/test artifacts |
 | Maintenance | `make copyright` | Add/update copyright headers |
 | Discovery | `make help` / `make help.targets` | Show usage/targets |

@@ -35,7 +35,7 @@ go get github.com/codesjoy/pkg/utils
 
 ## Development Entry
 
-Requirements: Go 1.25.7+, Make, Docker (for integration scenarios).
+Requirements: Go 1.25.7+, Make, Python 3 (for `pre-commit`), Docker (for integration scenarios).
 
 ```bash
 make tools
