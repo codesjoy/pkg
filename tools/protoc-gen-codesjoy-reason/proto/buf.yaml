@@ -1,0 +1,16 @@
+version: v2
+
+modules:
+  - path: .
+    name: buf.build/codesjoy/reason
+
+lint:
+  use:
+    - STANDARD
+
+breaking:
+  use:
+    - FILE
+
+deps:
+  - buf.build/googleapis/googleapis

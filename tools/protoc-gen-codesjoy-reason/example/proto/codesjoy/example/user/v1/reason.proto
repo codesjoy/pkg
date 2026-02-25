@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package codesjoy.example.user.v1;
+
+import "codesjoy/reason/v1/reason.proto";
+
+option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/example/protogen/codesjoy/example/user/v1;userv1";
+
+enum UserReason {
+  option (codesjoy.reason.v1.default_reason) = 5000;
+
+  USER_REASON_UNSPECIFIED = 0 [(codesjoy.reason.v1.code) = OK];
+  USER_REASON_NOT_FOUND = 5000 [(codesjoy.reason.v1.code) = NOT_FOUND];
+  USER_REASON_BLOCKED = 5001 [(codesjoy.reason.v1.code) = PERMISSION_DENIED];
+  USER_REASON_STORAGE = 5002 [(codesjoy.reason.v1.code) = INTERNAL];
+}

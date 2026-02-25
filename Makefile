@@ -1,5 +1,5 @@
 # ==============================================================================
-# codesjoy/pkg Makefile
+# pkg Makefile
 
 .DEFAULT_GOAL := help
 

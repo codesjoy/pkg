@@ -1,19 +1,18 @@
 # codesjoy/pkg
 
-Production-ready Go libraries for building data and platform services.
+Reusable Go libraries, utilities, and tools for Go services.
 
 ## Overview
 
-This repository contains multiple Go modules grouped by responsibility:
+The repository is organized by responsibility:
 
-- `basic/`: domain-facing libraries for database access, query construction, ID generation, and JWT key tooling.
-- `utils/`: general-purpose utilities for encoding, crypto helpers, cookie parsing, email validation, and goroutine safety.
+- `basic/`: domain-oriented foundational libraries for business and platform capabilities.
+- `utils/`: general-purpose utilities shared across projects and services.
+- `tools/`: modules for build-time workflows and engineering productivity.
 
-Each module is versioned and consumed independently.
+## Libraries
 
-## Package Catalog
-
-| Module | Description | Primary Docs |
+| Module | Purpose | Docs |
 | --- | --- | --- |
 | `basic/xgorm` | Enhanced GORM utilities (pagination, transaction context, plugins) | [basic/xgorm/README.md](./basic/xgorm/README.md) |
 | `basic/aipsql` | AIP-160 filtering + AIP-132 sorting + seek pagination + SQL planning | [basic/aipsql/README.md](./basic/aipsql/README.md) |
@@ -22,7 +21,15 @@ Each module is versioned and consumed independently.
 | `basic/xjwt` | JWT-oriented key generation (RSA/ECDSA/Ed25519/X25519/JWK) | [basic/xjwt/README.md](./basic/xjwt/README.md) |
 | `utils` | Utility module with `base62`, `xcrypto`, `cookie`, `xemail`, `xgo` | [utils/README.md](./utils/README.md) |
 
+## Tools
+
+| Tool | Purpose | Docs | Typical use |
+| --- | --- | --- | --- |
+| `tools/protoc-gen-codesjoy-reason` | Protoc plugin for generating enum reason helpers (`Reason`/`Domain`/`Code`) | [tools/protoc-gen-codesjoy-reason/README.md](./tools/protoc-gen-codesjoy-reason/README.md) | Generate reason helper methods for proto enums |
+
 ## Quick Start
+
+### For library users
 
 Install only what you need:
 
@@ -35,7 +42,18 @@ go get github.com/codesjoy/pkg/basic/xjwt
 go get github.com/codesjoy/pkg/utils
 ```
 
-## Development Entry
+### For tool users
+
+Install the reason plugin:
+
+```bash
+go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason@latest
+```
+
+Then follow:
+- [Plugin docs](./tools/protoc-gen-codesjoy-reason/README.md)
+
+## Development
 
 Requirements: Go 1.25.7+, Make, Python 3 (for `pre-commit`), Docker (for integration scenarios).
 
@@ -58,14 +76,11 @@ make MODULE_EXCLUDE="basic/snowflake/examples" test
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for workflow details and [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md) for target/variable lookup.
 
-## Documentation Map
+## Documentation Index
 
-| Audience | Start Here | Then |
-| --- | --- | --- |
-| Library users | This file | Module README in the catalog above |
-| `aipsql` users | [basic/aipsql/README.md](./basic/aipsql/README.md) | [basic/aipsql/docs/README.md](./basic/aipsql/docs/README.md) |
-| Contributors | [DEVELOPMENT.md](./DEVELOPMENT.md) | [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md) |
-| Maintainers | [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md) | `make help.targets` |
+- [DEVELOPMENT.md](./DEVELOPMENT.md): contributor workflow and local development guide.
+- [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md): make targets and variables.
+- [basic/aipsql/docs/README.md](./basic/aipsql/docs/README.md): deep documentation for `aipsql`.
 
 ## Contributing
 
