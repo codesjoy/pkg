@@ -15,6 +15,27 @@ sharded same-key ordering, and at-least-once semantics.
 go get github.com/codesjoy/pkg/basic/xkafka
 ```
 
+## Examples
+
+Runnable examples live in [`examples/`](./examples/).
+
+From that directory:
+
+```bash
+go run ./group
+go run ./partition
+go run ./producer
+go run ./trace
+```
+
+Supported environment variables:
+
+- `XKAFKA_BROKERS` (default `127.0.0.1:9092`)
+- `XKAFKA_TOPIC` (default `xkafka-example`)
+- `XKAFKA_GROUP_ID` (default `xkafka-example-group`)
+- `XKAFKA_PARTITION` (default `0`)
+- `XKAFKA_TIMEOUT` (default `30s`)
+
 ## Layered Architecture
 
 ```text
