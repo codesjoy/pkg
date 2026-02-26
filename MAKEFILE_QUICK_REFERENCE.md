@@ -20,6 +20,7 @@ make fmt
 make lint
 make test
 make coverage
+make check.fast
 ```
 
 ### CI Gates
@@ -43,9 +44,15 @@ make coverage COVERAGE=80
 | Testing | `make test.race` | Run tests with race detector |
 | Testing | `make test.bench` | Run benchmarks |
 | Coverage | `make coverage` | Coverage run + quality gate |
+| Quality | `make check.fast` | Run `fmt.check` + `lint` + `test` |
+| Quality | `make check` | Run full gates (`check.fast` + `coverage` + `go.work.drift`) |
 | Dependencies | `make sync` | Rebuild `go.work` from discovered modules |
+| Dependencies | `make go.work.drift` | Verify `go.work` matches discovered modules |
 | Dependencies | `make tidy` | `go mod tidy` for all modules |
 | Dependencies | `make download` | Download module dependencies |
+| Diagnostics | `make doctor` | Verify env/tools/hooks/workspace |
+| Diagnostics | `make modules.print` | Print discovered/selected module context |
+| Scripts | `make scripts.lint` | Run `bash -n` + `shfmt -d` + optional `shellcheck` |
 | Tooling | `make tools` | Install tools and pre-commit hooks |
 | Tooling | `make tools.list` | Show tool categories and install status |
 | Hooks | `make hooks.install` | Install pre-commit + commit-msg hooks |
@@ -61,8 +68,9 @@ make coverage COVERAGE=80
 ### Priority (highest to lowest)
 
 1. `MODULES` (explicit module list)
-2. `MODULE_INCLUDE` / `MODULE_EXCLUDE` (filter discovered modules)
-3. `MODULES_DIR` (legacy resolver for `go.*.<module>` shorthand)
+2. `MODULE_INCLUDE` / `MODULE_EXCLUDE` (filter the selected module list)
+3. `INCLUDE_EXAMPLES` (default `0`, excludes `*/example` and `*/examples` unless `MODULES` is explicit)
+4. `MODULES_DIR` (legacy resolver for `go.*.<module>` shorthand)
 
 ### Common Patterns
 
@@ -113,6 +121,21 @@ COVERAGE=80
 
 # Optional exclusion pattern passed to linters
 EXCLUDE_TESTS="vendor|test"
+
+# Include example modules in lint/fix/test/coverage (default: 0)
+INCLUDE_EXAMPLES=1
+
+# Override critical tool versions for make tools
+GOLANGCI_LINT_VERSION=v2.7.2
+GOFUMPT_VERSION=v0.9.2
+GOIMPORTS_VERSION=v0.42.0
+GOLINES_VERSION=v0.13.0
+
+# Override shfmt install version
+SHFMT_VERSION=v3.12.0
+
+# scripts.lint / doctor: require shellcheck to exist (default: 0, warn only)
+SHELLCHECK_REQUIRED=1
 ```
 
 ## Common Workflows
@@ -133,6 +156,14 @@ make lint
 make MODULES="basic/aipsql" fmt
 make MODULES="basic/aipsql" lint
 make MODULES="basic/aipsql" test
+```
+
+### Diagnose Environment and Module Selection
+
+```bash
+make doctor
+make modules.print
+make scripts.lint
 ```
 
 ### Investigate Coverage
@@ -162,6 +193,7 @@ make tools
 ```bash
 make -n MODULES="utils" test
 make -n MODULE_INCLUDE="utils basic/xjwt" lint
+make -n INCLUDE_EXAMPLES=1 lint
 ```
 
 ### Coverage gate failing

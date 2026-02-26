@@ -18,12 +18,19 @@ TOOLS ?= $(BLOCKER_TOOLS) $(CRITICAL_TOOLS) $(TRIVIAL_TOOLS)
 GOBIN := $(shell go env GOPATH)/bin
 PATH  := $(GOBIN):$(PATH)
 
+# Critical tool versions (overridable for reproducible installs)
+GOLANGCI_LINT_VERSION ?= v2.7.2
+GOFUMPT_VERSION       ?= v0.9.2
+GOIMPORTS_VERSION     ?= v0.42.0
+GOLINES_VERSION       ?= v0.13.0
+SHFMT_VERSION         ?= v3.12.0
+
 # ==============================================================================
 # PHONY Targets
 # ==============================================================================
 .PHONY: tools.install tools.verify tools.list tools.install.% \
         install.golangci-lint install.golangci-lint.rebuild install.gofumpt install.goimports install.golines \
-        install.git-chglog install.addlicense install.go-junit-report
+        install.git-chglog install.addlicense install.go-junit-report install.shfmt
 
 ## tools.install: Install all tools and pre-commit hooks
 tools.install: $(addprefix tools.install., $(TOOLS)) hooks.install
@@ -72,7 +79,7 @@ tools.install.%:
 ## install.golangci-lint: Install golangci-lint
 install.golangci-lint:
 	@$(LOG_INFO) "Installing golangci-lint"
-	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.2
+	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo ""
 	@echo "golangci-lint installed successfully!"
 	@echo ""
@@ -84,22 +91,27 @@ install.golangci-lint:
 ## install.golangci-lint.rebuild: Force rebuild golangci-lint with current Go version
 install.golangci-lint.rebuild:
 	@$(LOG_INFO) "Rebuilding golangci-lint with current Go version"
-	@$(GO) install -a github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.2
+	@$(GO) install -a github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 ## install.gofumpt: Install gofumpt
 install.gofumpt:
 	@$(LOG_INFO) "Installing gofumpt"
-	@$(GO) install mvdan.cc/gofumpt@latest
+	@$(GO) install mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 
 ## install.goimports: Install goimports
 install.goimports:
 	@$(LOG_INFO) "Installing goimports"
-	@$(GO) install golang.org/x/tools/cmd/goimports@latest
+	@$(GO) install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
 
 ## install.golines: Install golines
 install.golines:
 	@$(LOG_INFO) "Installing golines"
-	@$(GO) install github.com/segmentio/golines@latest
+	@$(GO) install github.com/segmentio/golines@$(GOLINES_VERSION)
+
+## install.shfmt: Install shfmt
+install.shfmt:
+	@$(LOG_INFO) "Installing shfmt"
+	@$(GO) install mvdan.cc/sh/v3/cmd/shfmt@$(SHFMT_VERSION)
 
 ## install.git-chglog: Install git-chglog
 install.git-chglog:
@@ -121,6 +133,8 @@ tools.list:
 	@echo "Blocker tools: $(BLOCKER_TOOLS)"
 	@echo "Critical tools: $(CRITICAL_TOOLS)"
 	@echo "Trivial tools: $(TRIVIAL_TOOLS)"
+	@echo "Critical versions: golangci-lint=$(GOLANGCI_LINT_VERSION) gofumpt=$(GOFUMPT_VERSION) goimports=$(GOIMPORTS_VERSION) golines=$(GOLINES_VERSION)"
+	@echo "Trivial versions: shfmt=$(SHFMT_VERSION)"
 	@echo ""
 	@echo "Installation status:"
 	@for tool in $(TOOLS); do \

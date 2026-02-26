@@ -12,6 +12,8 @@ include scripts/make-rules/golang.mk
 include scripts/make-rules/copyright.mk
 include scripts/make-rules/precommit.mk
 include scripts/make-rules/tools.mk
+include scripts/make-rules/scripts.mk
+include scripts/make-rules/devx.mk
 
 
 # ==============================================================================
@@ -24,7 +26,8 @@ include scripts/make-rules/tools.mk
         fmt fmt.check lint fix \
         test test.race test.bench coverage \
         clean copyright tools sync help help.targets \
-        hooks.install hooks.verify hooks.run hooks.run-all hooks.clean
+        hooks.install hooks.verify hooks.run hooks.run-all hooks.clean \
+        doctor modules.print scripts.lint check.fast check
 
 ## all: Run format, lint, and test
 all: fmt lint test
@@ -92,11 +95,13 @@ help:
 	@echo "  LOG_LEVEL=3       Show error only"
 	@echo "  COVERAGE=60       Set coverage threshold (default: 60%)"
 	@echo "  EXCLUDE_TESTS=    Pattern to exclude from tests (e.g., \"vendor|test\")"
-	@echo "  INCLUDE_EXAMPLES=1 Include example/examples modules in test & coverage"
-	@echo "  MODULES=...       Explicit module list (e.g., \"utils basic/xjwt\")"
+	@echo "  INCLUDE_EXAMPLES=1 Include example/examples modules in lint/fix/test/coverage"
+	@echo "  MODULES=...       Explicit module list (e.g., \"utils basic/xjwt\"); explicit MODULES are never filtered by INCLUDE_EXAMPLES"
 	@echo "  MODULE_INCLUDE=... Filter modules to include (space-separated)"
 	@echo "  MODULE_EXCLUDE=... Filter modules to exclude (space-separated)"
 	@echo "  MODULES_DIR=basic Legacy shorthand base for go.*.<module> targets"
+	@echo "  SHELLCHECK_REQUIRED=1 Fail doctor/scripts.lint when shellcheck is missing"
+	@echo "  SHFMT_VERSION=...    Override shfmt tool install version"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make help                     Show this help message"
@@ -105,14 +110,20 @@ help:
 	@echo "  make lint                     Run linters"
 	@echo "  make test                     Run tests"
 	@echo "  make coverage                 Run tests with coverage"
+	@echo "  make check.fast               Run fmt.check + lint + test"
+	@echo "  make check                    Run full checks (check.fast + coverage + go.work.drift)"
 	@echo "  make test INCLUDE_EXAMPLES=1  Run tests including example modules"
 	@echo "  make coverage INCLUDE_EXAMPLES=1 Run coverage including example modules"
 	@echo "  make tools                    Install all required tools and pre-commit hooks"
+	@echo "  make scripts.lint             Lint shell scripts (bash -n + shfmt + optional shellcheck)"
+	@echo "  make doctor                   Run environment/tooling/hooks/workspace diagnostics"
+	@echo "  make modules.print            Print module discovery/selection context"
 	@echo "  make hooks.install            Install pre-commit hooks manually"
 	@echo "  make hooks.run                Run hooks on staged files"
 	@echo "  make hooks.run-all            Run hooks on all files"
 	@echo "  make copyright                Add copyright headers"
 	@echo "  make sync                     Sync go workspace"
+	@echo "  make go.work.drift            Check whether go.work is in sync with discovered modules"
 	@echo "  make MODULES=\"utils\" lint    Lint only utils module"
 	@echo "  make MODULE_EXCLUDE=\"basic/snowflake/examples\" test"
 	@echo ""

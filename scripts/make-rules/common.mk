@@ -9,31 +9,59 @@ SHELL := bash
 PROJECT_NAME ?= codesjoy/pkg
 ROOT_DIR     := $(shell pwd)
 
-# Module discovery (dynamic) - find all go.mod files (excluding vendor)
-GO_MODULE_DIRS := $(shell cd "$(ROOT_DIR)" && find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sed 's|^\./||' | sort)
-
 # Module configuration
 # MODULES has highest priority when explicitly provided by caller.
 # MODULES_DIR is kept for legacy single-module shorthand targets (e.g. lint.xjwt).
-MODULES_DIR      ?= basic
-MODULES          ?= $(GO_MODULE_DIRS)
-MODULE_INCLUDE   ?=
-MODULE_EXCLUDE   ?=
+MODULES_DIR ?= basic
+
+# Module discovery (dynamic) - find all go.mod files and ignore generated/cache dirs
+MODULE_DISCOVERY_EXCLUDES ?= vendor _output .tmp .git
+ALL_MODULES := $(shell cd "$(ROOT_DIR)" && \
+	find . -name "go.mod" -type f \
+	$(foreach pattern,$(MODULE_DISCOVERY_EXCLUDES),-not -path "*/$(pattern)/*") \
+	-exec dirname {} \; | sed 's|^\./||' | sort)
+
+MODULES        ?= $(ALL_MODULES)
+MODULE_INCLUDE ?=
+MODULE_EXCLUDE ?=
+
+# Example module filtering (default excludes examples unless explicitly opted in)
+EXAMPLE_MODULE_PATTERNS ?= %/example %/examples
+INCLUDE_EXAMPLES ?= 0
+
+# Track whether MODULES was explicitly set by caller.
+MODULES_ORIGIN := $(origin MODULES)
+MODULES_EXPLICIT := 0
+ifneq ($(filter command line environment environment override,$(MODULES_ORIGIN)),)
+MODULES_EXPLICIT := 1
+endif
+
+MODULES_SELECTED := $(strip $(MODULES))
 
 ifneq ($(strip $(MODULE_INCLUDE)),)
-MODULES := $(filter $(MODULE_INCLUDE),$(MODULES))
+MODULES_SELECTED := $(filter $(MODULE_INCLUDE),$(MODULES_SELECTED))
 endif
 
 ifneq ($(strip $(MODULE_EXCLUDE)),)
-MODULES := $(filter-out $(MODULE_EXCLUDE),$(MODULES))
+MODULES_SELECTED := $(filter-out $(MODULE_EXCLUDE),$(MODULES_SELECTED))
 endif
+
+ifneq ($(strip $(INCLUDE_EXAMPLES)),1)
+ifneq ($(MODULES_EXPLICIT),1)
+MODULES_SELECTED := $(filter-out $(EXAMPLE_MODULE_PATTERNS),$(MODULES_SELECTED))
+endif
+endif
+
+MODULES := $(strip $(MODULES_SELECTED))
 
 # Go tools
 GO              := go
+GO_IN_MODULE    := GOWORK=off $(GO)
 GOLANGCI_LINT   := golangci-lint
 GOFUMPT         := gofumpt
 GOIMPORTS       := goimports
 GOLINES         := golines
+SHFMT           := shfmt
 FIND            := find
 XARGS           := xargs
 
@@ -53,7 +81,7 @@ PLATFORM     := $(GOOS)_$(GOARCH)
 # Tool categorization (defaults, can be overridden)
 BLOCKER_TOOLS   ?=
 CRITICAL_TOOLS  ?= $(GOLANGCI_LINT) $(GOFUMPT) $(GOIMPORTS) $(GOLINES)
-TRIVIAL_TOOLS   ?= git-chglog addlicense go-junit-report
+TRIVIAL_TOOLS   ?= git-chglog addlicense go-junit-report $(SHFMT)
 
 # Common commands
 MKDIR          := mkdir -p
@@ -94,6 +122,7 @@ LOG_SUCCESS = $(ROOT_DIR)/scripts/bin/log-success
 
 # Helper to run command in each module (legacy, without logging)
 define run-in-modules
+$(call validate-module-selection,$(MODULES))
 @for module in $(MODULES); do \
     cd "$(ROOT_DIR)/$$module" && $(1) || exit 1; \
 done
@@ -101,6 +130,7 @@ endef
 
 # Optimized module iteration with logging (sources logger once per loop)
 define iterate-modules-log
+$(call validate-module-selection,$(MODULES))
 @source $(ROOT_DIR)/scripts/lib/logger.sh >/dev/null 2>&1; \
 for module in $(MODULES); do \
     log::info "$$module"; \
@@ -133,11 +163,31 @@ endef
 # Validation Helpers
 # ==============================================================================
 
+# Validate a list of modules exists and contains go.mod files
+# Usage: $(call validate-module-selection,$(MODULES))
+define validate-module-selection
+@selected_modules="$(strip $(1))"; \
+if [ -z "$$selected_modules" ]; then \
+	$(LOG_ERROR) "No modules selected. Check MODULES/MODULE_INCLUDE/MODULE_EXCLUDE/INCLUDE_EXAMPLES."; \
+	exit 1; \
+fi; \
+missing_modules=""; \
+for module in $$selected_modules; do \
+	if [ ! -d "$(ROOT_DIR)/$$module" ] || [ ! -f "$(ROOT_DIR)/$$module/go.mod" ]; then \
+		missing_modules="$$missing_modules $$module"; \
+	fi; \
+done; \
+if [ -n "$$missing_modules" ]; then \
+	$(LOG_ERROR) "Invalid module(s):$${missing_modules}. Use valid module paths (e.g. utils, basic/xjwt)."; \
+	exit 1; \
+fi
+endef
+
 # Require a tool to be installed
 # Usage: $(call require-tool,golangci-lint)
 define require-tool
 @if ! command -v $(1) >/dev/null 2>&1; then \
-    $$(LOG_ERROR) "Required tool '$(1)' not found. Run 'make tools' to install."; \
+    $(LOG_ERROR) "Required tool '$(1)' not found. Run 'make tools' to install."; \
     exit 1; \
 fi
 endef
@@ -146,7 +196,7 @@ endef
 # Usage: $(call require-file,$(CONFIG_FILE))
 define require-file
 @if [ ! -f "$(1)" ]; then \
-    $$(LOG_ERROR) "Required file '$(1)' not found."; \
+    $(LOG_ERROR) "Required file '$(1)' not found."; \
     exit 1; \
 fi
 endef

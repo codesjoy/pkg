@@ -52,6 +52,7 @@ make test
 make test.race
 make test.bench
 make coverage
+make check.fast
 ```
 
 ### 3. Scope Commands to Specific Modules (Recommended)
@@ -67,6 +68,7 @@ You can also filter default module discovery:
 ```bash
 make MODULE_INCLUDE="utils basic/xjwt" test
 make MODULE_EXCLUDE="basic/snowflake/examples" test
+make INCLUDE_EXAMPLES=1 lint
 ```
 
 ### 4. Legacy Single-Module Shorthand
@@ -79,6 +81,40 @@ make go.lint.utils
 ```
 
 `MODULES_DIR` is only used by this shorthand resolver. Prefer `MODULES`, `MODULE_INCLUDE`, and `MODULE_EXCLUDE` for new workflows.
+
+### 5. Workspace Drift Checks
+
+Most module-scoped `make` commands run with `GOWORK=off`, so day-to-day lint/test commands are not blocked by temporary `go.work` drift.
+
+Use strict checks when you need workspace consistency:
+
+```bash
+make go.work.drift
+make sync
+```
+
+### 6. Daily Diagnostics and Fast Troubleshooting
+
+Use `doctor` to quickly verify local environment consistency, and `modules.print` to inspect module filtering decisions:
+
+```bash
+make doctor
+make modules.print
+```
+
+Use `scripts.lint` to lint shell scripts (`bash -n` + `shfmt -d`; `shellcheck` optional by default):
+
+```bash
+make scripts.lint
+make scripts.lint SHELLCHECK_REQUIRED=1
+```
+
+### 7. Aggregated Quality Gates
+
+```bash
+make check.fast   # fmt.check + lint + test
+make check        # check.fast + coverage + go.work.drift
+```
 
 ## Build System Notes
 
@@ -190,11 +226,13 @@ make tools
 make fmt
 make fix
 make lint
+make check.fast
 ```
 
 ### Module dependency issues
 
 ```bash
+make go.work.drift
 make sync
 make tidy
 ```
