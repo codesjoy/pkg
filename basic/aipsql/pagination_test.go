@@ -20,7 +20,6 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/codesjoy/pkg/basic/aipsql/testing/assertions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -1098,7 +1097,7 @@ func TestOrderByClauseWithDialect(t *testing.T) {
 		_, err := table.OrderByClauseWithDialect([]OrderBy{
 			{FieldPath: NewFieldPath("foo")},
 		}, SQLDialect("sqlite"))
-		assertions.ErrLike(t, err, []any{`unsupported sql dialect "sqlite"`})
+		ErrLike(t, err, []any{`unsupported sql dialect "sqlite"`})
 	})
 }
 
@@ -1173,7 +1172,7 @@ func TestBuildSeekPaginationClause(t *testing.T) {
 			"p_",
 			SQLDialectMySQL,
 		)
-		assertions.ErrLike(
+		ErrLike(
 			t,
 			err,
 			[]any{"lastSortValues has 1 values, expected 2 values matching order fields"},

@@ -213,8 +213,8 @@ func TestProperty_CompositeIndexConditionReordering(t *testing.T) {
 
 			// Filter with range condition first, then equality conditions
 			// This tests that reordering happens correctly
-			filter := fmt.Sprintf("created_at>\"%s\" AND user_id=%d AND status=\"%s\"",
-				createdAfter, userID, statusValue)
+			filter := fmt.Sprintf("created_at>%s AND user_id=%d AND status=%s",
+				quoteFilterLiteral(createdAfter), userID, quoteFilterLiteral(statusValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -260,13 +260,8 @@ func TestProperty_CompositeIndexConditionReordering(t *testing.T) {
 
 	t.Run("conditions reordered to match index column order", func(t *testing.T) {
 		property := func(aValue, bValue, cValue string) bool {
-			// Skip empty values or values with special characters that might interfere with SQL parsing
+			// Skip empty values
 			if aValue == "" || bValue == "" || cValue == "" {
-				return true
-			}
-			// Skip values with quotes that would break the filter string
-			if strings.Contains(aValue, "\"") || strings.Contains(bValue, "\"") ||
-				strings.Contains(cValue, "\"") {
 				return true
 			}
 
@@ -298,8 +293,8 @@ func TestProperty_CompositeIndexConditionReordering(t *testing.T) {
 			}
 
 			// Filter with reverse order: c, b, a
-			filter := fmt.Sprintf("c=\"%s\" AND b=\"%s\" AND a=\"%s\"",
-				cValue, bValue, aValue)
+			filter := fmt.Sprintf("c=%s AND b=%s AND a=%s",
+				quoteFilterLiteral(cValue), quoteFilterLiteral(bValue), quoteFilterLiteral(aValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -367,7 +362,11 @@ func TestProperty_CompositeIndexConditionReordering(t *testing.T) {
 			}
 
 			// Filter with b before a
-			filter := fmt.Sprintf("b=\"%s\" AND a=\"%s\"", bValue, aValue)
+			filter := fmt.Sprintf(
+				"b=%s AND a=%s",
+				quoteFilterLiteral(bValue),
+				quoteFilterLiteral(aValue),
+			)
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -447,8 +446,8 @@ func TestProperty_OptimizationPreservesSemantics(t *testing.T) {
 				},
 			}
 
-			filter := fmt.Sprintf("c=\"%s\" AND b=\"%s\" AND a=\"%s\"",
-				cValue, bValue, aValue)
+			filter := fmt.Sprintf("c=%s AND b=%s AND a=%s",
+				quoteFilterLiteral(cValue), quoteFilterLiteral(bValue), quoteFilterLiteral(aValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -533,7 +532,11 @@ func TestProperty_OptimizationPreservesSemantics(t *testing.T) {
 				},
 			}
 
-			filter := fmt.Sprintf("b=\"%s\" AND a=\"%s\"", bValue, aValue)
+			filter := fmt.Sprintf(
+				"b=%s AND a=%s",
+				quoteFilterLiteral(bValue),
+				quoteFilterLiteral(aValue),
+			)
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -595,7 +598,11 @@ func TestProperty_OptimizationPreservesSemantics(t *testing.T) {
 			}
 
 			// Filter with OR (should not be reordered)
-			filter := fmt.Sprintf("b=\"%s\" OR a=\"%s\"", bValue, aValue)
+			filter := fmt.Sprintf(
+				"b=%s OR a=%s",
+				quoteFilterLiteral(bValue),
+				quoteFilterLiteral(aValue),
+			)
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -662,8 +669,8 @@ func TestProperty_OptimizationPreservesSemantics(t *testing.T) {
 				},
 			}
 
-			filter := fmt.Sprintf("c=\"%s\" AND b=\"%s\" AND a=\"%s\"",
-				cValue, bValue, aValue)
+			filter := fmt.Sprintf("c=%s AND b=%s AND a=%s",
+				quoteFilterLiteral(cValue), quoteFilterLiteral(bValue), quoteFilterLiteral(aValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -746,8 +753,8 @@ func TestProperty_OptimizationPreservesSemantics(t *testing.T) {
 			}
 
 			// Filter with range condition first, then equality
-			filter := fmt.Sprintf("id>%d AND id<%d AND status=\"%s\"",
-				minID, maxID, statusValue)
+			filter := fmt.Sprintf("id>%d AND id<%d AND status=%s",
+				minID, maxID, quoteFilterLiteral(statusValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -918,12 +925,8 @@ func TestProperty_ConditionReorderingEdgeCases(t *testing.T) {
 func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 	t.Run("flag disabled preserves original condition order", func(t *testing.T) {
 		property := func(aValue, bValue, cValue string) bool {
-			// Skip empty values or values with special characters
+			// Skip empty values
 			if aValue == "" || bValue == "" || cValue == "" {
-				return true
-			}
-			if strings.Contains(aValue, "\"") || strings.Contains(bValue, "\"") ||
-				strings.Contains(cValue, "\"") {
 				return true
 			}
 
@@ -955,8 +958,8 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 			}
 
 			// Filter with reverse order: c, b, a (opposite of index order)
-			filter := fmt.Sprintf("c=\"%s\" AND b=\"%s\" AND a=\"%s\"",
-				cValue, bValue, aValue)
+			filter := fmt.Sprintf("c=%s AND b=%s AND a=%s",
+				quoteFilterLiteral(cValue), quoteFilterLiteral(bValue), quoteFilterLiteral(aValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -1001,12 +1004,8 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 
 	t.Run("flag enabled reorders conditions to match index", func(t *testing.T) {
 		property := func(aValue, bValue, cValue string) bool {
-			// Skip empty values or values with special characters
+			// Skip empty values
 			if aValue == "" || bValue == "" || cValue == "" {
-				return true
-			}
-			if strings.Contains(aValue, "\"") || strings.Contains(bValue, "\"") ||
-				strings.Contains(cValue, "\"") {
 				return true
 			}
 
@@ -1038,8 +1037,8 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 			}
 
 			// Filter with reverse order: c, b, a (opposite of index order)
-			filter := fmt.Sprintf("c=\"%s\" AND b=\"%s\" AND a=\"%s\"",
-				cValue, bValue, aValue)
+			filter := fmt.Sprintf("c=%s AND b=%s AND a=%s",
+				quoteFilterLiteral(cValue), quoteFilterLiteral(bValue), quoteFilterLiteral(aValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {
@@ -1090,16 +1089,6 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 				if aValue == "" || bValue == "" {
 					return true
 				}
-				// Skip values with special characters that might interfere with parsing
-				if strings.Contains(aValue, "\"") || strings.Contains(bValue, "\"") {
-					return true
-				}
-				// Skip values with backslashes or other problematic characters
-				if strings.ContainsAny(aValue, "\\'\n\r\t") ||
-					strings.ContainsAny(bValue, "\\'\n\r\t") {
-					return true
-				}
-
 				// Create table with composite index: (a, b)
 				table := NewTable().WithColumns(
 					NewColumn().
@@ -1123,7 +1112,11 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 				}
 
 				// Filter with reverse order: b, a (opposite of index order)
-				filter := fmt.Sprintf("b=\"%s\" AND a=\"%s\"", bValue, aValue)
+				filter := fmt.Sprintf(
+					"b=%s AND a=%s",
+					quoteFilterLiteral(bValue),
+					quoteFilterLiteral(aValue),
+				)
 
 				parsedFilter, err := ParseFilter(filter)
 				if err != nil {
@@ -1196,10 +1189,6 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 				if statusValue == "" || minID >= maxID {
 					return true
 				}
-				if strings.Contains(statusValue, "\"") {
-					return true
-				}
-
 				// Create table with composite index: (status, id)
 				table := NewTable().WithColumns(
 					NewColumn().
@@ -1223,8 +1212,8 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 				}
 
 				// Filter with range conditions first, then equality (non-optimal order)
-				filter := fmt.Sprintf("id>%d AND id<%d AND status=\"%s\"",
-					minID, maxID, statusValue)
+				filter := fmt.Sprintf("id>%d AND id<%d AND status=%s",
+					minID, maxID, quoteFilterLiteral(statusValue))
 
 				parsedFilter, err := ParseFilter(filter)
 				if err != nil {
@@ -1276,10 +1265,6 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 			if statusValue == "" || minID >= maxID {
 				return true
 			}
-			if strings.Contains(statusValue, "\"") {
-				return true
-			}
-
 			// Create table with composite index: (status, id)
 			table := NewTable().WithColumns(
 				NewColumn().
@@ -1303,8 +1288,8 @@ func TestProperty_CompositeIndexOptimizationFlag(t *testing.T) {
 			}
 
 			// Filter with range conditions first, then equality (non-optimal order)
-			filter := fmt.Sprintf("id>%d AND id<%d AND status=\"%s\"",
-				minID, maxID, statusValue)
+			filter := fmt.Sprintf("id>%d AND id<%d AND status=%s",
+				minID, maxID, quoteFilterLiteral(statusValue))
 
 			parsedFilter, err := ParseFilter(filter)
 			if err != nil {

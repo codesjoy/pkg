@@ -19,7 +19,6 @@ import (
 	"testing"
 	"testing/quick"
 
-	"github.com/codesjoy/pkg/basic/aipsql/testing/assertions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -117,7 +116,7 @@ func TestParseOrderBy(t *testing.T) {
 
 	t.Run("Invalid input is rejected", func(t *testing.T) {
 		_, err := ParseOrderBy("`something")
-		assertions.ErrLike(t, err, []any{"syntax error: 1:1: invalid input text \"`something\""})
+		ErrLike(t, err, []any{"syntax error: 1:1: invalid input text \"`something\""})
 	})
 
 	t.Run("Empty order by", func(t *testing.T) {
@@ -188,7 +187,7 @@ func TestOrderByClause(t *testing.T) {
 				Descending: true,
 			},
 		})
-		assertions.ErrLike(
+		ErrLike(
 			t,
 			err,
 			[]any{`no sortable field named "unsortable", valid fields are foo, bar, baz`},
@@ -204,7 +203,7 @@ func TestOrderByClause(t *testing.T) {
 				FieldPath: NewFieldPath("foo"),
 			},
 		})
-		assertions.ErrLike(t, err, []any{`field appears in order_by multiple times: "foo"`})
+		ErrLike(t, err, []any{`field appears in order_by multiple times: "foo"`})
 	})
 }
 

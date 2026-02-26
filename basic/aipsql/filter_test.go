@@ -17,7 +17,6 @@ package aipsql
 import (
 	"testing"
 
-	"github.com/codesjoy/pkg/basic/aipsql/testing/assertions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -452,7 +451,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(
+			ErrLike(
 				t,
 				err,
 				[]any{`comparator ">" is not supported for boolean field "bool"`},
@@ -572,7 +571,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(t, err, []any{"key value columns must specify the key to search on"})
+			ErrLike(t, err, []any{"key value columns must specify the key to search on"})
 		})
 
 		t.Run("unsupported composite to LIKE", func(t *testing.T) {
@@ -580,7 +579,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(
+			ErrLike(
 				t,
 				err,
 				[]any{"composite expressions are not allowed as RHS to has (:) operator"},
@@ -592,7 +591,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(
+			ErrLike(
 				t,
 				err,
 				[]any{"composite expressions in arguments not implemented yet"},
@@ -604,7 +603,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(t, err, []any{"fields are only supported for key value columns"})
+			ErrLike(t, err, []any{"fields are only supported for key value columns"})
 		})
 
 		t.Run("unsupported field RHS", func(t *testing.T) {
@@ -612,7 +611,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(t, err, []any{"fields not implemented yet"})
+			ErrLike(t, err, []any{"fields not implemented yet"})
 		})
 
 		t.Run("field on RHS of has", func(t *testing.T) {
@@ -620,7 +619,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(
+			ErrLike(
 				t,
 				err,
 				[]any{"fields are not allowed on the RHS of has (:) operator"},
@@ -647,7 +646,7 @@ func TestWhereClause(t *testing.T) {
 			require.NoError(t, err)
 
 			_, _, err = table.WhereClause(filter, "p_")
-			assertions.ErrLike(
+			ErrLike(
 				t,
 				err,
 				[]any{"cannot use has (:) operator on a field that have argSubstitute function"},
@@ -821,7 +820,7 @@ func TestWhereClauseWithOptions(t *testing.T) {
 			Dialect:    SQLDialectGeneric,
 			StrictMode: true,
 		})
-		assertions.ErrLike(t, err, []any{`no supported match mode for field "body"`})
+		ErrLike(t, err, []any{`no supported match mode for field "body"`})
 	})
 
 	t.Run("strict mode rejects column with no match modes configured", func(t *testing.T) {
@@ -839,7 +838,7 @@ func TestWhereClauseWithOptions(t *testing.T) {
 			Dialect:    SQLDialectGeneric,
 			StrictMode: true,
 		})
-		assertions.ErrLike(t, err, []any{`no match mode configured for field "name"`})
+		ErrLike(t, err, []any{`no match mode configured for field "name"`})
 	})
 
 	t.Run("non-strict mode uses fallback for column with no match modes", func(t *testing.T) {

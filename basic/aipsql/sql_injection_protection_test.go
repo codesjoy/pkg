@@ -413,7 +413,7 @@ func TestSQLInjectionProtection_LikeEscaping(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			filter, err := ParseFilter(fmt.Sprintf(`name:"%s"`, tc.input))
+			filter, err := ParseFilter(fmt.Sprintf("name:%s", quoteFilterLiteral(tc.input)))
 			require.NoError(t, err)
 
 			sql, params, err := table.WhereClause(filter, "p_")
@@ -619,7 +619,7 @@ func TestSQLInjectionProtection_NoDirectStringConcatenation(t *testing.T) {
 
 	for _, value := range testValues {
 		t.Run(fmt.Sprintf("value=%s", value), func(t *testing.T) {
-			filter, err := ParseFilter(fmt.Sprintf(`name="%s"`, value))
+			filter, err := ParseFilter(fmt.Sprintf("name=%s", quoteFilterLiteral(value)))
 			require.NoError(t, err)
 
 			sql, params, err := table.WhereClause(filter, "p_")

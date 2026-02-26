@@ -50,7 +50,7 @@ func TestProperty_AllUserInputParameterized(t *testing.T) {
 			).Build()
 
 			// Create filter with user value
-			filterStr := fmt.Sprintf(`name="%s"`, escapeFilterValue(userValue))
+			filterStr := fmt.Sprintf("name=%s", quoteFilterLiteral(userValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				// Parse errors are acceptable
@@ -117,7 +117,7 @@ func TestProperty_AllUserInputParameterized(t *testing.T) {
 						Build(),
 				).Build()
 
-				filterStr := fmt.Sprintf(`name:"%s"`, escapeFilterValue(userValue))
+				filterStr := fmt.Sprintf("name:%s", quoteFilterLiteral(userValue))
 				filter, err := ParseFilter(filterStr)
 				if err != nil {
 					continue
@@ -188,7 +188,7 @@ func TestProperty_AllUserInputParameterized(t *testing.T) {
 					Build(),
 			).Build()
 
-			filterStr := fmt.Sprintf(`labels.%s:"%s"`, key, escapeFilterValue(value))
+			filterStr := fmt.Sprintf("labels.%s:%s", key, quoteFilterLiteral(value))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -339,7 +339,7 @@ func TestProperty_AllUserInputParameterized(t *testing.T) {
 
 		for _, maliciousValue := range sqlInjectionPatterns {
 			t.Run(fmt.Sprintf("injection=%s", maliciousValue), func(t *testing.T) {
-				filterStr := fmt.Sprintf(`name="%s"`, escapeFilterValue(maliciousValue))
+				filterStr := fmt.Sprintf("name=%s", quoteFilterLiteral(maliciousValue))
 				filter, err := ParseFilter(filterStr)
 				if err != nil {
 					// Parse errors are acceptable
@@ -404,8 +404,8 @@ func TestProperty_AllUserInputParameterized(t *testing.T) {
 				},
 			}
 
-			filterStr := fmt.Sprintf(`status="%s" AND user_id="%s"`,
-				escapeFilterValue(value1), escapeFilterValue(value2))
+			filterStr := fmt.Sprintf("status=%s AND user_id=%s",
+				quoteFilterLiteral(value1), quoteFilterLiteral(value2))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true

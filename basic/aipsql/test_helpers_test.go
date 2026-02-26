@@ -1,4 +1,4 @@
-// Copyright 2022 The codesjoy Authors.
+// Copyright 2026 The codesjoy Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package assertions provides reusable test assertions for aipsql tests.
-package assertions
+package aipsql
 
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -29,28 +29,21 @@ import (
 // be contained in the stringified error.
 //
 // If the expected is the singular nil, this expects the error to be nil.
-//
-// Example:
-//
-//	assertions.ErrLike(t, err, "custom")    // err.Error() contains "custom"
-//	assertions.ErrLike(t, err, io.EOF)      // err.Error() contains io.EOF.Error()
-//	assertions.ErrLike(t, err, "EOF")       // err.Error() contains "EOF"
-//	assertions.ErrLike(t, err, "thing", "other") // err.Error() contains all substrings
-//	assertions.ErrLike(t, nilErr, nil)      // nilErr is nil
 func ErrLike(t assert.TestingT, actual error, expected []any, msgAndArgs ...any) bool {
 	if len(expected) == 0 {
 		assert.Fail(t, "ErrLike requires 1 or more expected values, got 0", msgAndArgs...)
 		return false
 	}
 
-	// If we have multiple expected arguments, they must all be non-nil
+	// If we have multiple expected arguments, they must all be non-nil.
 	if len(expected) > 1 {
 		for _, e := range expected {
 			if e == nil {
 				assert.Fail(
 					t,
 					"ErrLike only accepts `nil` on the right hand side as the sole argument",
-					msgAndArgs...)
+					msgAndArgs...,
+				)
 				return false
 			}
 		}
@@ -73,7 +66,11 @@ func ErrLike(t assert.TestingT, actual error, expected []any, msgAndArgs ...any)
 					return false
 				}
 			default:
-				assert.Fail(t, fmt.Sprintf("unexpected argument type %T, expected string or error", exp), msgAndArgs...)
+				assert.Fail(
+					t,
+					fmt.Sprintf("unexpected argument type %T, expected string or error", exp),
+					msgAndArgs...,
+				)
 				return false
 			}
 		}
@@ -83,12 +80,14 @@ func ErrLike(t assert.TestingT, actual error, expected []any, msgAndArgs ...any)
 }
 
 // UnwrapTo asserts that an error, when unwrapped, equals another error.
-//
-// The actual error will be unwrapped using errors.Unwrap and then compared to
-// the error in expected.
 func UnwrapTo(t assert.TestingT, actual, expected error, msgAndArgs ...any) bool {
 	if assert.NotNil(t, actual, msgAndArgs...) {
 		return assert.Equal(t, errors.Unwrap(actual), expected, msgAndArgs...)
 	}
 	return false
+}
+
+// quoteFilterLiteral safely quotes arbitrary input as an AIP filter string literal.
+func quoteFilterLiteral(value string) string {
+	return strconv.Quote(value)
 }

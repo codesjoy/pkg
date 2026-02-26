@@ -51,7 +51,7 @@ func TestProperty_UnconfiguredColumnUsesDefaultContainsMode(t *testing.T) {
 			).Build()
 
 			// Create a has (:) filter
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				// Parse errors are acceptable for some random inputs
@@ -124,7 +124,7 @@ func TestProperty_UnconfiguredColumnUsesDefaultContainsMode(t *testing.T) {
 			).Build()
 
 			// Create a has (:) filter
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -179,7 +179,7 @@ func TestProperty_UnconfiguredColumnUsesDefaultContainsMode(t *testing.T) {
 					Build(),
 			).Build()
 
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -240,7 +240,7 @@ func TestProperty_EmptyOptionsUsesDefaultConfiguration(t *testing.T) {
 					Build(),
 			).Build()
 
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -306,7 +306,7 @@ func TestProperty_EmptyOptionsUsesDefaultConfiguration(t *testing.T) {
 					Build(),
 			).Build()
 
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -439,7 +439,7 @@ func TestProperty_EmptyOptionsUsesDefaultConfiguration(t *testing.T) {
 					Build(),
 			).Build()
 
-			filterStr := fmt.Sprintf("%s:\"%s\"", fieldName, escapeFilterValue(filterValue))
+			filterStr := fmt.Sprintf("%s:%s", fieldName, quoteFilterLiteral(filterValue))
 			filter, err := ParseFilter(filterStr)
 			if err != nil {
 				return true
@@ -521,11 +521,6 @@ func sanitizeFieldName(s string) string {
 	}
 
 	return name
-}
-
-// escapeFilterValue escapes quotes in filter values
-func escapeFilterValue(s string) string {
-	return strings.ReplaceAll(s, "\"", "\\\"")
 }
 
 // escapeLikeValue escapes LIKE special characters
