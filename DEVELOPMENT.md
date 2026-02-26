@@ -121,12 +121,15 @@ make check        # check.fast + coverage + go.work.drift
 Generate or verify changelog content from Conventional Commit history:
 
 ```bash
+make changelog.init
 make changelog
 make changelog.preview
 make changelog.verify
 make changelog.state.print
 make changelog.state.reset
 ```
+
+Initialization is explicit by design. `make changelog.init` only creates missing files/directories and never overwrites existing config/template content.
 
 Managed mode (no `CHANGELOG_QUERY/FROM/TO`) supports profile + cadence configuration for long-lived no-tag repositories:
 
@@ -275,6 +278,13 @@ make tidy
 ```bash
 make changelog
 make changelog.verify
+```
+
+### Changelog scaffold missing
+
+```bash
+make changelog.init
+make changelog
 ```
 
 ### Changelog state malformed or needs baseline reset

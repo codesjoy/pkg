@@ -29,7 +29,7 @@ include scripts/make-rules/changelog.mk
         clean copyright tools sync help help.targets \
         hooks.install hooks.verify hooks.run hooks.run-all hooks.clean \
         doctor modules.print scripts.lint check.fast check \
-        changelog changelog.preview changelog.verify \
+        changelog.init changelog changelog.preview changelog.verify \
         changelog.state.print changelog.state.reset
 
 ## all: Run format, lint, and test
@@ -135,6 +135,7 @@ help:
 	@echo "  make scripts.lint             Lint shell scripts (bash -n + shfmt + optional shellcheck)"
 	@echo "  make doctor                   Run environment/tooling/hooks/workspace diagnostics"
 	@echo "  make modules.print            Print module discovery/selection context"
+	@echo "  make changelog.init           Initialize .chglog scaffold files/directories"
 	@echo "  make changelog                Generate CHANGELOG.md"
 	@echo "  make changelog.preview        Preview changelog in stdout"
 	@echo "  make changelog.verify         Verify CHANGELOG.md is up to date"
@@ -148,6 +149,7 @@ help:
 	@echo "  make go.work.drift            Check whether go.work is in sync with discovered modules"
 	@echo "  make MODULES=\"utils\" lint    Lint only utils module"
 	@echo "  make MODULE_EXCLUDE=\"basic/snowflake/examples\" test"
+	@echo "  make changelog.init && make changelog"
 	@echo "  make changelog CHANGELOG_FROM=v0.1.0 CHANGELOG_TO=v0.2.0"
 	@echo "  make changelog.preview CHANGELOG_PATHS=\"basic/xkafka\""
 	@echo "  make changelog CHANGELOG_PROFILE=high-frequency"

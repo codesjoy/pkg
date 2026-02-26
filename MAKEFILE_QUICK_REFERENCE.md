@@ -53,6 +53,7 @@ make coverage COVERAGE=80
 | Diagnostics | `make doctor` | Verify env/tools/hooks/workspace |
 | Diagnostics | `make modules.print` | Print discovered/selected module context |
 | Scripts | `make scripts.lint` | Run `bash -n` + `shfmt -d` + optional `shellcheck` |
+| Changelog | `make changelog.init` | Initialize changelog scaffold files/directories |
 | Changelog | `make changelog` | Generate/update `CHANGELOG.md` |
 | Changelog | `make changelog.preview` | Print generated changelog to stdout |
 | Changelog | `make changelog.verify` | Fail when `CHANGELOG.md` is stale |
@@ -194,6 +195,7 @@ make scripts.lint
 ### Generate Changelog
 
 ```bash
+make changelog.init
 make changelog
 make changelog.preview
 make changelog.verify
@@ -202,6 +204,8 @@ make changelog CHANGELOG_PROFILE=high-frequency
 make changelog CHANGELOG_CADENCE=weekly
 make changelog.preview CHANGELOG_PATHS="basic/xkafka"
 ```
+
+`make changelog.init` is explicit and idempotent: it only creates missing scaffold files/directories and never overwrites existing config/template files.
 
 ### Investigate Coverage
 
@@ -245,6 +249,13 @@ make coverage COVERAGE=50
 ```bash
 make changelog
 make changelog.verify
+```
+
+### Changelog scaffold missing
+
+```bash
+make changelog.init
+make changelog
 ```
 
 ### Changelog state malformed

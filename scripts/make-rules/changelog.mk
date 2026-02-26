@@ -4,6 +4,7 @@
 # Generates changelog output from Conventional Commit history via git-chglog.
 #
 # Targets:
+#   - changelog.init:         Initialize changelog scaffold files/directories
 #   - changelog:              Generate and write CHANGELOG.md
 #   - changelog.preview:      Preview changelog in stdout
 #   - changelog.verify:       Verify CHANGELOG.md is up to date
@@ -11,6 +12,7 @@
 #   - changelog.state.reset:  Reset changelog baseline state to HEAD
 # ==============================================================================
 
+CHANGELOG_INIT           ?= $(ROOT_DIR)/scripts/changelog/init.sh
 CHANGELOG_MANAGE         ?= $(ROOT_DIR)/scripts/changelog/manage.sh
 CHANGELOG_FILE           ?= $(ROOT_DIR)/CHANGELOG.md
 CHANGELOG_CONFIG         ?= $(ROOT_DIR)/.chglog/config.yml
@@ -34,8 +36,17 @@ CHANGELOG_CADENCE_ORIGIN := $(origin CHANGELOG_CADENCE)
 CHANGELOG_USE_BASELINE_ORIGIN := $(origin CHANGELOG_USE_BASELINE)
 CHANGELOG_ARCHIVE_ENABLE_ORIGIN := $(origin CHANGELOG_ARCHIVE_ENABLE)
 
-.PHONY: changelog changelog.preview changelog.verify \
+.PHONY: changelog.init changelog changelog.preview changelog.verify \
         changelog.state.print changelog.state.reset
+
+define run-changelog-init
+	@LOG_LEVEL="$(LOG_LEVEL)" \
+	CHANGELOG_CONFIG="$(CHANGELOG_CONFIG)" \
+	CHANGELOG_TEMPLATE="$(CHANGELOG_TEMPLATE)" \
+	CHANGELOG_STATE_FILE="$(CHANGELOG_STATE_FILE)" \
+	CHANGELOG_ARCHIVE_DIR="$(CHANGELOG_ARCHIVE_DIR)" \
+	bash "$(CHANGELOG_INIT)"
+endef
 
 define run-changelog-manage
 	@LOG_LEVEL="$(LOG_LEVEL)" \
@@ -63,27 +74,40 @@ define run-changelog-manage
 	bash "$(CHANGELOG_MANAGE)" $(1)
 endef
 
+define require-changelog-scaffold
+	@if [ ! -f "$(CHANGELOG_CONFIG)" ]; then \
+		$(LOG_ERROR) "Missing changelog config: $(CHANGELOG_CONFIG). Run 'make changelog.init' first."; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(CHANGELOG_TEMPLATE)" ]; then \
+		$(LOG_ERROR) "Missing changelog template: $(CHANGELOG_TEMPLATE). Run 'make changelog.init' first."; \
+		exit 1; \
+	fi
+endef
+
+## changelog.init: Initialize changelog scaffold files/directories
+changelog.init:
+	@$(call require-file,$(CHANGELOG_INIT))
+	@$(call run-changelog-init)
+
 ## changelog: Generate and write CHANGELOG.md
 changelog:
 	@$(call require-tool,$(GIT_CHGLOG))
-	@$(call require-file,$(CHANGELOG_CONFIG))
-	@$(call require-file,$(CHANGELOG_TEMPLATE))
+	@$(call require-changelog-scaffold)
 	@$(call require-file,$(CHANGELOG_MANAGE))
 	@$(call run-changelog-manage,generate)
 
 ## changelog.preview: Preview changelog content to stdout
 changelog.preview:
 	@$(call require-tool,$(GIT_CHGLOG))
-	@$(call require-file,$(CHANGELOG_CONFIG))
-	@$(call require-file,$(CHANGELOG_TEMPLATE))
+	@$(call require-changelog-scaffold)
 	@$(call require-file,$(CHANGELOG_MANAGE))
 	@$(call run-changelog-manage,preview)
 
 ## changelog.verify: Verify CHANGELOG.md matches generated content
 changelog.verify:
 	@$(call require-tool,$(GIT_CHGLOG))
-	@$(call require-file,$(CHANGELOG_CONFIG))
-	@$(call require-file,$(CHANGELOG_TEMPLATE))
+	@$(call require-changelog-scaffold)
 	@$(call require-file,$(CHANGELOG_MANAGE))
 	@$(call run-changelog-manage,verify)
 

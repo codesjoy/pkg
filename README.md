@@ -27,6 +27,7 @@ The repository is organized by responsibility:
 | Tool | Purpose | Docs | Typical use |
 | --- | --- | --- | --- |
 | `tools/protoc-gen-codesjoy-reason` | Protoc plugin for generating enum reason helpers (`Reason`/`Domain`/`Code`) | [tools/protoc-gen-codesjoy-reason/README.md](./tools/protoc-gen-codesjoy-reason/README.md) | Generate reason helper methods for proto enums |
+| `tools/codesjoy-modelgen` | Introspect MySQL/PostgreSQL schema and generate GORM models + `aipsql.Table` builders | [tools/codesjoy-modelgen/README.md](./tools/codesjoy-modelgen/README.md) | Bootstrap model layer and AIP filter schema from existing tables |
 
 ## Quick Start
 
@@ -50,6 +51,7 @@ Install the reason plugin:
 
 ```bash
 go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason@latest
+go install github.com/codesjoy/pkg/tools/codesjoy-modelgen@latest
 ```
 
 Then follow:
@@ -66,6 +68,7 @@ make fmt
 make lint
 make test
 make coverage
+make changelog.init
 make changelog.verify
 make changelog.state.print
 ```
@@ -87,6 +90,14 @@ make changelog CHANGELOG_PROFILE=balanced
 make changelog CHANGELOG_CADENCE=weekly
 make changelog.state.reset
 ```
+
+If changelog scaffolding files are missing, run:
+
+```bash
+make changelog.init
+```
+
+`make changelog.init` only backfills missing files/directories and does not overwrite existing changelog config/template.
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for workflow details and [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md) for target/variable lookup.
 
