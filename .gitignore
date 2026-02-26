@@ -41,3 +41,8 @@ Thumbs.db
 
 .claude
 .kiro
+
+# Changelog runtime state/artifacts
+.chglog/state.env
+.chglog/archive/*.md
+!.chglog/archive/.gitkeep

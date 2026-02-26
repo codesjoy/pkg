@@ -24,6 +24,7 @@ GOFUMPT_VERSION       ?= v0.9.2
 GOIMPORTS_VERSION     ?= v0.42.0
 GOLINES_VERSION       ?= v0.13.0
 SHFMT_VERSION         ?= v3.12.0
+GIT_CHGLOG_VERSION    ?= latest
 
 # ==============================================================================
 # PHONY Targets
@@ -116,7 +117,7 @@ install.shfmt:
 ## install.git-chglog: Install git-chglog
 install.git-chglog:
 	@$(LOG_INFO) "Installing git-chglog"
-	@$(GO) install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+	@$(GO) install github.com/git-chglog/git-chglog/cmd/git-chglog@$(GIT_CHGLOG_VERSION)
 
 ## install.addlicense: Install addlicense
 install.addlicense:
@@ -134,7 +135,7 @@ tools.list:
 	@echo "Critical tools: $(CRITICAL_TOOLS)"
 	@echo "Trivial tools: $(TRIVIAL_TOOLS)"
 	@echo "Critical versions: golangci-lint=$(GOLANGCI_LINT_VERSION) gofumpt=$(GOFUMPT_VERSION) goimports=$(GOIMPORTS_VERSION) golines=$(GOLINES_VERSION)"
-	@echo "Trivial versions: shfmt=$(SHFMT_VERSION)"
+	@echo "Trivial versions: git-chglog=$(GIT_CHGLOG_VERSION) shfmt=$(SHFMT_VERSION)"
 	@echo ""
 	@echo "Installation status:"
 	@for tool in $(TOOLS); do \

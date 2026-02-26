@@ -14,6 +14,7 @@ include scripts/make-rules/precommit.mk
 include scripts/make-rules/tools.mk
 include scripts/make-rules/scripts.mk
 include scripts/make-rules/devx.mk
+include scripts/make-rules/changelog.mk
 
 
 # ==============================================================================
@@ -27,7 +28,9 @@ include scripts/make-rules/devx.mk
         test test.race test.bench coverage \
         clean copyright tools sync help help.targets \
         hooks.install hooks.verify hooks.run hooks.run-all hooks.clean \
-        doctor modules.print scripts.lint check.fast check
+        doctor modules.print scripts.lint check.fast check \
+        changelog changelog.preview changelog.verify \
+        changelog.state.print changelog.state.reset
 
 ## all: Run format, lint, and test
 all: fmt lint test
@@ -102,6 +105,20 @@ help:
 	@echo "  MODULES_DIR=basic Legacy shorthand base for go.*.<module> targets"
 	@echo "  SHELLCHECK_REQUIRED=1 Fail doctor/scripts.lint when shellcheck is missing"
 	@echo "  SHFMT_VERSION=...    Override shfmt tool install version"
+	@echo "  GIT_CHGLOG_VERSION=... Override git-chglog install version"
+	@echo "  CHANGELOG_QUERY=...  Explicit changelog query (tag/SHA range, e.g., v0.1.0..v0.2.0)"
+	@echo "  CHANGELOG_FROM=...   Changelog range start ref (tag/SHA, pairs with CHANGELOG_TO)"
+	@echo "  CHANGELOG_TO=...     Changelog range end ref (tag/SHA, pairs with CHANGELOG_FROM)"
+	@echo "  CHANGELOG_PATHS=...  Space-separated path filters for changelog commits"
+	@echo "  CHANGELOG_NEXT_TAG=... Fallback version label when no git tags (default: unreleased)"
+	@echo "  CHANGELOG_PROFILE=... simple|balanced|high-frequency (default: balanced)"
+	@echo "  CHANGELOG_CADENCE=... monthly|weekly|none (explicitly overrides profile)"
+	@echo "  CHANGELOG_USE_BASELINE=1 Use BASE_SHA incremental range in managed mode"
+	@echo "  CHANGELOG_ARCHIVE_ENABLE=1 Enable archive bucket rollover in managed mode"
+	@echo "  CHANGELOG_STATE_FILE=... Changelog state file path (default: .chglog/state.env)"
+	@echo "  CHANGELOG_ARCHIVE_DIR=... Archive section directory (default: .chglog/archive)"
+	@echo "  CHANGELOG_NOW=... Test-only time override (e.g., 2026-03-01)"
+	@echo "  CHANGELOG_STRICT_STATE=1 Fail when state file is malformed"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make help                     Show this help message"
@@ -118,6 +135,11 @@ help:
 	@echo "  make scripts.lint             Lint shell scripts (bash -n + shfmt + optional shellcheck)"
 	@echo "  make doctor                   Run environment/tooling/hooks/workspace diagnostics"
 	@echo "  make modules.print            Print module discovery/selection context"
+	@echo "  make changelog                Generate CHANGELOG.md"
+	@echo "  make changelog.preview        Preview changelog in stdout"
+	@echo "  make changelog.verify         Verify CHANGELOG.md is up to date"
+	@echo "  make changelog.state.print    Print changelog profile/state/query context"
+	@echo "  make changelog.state.reset    Reset changelog baseline state to HEAD"
 	@echo "  make hooks.install            Install pre-commit hooks manually"
 	@echo "  make hooks.run                Run hooks on staged files"
 	@echo "  make hooks.run-all            Run hooks on all files"
@@ -126,6 +148,10 @@ help:
 	@echo "  make go.work.drift            Check whether go.work is in sync with discovered modules"
 	@echo "  make MODULES=\"utils\" lint    Lint only utils module"
 	@echo "  make MODULE_EXCLUDE=\"basic/snowflake/examples\" test"
+	@echo "  make changelog CHANGELOG_FROM=v0.1.0 CHANGELOG_TO=v0.2.0"
+	@echo "  make changelog.preview CHANGELOG_PATHS=\"basic/xkafka\""
+	@echo "  make changelog CHANGELOG_PROFILE=high-frequency"
+	@echo "  make changelog.preview CHANGELOG_NOW=2026-03-01"
 	@echo ""
 	@echo "Module-specific targets:"
 	@echo "  make go.test.xjwt             Test xjwt (legacy shorthand)"

@@ -116,6 +116,39 @@ make check.fast   # fmt.check + lint + test
 make check        # check.fast + coverage + go.work.drift
 ```
 
+### 8. Changelog Management
+
+Generate or verify changelog content from Conventional Commit history:
+
+```bash
+make changelog
+make changelog.preview
+make changelog.verify
+make changelog.state.print
+make changelog.state.reset
+```
+
+Managed mode (no `CHANGELOG_QUERY/FROM/TO`) supports profile + cadence configuration for long-lived no-tag repositories:
+
+```bash
+make changelog CHANGELOG_PROFILE=balanced
+make changelog CHANGELOG_PROFILE=high-frequency
+make changelog CHANGELOG_CADENCE=weekly
+make changelog.preview CHANGELOG_NOW=2026-03-01
+```
+
+Manual query mode (explicit range/query, supports tag query or commit refs fallback in no-tag repos):
+
+```bash
+make changelog CHANGELOG_FROM=v0.1.0 CHANGELOG_TO=v0.2.0
+make changelog.preview CHANGELOG_PATHS="basic/xkafka"
+make changelog CHANGELOG_QUERY="v0.1.0..v0.2.0"
+make changelog CHANGELOG_QUERY="$(git rev-parse HEAD~20)..$(git rev-parse HEAD)"
+```
+
+State file fields (`.chglog/state.env`): `BASE_SHA`, `LAST_SHA`, `CURRENT_BUCKET`.
+Use `CHANGELOG_STRICT_STATE=1` to fail on malformed state instead of auto-reset.
+
 ## Build System Notes
 
 The root `Makefile` composes modular rules from `scripts/make-rules/*.mk`.
@@ -235,6 +268,20 @@ make check.fast
 make go.work.drift
 make sync
 make tidy
+```
+
+### Changelog verification fails
+
+```bash
+make changelog
+make changelog.verify
+```
+
+### Changelog state malformed or needs baseline reset
+
+```bash
+make changelog.state.print
+make changelog.state.reset
 ```
 
 ### Pre-commit hooks not installed

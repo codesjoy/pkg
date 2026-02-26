@@ -53,6 +53,11 @@ make coverage COVERAGE=80
 | Diagnostics | `make doctor` | Verify env/tools/hooks/workspace |
 | Diagnostics | `make modules.print` | Print discovered/selected module context |
 | Scripts | `make scripts.lint` | Run `bash -n` + `shfmt -d` + optional `shellcheck` |
+| Changelog | `make changelog` | Generate/update `CHANGELOG.md` |
+| Changelog | `make changelog.preview` | Print generated changelog to stdout |
+| Changelog | `make changelog.verify` | Fail when `CHANGELOG.md` is stale |
+| Changelog | `make changelog.state.print` | Show effective profile, state, and resolved query |
+| Changelog | `make changelog.state.reset` | Reset baseline state to current `HEAD` |
 | Tooling | `make tools` | Install tools and pre-commit hooks |
 | Tooling | `make tools.list` | Show tool categories and install status |
 | Hooks | `make hooks.install` | Install pre-commit + commit-msg hooks |
@@ -134,8 +139,28 @@ GOLINES_VERSION=v0.13.0
 # Override shfmt install version
 SHFMT_VERSION=v3.12.0
 
+# Override git-chglog install version
+GIT_CHGLOG_VERSION=latest
+
 # scripts.lint / doctor: require shellcheck to exist (default: 0, warn only)
 SHELLCHECK_REQUIRED=1
+
+# Changelog range/query controls (tags or commit refs)
+CHANGELOG_QUERY="v0.1.0..v0.2.0"
+CHANGELOG_FROM=v0.1.0
+CHANGELOG_TO=v0.2.0
+CHANGELOG_PATHS="basic/xkafka tools/protoc-gen-codesjoy-reason"
+CHANGELOG_NEXT_TAG=unreleased
+
+# Changelog managed-mode controls (for no-tag/latest repositories)
+CHANGELOG_PROFILE=balanced            # simple|balanced|high-frequency
+CHANGELOG_CADENCE=monthly            # monthly|weekly|none (explicit override)
+CHANGELOG_USE_BASELINE=1
+CHANGELOG_ARCHIVE_ENABLE=1
+CHANGELOG_STATE_FILE=.chglog/state.env
+CHANGELOG_ARCHIVE_DIR=.chglog/archive
+CHANGELOG_NOW=2026-03-01             # test-only time override
+CHANGELOG_STRICT_STATE=1             # fail on malformed state
 ```
 
 ## Common Workflows
@@ -164,6 +189,18 @@ make MODULES="basic/aipsql" test
 make doctor
 make modules.print
 make scripts.lint
+```
+
+### Generate Changelog
+
+```bash
+make changelog
+make changelog.preview
+make changelog.verify
+make changelog.state.print
+make changelog CHANGELOG_PROFILE=high-frequency
+make changelog CHANGELOG_CADENCE=weekly
+make changelog.preview CHANGELOG_PATHS="basic/xkafka"
 ```
 
 ### Investigate Coverage
@@ -201,4 +238,18 @@ make -n INCLUDE_EXAMPLES=1 lint
 ```bash
 make go.test.coverage.all
 make coverage COVERAGE=50
+```
+
+### Changelog out of date
+
+```bash
+make changelog
+make changelog.verify
+```
+
+### Changelog state malformed
+
+```bash
+make changelog.state.print
+make changelog.state.reset
 ```

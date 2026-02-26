@@ -66,6 +66,8 @@ make fmt
 make lint
 make test
 make coverage
+make changelog.verify
+make changelog.state.print
 ```
 
 Common scoped runs:
@@ -74,6 +76,16 @@ Common scoped runs:
 make MODULES="utils" lint
 make MODULES="basic/xjwt" test
 make MODULE_EXCLUDE="basic/snowflake/examples" test
+make changelog.preview CHANGELOG_PATHS="basic/xkafka"
+make changelog CHANGELOG_PROFILE=high-frequency
+```
+
+No-tag repository friendly mode (default `balanced`) supports rolling `unreleased` plus configurable archive cadence:
+
+```bash
+make changelog CHANGELOG_PROFILE=balanced
+make changelog CHANGELOG_CADENCE=weekly
+make changelog.state.reset
 ```
 
 See [DEVELOPMENT.md](./DEVELOPMENT.md) for workflow details and [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md) for target/variable lookup.
@@ -82,6 +94,7 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for workflow details and [MAKEFILE_QUICK_
 
 - [DEVELOPMENT.md](./DEVELOPMENT.md): contributor workflow and local development guide.
 - [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md): make targets and variables.
+- [CHANGELOG.md](./CHANGELOG.md): release notes generated from Conventional Commits.
 - [basic/aipsql/docs/README.md](./basic/aipsql/docs/README.md): deep documentation for `aipsql`.
 
 ## Contributing

@@ -61,6 +61,7 @@ GOLANGCI_LINT   := golangci-lint
 GOFUMPT         := gofumpt
 GOIMPORTS       := goimports
 GOLINES         := golines
+GIT_CHGLOG      := git-chglog
 SHFMT           := shfmt
 FIND            := find
 XARGS           := xargs
@@ -81,7 +82,7 @@ PLATFORM     := $(GOOS)_$(GOARCH)
 # Tool categorization (defaults, can be overridden)
 BLOCKER_TOOLS   ?=
 CRITICAL_TOOLS  ?= $(GOLANGCI_LINT) $(GOFUMPT) $(GOIMPORTS) $(GOLINES)
-TRIVIAL_TOOLS   ?= git-chglog addlicense go-junit-report $(SHFMT)
+TRIVIAL_TOOLS   ?= $(GIT_CHGLOG) addlicense go-junit-report $(SHFMT)
 
 # Common commands
 MKDIR          := mkdir -p
