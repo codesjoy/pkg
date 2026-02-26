@@ -21,7 +21,7 @@ local_branch="$(git rev-parse --abbrev-ref HEAD)"
 valid_branch_regex="^(main|master|develop)$|(feature|release|hotfix)\/[a-z0-9._-]+$|^HEAD$"
 
 if [[ ! "${local_branch}" =~ ${valid_branch_regex} ]]; then
-  cat >&2 <<'EOF'
+	cat >&2 <<'EOF'
 Error: invalid branch name.
 Expected one of:
   - main | master | develop
@@ -30,5 +30,5 @@ Expected one of:
   - hotfix/<name>
 Where <name> matches [a-z0-9._-]+
 EOF
-  exit 1
+	exit 1
 fi
