@@ -1,0 +1,5 @@
+tables:
+  users:
+    columns:
+      name:
+        index_hint: idx_users_name_hint

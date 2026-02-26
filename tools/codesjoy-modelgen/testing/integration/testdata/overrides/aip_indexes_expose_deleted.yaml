@@ -1,0 +1,5 @@
+tables:
+  events:
+    columns:
+      deleted_at:
+        filterable: true

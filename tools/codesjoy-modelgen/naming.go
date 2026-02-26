@@ -1,0 +1,112 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+var commonAcronyms = map[string]string{
+	"api":   "API",
+	"http":  "HTTP",
+	"https": "HTTPS",
+	"id":    "ID",
+	"ip":    "IP",
+	"json":  "JSON",
+	"sql":   "SQL",
+	"url":   "URL",
+	"uuid":  "UUID",
+}
+
+// ToPascalCase converts snake_case-like names to PascalCase with common acronym rules.
+func ToPascalCase(input string) string {
+	parts := splitWords(input)
+	if len(parts) == 0 {
+		return "X"
+	}
+
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		lower := strings.ToLower(part)
+		if acronym, ok := commonAcronyms[lower]; ok {
+			b.WriteString(acronym)
+			continue
+		}
+		runes := []rune(lower)
+		runes[0] = unicode.ToUpper(runes[0])
+		b.WriteString(string(runes))
+	}
+
+	out := b.String()
+	if out == "" {
+		return "X"
+	}
+	if unicode.IsDigit([]rune(out)[0]) {
+		return "X" + out
+	}
+	return out
+}
+
+func splitWords(input string) []string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil
+	}
+
+	var (
+		parts []string
+		curr  []rune
+	)
+	flush := func() {
+		if len(curr) == 0 {
+			return
+		}
+		parts = append(parts, string(curr))
+		curr = curr[:0]
+	}
+
+	for _, r := range trimmed {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			curr = append(curr, r)
+			continue
+		}
+		flush()
+	}
+	flush()
+
+	return parts
+}
+
+func dedupeFieldNames(cols []ResolvedColumn) ([]ResolvedColumn, error) {
+	seen := make(map[string]int, len(cols))
+	for i := range cols {
+		if cols[i].GoField == "" {
+			cols[i].GoField = ToPascalCase(cols[i].Name)
+		}
+		base := cols[i].GoField
+		if base == "" {
+			return nil, fmt.Errorf("empty field name for column %q", cols[i].Name)
+		}
+
+		count := seen[base]
+		if count == 0 {
+			seen[base] = 1
+			continue
+		}
+
+		for {
+			count++
+			candidate := fmt.Sprintf("%s%d", base, count)
+			if seen[candidate] == 0 {
+				cols[i].GoField = candidate
+				seen[base] = count
+				seen[candidate] = 1
+				break
+			}
+		}
+	}
+	return cols, nil
+}
