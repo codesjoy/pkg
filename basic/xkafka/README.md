@@ -228,6 +228,18 @@ producer, err := xkafka.NewProducer(xkafka.ProducerConfig{
 Trace span granularity is per-attempt. Since trace middleware is user middleware
 inside retry middleware, each retry attempt creates a new span.
 
+## Integration Tests (Docker)
+
+The integration suite is Docker-backed and uses Testcontainers to start Kafka.
+
+Run from the module root:
+
+```bash
+go test -tags=integration ./testing/integration -v
+```
+
+The default `go test ./...` and `make MODULES="basic/xkafka" test` remain unit-test focused.
+
 ## Semantics
 
 - At-least-once delivery (duplicates are possible).
