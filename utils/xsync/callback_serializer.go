@@ -95,14 +95,19 @@ func (s *Serializer) run() {
 
 func (s *Serializer) invoke(cb func(context.Context)) {
 	defer func() {
-		if recovered := recover(); recovered != nil {
-			slog.Error(
-				"xsync: serializer callback panic",
-				"panic", recovered,
-				"stack", string(debug.Stack()),
-			)
-		}
+		s.logPanic(recover())
 	}()
 
 	cb(s.ctx)
+}
+
+func (s *Serializer) logPanic(recovered any) {
+	if recovered == nil {
+		return
+	}
+	slog.Error(
+		"xsync: serializer callback panic",
+		"panic", recovered,
+		"stack", string(debug.Stack()),
+	)
 }

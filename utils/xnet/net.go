@@ -92,10 +92,6 @@ func ListLocalAddrs(ctx context.Context, opts LocalAddrOptions) ([]netip.Addr, e
 		}
 
 		for _, ifaceAddr := range ifaceAddrs {
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-
 			ip, ok := addrToIP(ifaceAddr)
 			if !ok {
 				continue
@@ -262,22 +258,9 @@ func selectFromCandidates(candidates []netip.Addr, opts LocalAddrOptions) (netip
 	}
 
 	if opts.PreferPublic {
-		if len(publicCandidates) > 0 {
-			return publicCandidates[0], nil
-		}
-		if len(privateCandidates) > 0 {
-			return privateCandidates[0], nil
-		}
-		return candidates[0], nil
+		return pickFirstCandidate(publicCandidates, privateCandidates, candidates), nil
 	}
-
-	if len(privateCandidates) > 0 {
-		return privateCandidates[0], nil
-	}
-	if len(publicCandidates) > 0 {
-		return publicCandidates[0], nil
-	}
-	return candidates[0], nil
+	return pickFirstCandidate(privateCandidates, publicCandidates, candidates), nil
 }
 
 func isPrivateCandidate(addr netip.Addr, excludeCGNAT bool) bool {
@@ -289,4 +272,13 @@ func isPrivateCandidate(addr netip.Addr, excludeCGNAT bool) bool {
 		return false
 	}
 	return cgnatPrefix.Contains(addr)
+}
+
+func pickFirstCandidate(candidates ...[]netip.Addr) netip.Addr {
+	for _, group := range candidates {
+		if len(group) > 0 {
+			return group[0]
+		}
+	}
+	return netip.Addr{}
 }
