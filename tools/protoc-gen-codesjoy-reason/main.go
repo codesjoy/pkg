@@ -28,14 +28,18 @@ func main() {
 		ParamFunc: flag.CommandLine.Set,
 	}.Run(func(gen *protogen.Plugin) error {
 		gen.SupportedFeatures = uint64(pluginpb.CodeGeneratorResponse_FEATURE_PROTO3_OPTIONAL)
-		for _, file := range gen.Files {
-			if !file.Generate {
-				continue
-			}
-			if err := generateFile(gen, file); err != nil {
-				return err
-			}
-		}
-		return nil
+		return generateFiles(gen)
 	})
+}
+
+func generateFiles(gen *protogen.Plugin) error {
+	for _, file := range gen.Files {
+		if !file.Generate {
+			continue
+		}
+		if err := generateFile(gen, file); err != nil {
+			return err
+		}
+	}
+	return nil
 }

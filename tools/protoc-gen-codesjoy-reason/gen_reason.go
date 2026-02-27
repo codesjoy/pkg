@@ -49,10 +49,8 @@ func generateFileContent(file *protogen.File, g *protogen.GeneratedFile) error {
 		Domain:      string(file.Desc.Package()),
 		CodePackage: g.QualifiedGoIdent(codePackage.Ident("")),
 	}
-	for _, enum := range file.Enums {
-		if err := genReason(enum, reasons); err != nil {
-			return err
-		}
+	if err := collectReasons(file.Enums, reasons); err != nil {
+		return err
 	}
 	if len(reasons.Reason) == 0 {
 		g.Skip()
@@ -64,6 +62,15 @@ func generateFileContent(file *protogen.File, g *protogen.GeneratedFile) error {
 		return err
 	}
 	g.P(rendered)
+	return nil
+}
+
+func collectReasons(enums []*protogen.Enum, reasons *Reasons) error {
+	for _, enum := range enums {
+		if err := genReason(enum, reasons); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
