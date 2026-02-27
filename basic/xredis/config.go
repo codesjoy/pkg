@@ -31,23 +31,27 @@ func (c *Config) Validate() error {
 		return ErrEmptyAddrs
 	}
 
-	if len(c.Addrs) == 0 {
-		return ErrEmptyAddrs
-	}
-
-	normalizedAddrs := make([]string, 0, len(c.Addrs))
-	for _, addr := range c.Addrs {
-		trimmed := strings.TrimSpace(addr)
-		if trimmed == "" {
-			continue
-		}
-		normalizedAddrs = append(normalizedAddrs, trimmed)
-	}
-
+	normalizedAddrs := normalizeAddrs(c.Addrs)
 	if len(normalizedAddrs) == 0 {
 		return ErrEmptyAddrs
 	}
 
 	c.Addrs = normalizedAddrs
 	return nil
+}
+
+func normalizeAddrs(addrs []string) []string {
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		trimmed := strings.TrimSpace(addr)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }

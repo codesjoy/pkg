@@ -32,7 +32,7 @@ type Option func(*Client) error
 // WithHook appends hooks in the same order as arguments.
 func WithHook(hooks ...redis.Hook) Option {
 	return func(client *Client) error {
-		if client == nil || client.UniversalClient == nil {
+		if !clientReady(client) {
 			return nil
 		}
 		for idx, hook := range hooks {
@@ -49,7 +49,7 @@ func WithHook(hooks ...redis.Hook) Option {
 func WithLogger(cfg logmiddleware.Config) Option {
 	copied := cfg
 	return func(client *Client) error {
-		if client == nil || client.UniversalClient == nil {
+		if !clientReady(client) {
 			return nil
 		}
 		client.AddHook(logmiddleware.New(copied))
@@ -61,11 +61,15 @@ func WithLogger(cfg logmiddleware.Config) Option {
 func WithOpenTelemetry(cfg otelmiddleware.Config) Option {
 	copied := cfg
 	return func(client *Client) error {
-		if client == nil || client.UniversalClient == nil {
+		if !clientReady(client) {
 			return nil
 		}
 		return otelmiddleware.Apply(client.UniversalClient, copied)
 	}
+}
+
+func clientReady(client *Client) bool {
+	return client != nil && client.UniversalClient != nil
 }
 
 func isNilHook(hook redis.Hook) bool {

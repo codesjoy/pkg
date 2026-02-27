@@ -42,14 +42,8 @@ func New(cfg Config, opts ...Option) (*Client, error) {
 	base := redis.NewUniversalClient(&cfg.UniversalOptions)
 	client := &Client{UniversalClient: base}
 
-	for idx, option := range opts {
-		if option == nil {
-			continue
-		}
-		if err := option(client); err != nil {
-			wrappedErr := fmt.Errorf("apply option #%d: %w", idx, err)
-			return nil, closeClientOnError(client.UniversalClient, wrappedErr)
-		}
+	if err := applyOptions(client, opts); err != nil {
+		return nil, closeClientOnError(client.UniversalClient, err)
 	}
 
 	return client, nil
@@ -72,4 +66,16 @@ func closeClientOnError(client redis.UniversalClient, err error) error {
 		return fmt.Errorf("%w; close client: %v", err, closeErr)
 	}
 	return err
+}
+
+func applyOptions(client *Client, opts []Option) error {
+	for idx, option := range opts {
+		if option == nil {
+			continue
+		}
+		if err := option(client); err != nil {
+			return fmt.Errorf("apply option #%d: %w", idx, err)
+		}
+	}
+	return nil
 }
