@@ -87,16 +87,10 @@ func (e *Error) Error() string {
 	if e == nil {
 		return ""
 	}
-	if e.message != "" {
-		if e.cause != nil {
-			return e.message + ": " + e.cause.Error()
-		}
-		return e.message
+	if e.message == "" {
+		return e.fallbackMessage()
 	}
-	if e.cause != nil {
-		return e.cause.Error()
-	}
-	return e.code.String()
+	return e.messageWithCause(e.message)
 }
 
 // Unwrap returns the wrapped error.
@@ -170,4 +164,18 @@ func isNilReason(r Reason) bool {
 	default:
 		return false
 	}
+}
+
+func (e *Error) fallbackMessage() string {
+	if e.cause != nil {
+		return e.cause.Error()
+	}
+	return e.code.String()
+}
+
+func (e *Error) messageWithCause(message string) string {
+	if e.cause == nil {
+		return message
+	}
+	return message + ": " + e.cause.Error()
 }
