@@ -4,7 +4,7 @@ General-purpose utility libraries for Go applications.
 
 ## Overview
 
-This module provides seven focused utility packages for common Go programming tasks:
+This module provides eight focused utility packages for common Go programming tasks:
 
 - **base62** - Base62 encoding/decoding for int64 values
 - **xcrypto** - HMAC-SHA256 cryptographic functions
@@ -13,6 +13,7 @@ This module provides seven focused utility packages for common Go programming ta
 - **xgo** - Panic-safe goroutine execution
 - **xmap** - Deep map merge, map normalization, and path-based lookup
 - **xnet** - Local network address selection and random TCP listen helpers
+- **xsync** - Concurrency primitives (event, unbounded FIFO queue, serializer)
 
 All packages are production-ready with comprehensive tests, benchmarks, and zero external dependencies.
 
@@ -357,6 +358,79 @@ log.Printf("listening on %s", addrPort)
 
 ---
 
+### xsync - Concurrency Primitives
+
+Provide reusable concurrency primitives built on top of the standard library.
+
+**Use Cases:**
+- One-time event signaling across goroutines
+- Unbounded FIFO queue for producer/consumer workflows
+- Serial callback execution with panic containment and graceful shutdown
+
+**Example:**
+
+```go
+import (
+    "context"
+    "log"
+    "github.com/codesjoy/pkg/utils/xsync"
+)
+
+ctx := context.Background()
+
+// Event
+evt := xsync.NewEvent()
+go func() {
+    // do work...
+    evt.Fire()
+}()
+if err := evt.Wait(ctx); err != nil {
+    log.Fatal(err)
+}
+
+// Unbounded queue
+q := xsync.NewUnbounded[int]()
+_ = q.Put(1)
+_ = q.Put(2)
+q.Close()
+for {
+    v, ok := q.Get()
+    if !ok {
+        break
+    }
+    log.Printf("queue value=%d", v)
+}
+
+// Serializer
+s := xsync.NewSerializer(ctx)
+defer s.Close()
+_ = s.Submit(func(context.Context) { log.Println("task 1") })
+_ = s.Submit(func(context.Context) { log.Println("task 2") })
+```
+
+**API:**
+- `NewEvent() *Event`
+- `(*Event).Fire() bool`
+- `(*Event).Done() <-chan struct{}`
+- `(*Event).HasFired() bool`
+- `(*Event).Wait(ctx context.Context) error`
+- `NewUnbounded[T any]() *Unbounded[T]`
+- `(*Unbounded[T]).Put(v T) error`
+- `(*Unbounded[T]).Get() (T, bool)`
+- `(*Unbounded[T]).TryGet() (T, bool)`
+- `(*Unbounded[T]).Close()`
+- `(*Unbounded[T]).Len() int`
+- `NewSerializer(ctx context.Context) *Serializer`
+- `(*Serializer).Submit(fn func(context.Context)) error`
+- `(*Serializer).Close()`
+- `(*Serializer).Done() <-chan struct{}`
+
+**Errors:**
+- `ErrQueueClosed` - Queue is closed and cannot accept new items
+- `ErrSerializerClosed` - Serializer is closed or unavailable
+
+---
+
 ## Testing
 
 Run tests for all packages:
@@ -386,6 +460,7 @@ go test ./xemail
 go test ./xgo
 go test ./xmap
 go test ./xnet
+go test ./xsync
 ```
 
 ## Module Structure
@@ -413,6 +488,13 @@ utils/
 ├── xnet/             # Network utilities
 │   ├── net.go
 │   └── net_test.go
+├── xsync/            # Concurrency primitives
+│   ├── callback_serializer.go
+│   ├── callback_serializer_test.go
+│   ├── event.go
+│   ├── event_test.go
+│   ├── unbounded.go
+│   └── unbounded_test.go
 ├── go.mod
 └── README.md
 ```
@@ -433,6 +515,7 @@ All packages are optimized for performance:
 - **xgo**: Minimal overhead panic recovery
 - **xmap**: Recursive merge and map normalization helpers
 - **xnet**: netip-based filtering and safe random listen helpers
+- **xsync**: Reusable event/queue/serializer concurrency primitives
 
 Benchmark results on typical hardware:
 
@@ -477,6 +560,11 @@ BenchmarkParse-8           10000000    156 ns/op
    - Prefer `SelectLocalAddr` over ad-hoc interface scans in app code
    - Keep default private-first policy unless explicit public-first requirement exists
    - Keep the returned listener from `ListenTCPRandom` open to avoid port races
+
+8. **xsync**
+   - Use `Event` for one-time broadcast signaling between goroutines
+   - Use `Unbounded[T]` when producer throughput must not block on channel capacity
+   - Use `Serializer` to run callbacks in FIFO order and isolate callback panics
 
 ## License
 

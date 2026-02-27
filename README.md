@@ -21,7 +21,7 @@ The repository is organized by responsibility:
 | `basic/xkafka` | Sarama-based Group/Partition consumers plus Sync/Batch/Async producer with middleware chain (logger/retry/trace), shard ordering, and at-least-once semantics | [basic/xkafka/README.md](./basic/xkafka/README.md) |
 | `basic/xredis` | go-redis native-style client builder with middleware wiring for slog and OpenTelemetry | [basic/xredis/README.md](./basic/xredis/README.md) |
 | `basic/xjwt` | JWT-oriented key generation (RSA/ECDSA/Ed25519/X25519/JWK) | [basic/xjwt/README.md](./basic/xjwt/README.md) |
-| `utils` | Utility module with `base62`, `xcrypto`, `cookie`, `xemail`, `xgo`, `xmap`, `xnet` | [utils/README.md](./utils/README.md) |
+| `utils` | Utility module with `base62`, `xcrypto`, `cookie`, `xemail`, `xgo`, `xmap`, `xnet`, `xsync` | [utils/README.md](./utils/README.md) |
 
 ## Tools
 
