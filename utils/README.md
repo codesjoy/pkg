@@ -4,13 +4,14 @@ General-purpose utility libraries for Go applications.
 
 ## Overview
 
-This module provides six focused utility packages for common Go programming tasks:
+This module provides seven focused utility packages for common Go programming tasks:
 
 - **base62** - Base62 encoding/decoding for int64 values
 - **xcrypto** - HMAC-SHA256 cryptographic functions
 - **cookie** - HTTP Cookie header parsing and formatting
 - **xemail** - Email address syntax validation
 - **xgo** - Panic-safe goroutine execution
+- **xmap** - Deep map merge, map normalization, and path-based lookup
 - **xnet** - Local network address selection and random TCP listen helpers
 
 All packages are production-ready with comprehensive tests, benchmarks, and zero external dependencies.
@@ -245,6 +246,54 @@ runner.Go(func() {
 
 ---
 
+### xmap - Map Utilities
+
+Operate on dynamic map structures with deep merge, recursive key normalization, and path lookup.
+
+**Use Cases:**
+- Merge layered configuration maps (defaults + user + env)
+- Normalize decoded YAML-like structures (`map[interface{}]interface{}`) to string-key maps
+- Read nested fields from untyped payloads
+
+**Example:**
+
+```go
+import "github.com/codesjoy/pkg/utils/xmap"
+
+defaults := map[string]interface{}{
+    "server": map[string]interface{}{"host": "0.0.0.0", "port": 8080},
+}
+override := map[string]interface{}{
+    "server": map[string]interface{}{"port": 9000},
+}
+
+xmap.MergeStringMap(defaults, override)
+// defaults["server"].(map[string]interface{})["port"] == 9000
+
+raw := map[string]interface{}{
+    "config": map[interface{}]interface{}{
+        "region": "us-east-1",
+    },
+}
+xmap.CoverInterfaceMapToStringMap(raw)
+// raw["config"] is map[string]interface{}{"region": "us-east-1"}
+
+value := xmap.DeepSearchInMap(raw, "config", "region")
+// value == "us-east-1"
+```
+
+**API:**
+- `MergeStringMap(dst map[string]interface{}, src ...map[string]interface{})` - Recursively merge source maps into destination
+- `ToMapStringInterface(src map[interface{}]interface{}) map[string]interface{}` - Convert interface-key map to string-key map
+- `CoverInterfaceMapToStringMap(src map[string]interface{})` - Recursively normalize nested map/slice structures
+- `DeepSearchInMap(m map[string]interface{}, paths ...string) interface{}` - Query nested value by path
+
+**Behavior:**
+- Type mismatch in `MergeStringMap` is ignored (source value is not applied)
+- `DeepSearchInMap` returns `nil` when path is missing or intermediate node is not a map
+
+---
+
 ### xnet - Network Utilities
 
 Provide policy-oriented helpers for local address discovery and safe random TCP listening.
@@ -335,6 +384,7 @@ go test ./xcrypto
 go test ./cookie
 go test ./xemail
 go test ./xgo
+go test ./xmap
 go test ./xnet
 ```
 
@@ -357,6 +407,9 @@ utils/
 ├── xgo/              # Panic-safe goroutines
 │   ├── goroutine.go
 │   └── goroutine_test.go
+├── xmap/             # Map utilities
+│   ├── xmap.go
+│   └── xmap_test.go
 ├── xnet/             # Network utilities
 │   ├── net.go
 │   └── net_test.go
@@ -378,6 +431,7 @@ All packages are optimized for performance:
 - **cookie**: Zero-allocation parsing where possible
 - **xemail**: Precompiled regex pattern
 - **xgo**: Minimal overhead panic recovery
+- **xmap**: Recursive merge and map normalization helpers
 - **xnet**: netip-based filtering and safe random listen helpers
 
 Benchmark results on typical hardware:
@@ -414,7 +468,12 @@ BenchmarkParse-8           10000000    156 ns/op
    - Set up custom panic handlers for critical services
    - Preserve context for tracing and cancellation
 
-6. **xnet**
+6. **xmap**
+   - Normalize external/untyped map payloads before deep access
+   - Use `MergeStringMap` for layered config merge with deterministic type behavior
+   - Use `DeepSearchInMap` for optional nested field reads
+
+7. **xnet**
    - Prefer `SelectLocalAddr` over ad-hoc interface scans in app code
    - Keep default private-first policy unless explicit public-first requirement exists
    - Keep the returned listener from `ListenTCPRandom` open to avoid port races
