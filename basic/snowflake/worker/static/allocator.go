@@ -67,11 +67,9 @@ func (w *Worker) ReleaseWorkerID() error {
 // UpdateOverLastTime update the over last time
 // static worker not support over last time
 func (w *Worker) UpdateOverLastTime(overLastTime int64) error {
-	return fmt.Errorf(
-		"%w: static worker (worker ID: %d) does not support updating over last time (requested: %d); "+
-			"use GORM worker allocator for time drift handling",
+	return w.unsupportedUpdateError(
 		worker.ErrUpdateOverLastTimeUnsupported,
-		w.info.WorkerID,
+		"updating over last time",
 		overLastTime,
 	)
 }
@@ -79,11 +77,20 @@ func (w *Worker) UpdateOverLastTime(overLastTime int64) error {
 // UpdateBackLastTime update back last time
 // static worker not support turn back time
 func (w *Worker) UpdateBackLastTime(backLastTime int64) error {
-	return fmt.Errorf(
-		"%w: static worker (worker ID: %d) does not support updating back last time (requested: %d); "+
-			"use GORM worker allocator for time drift handling",
+	return w.unsupportedUpdateError(
 		worker.ErrUpdateBackLastTimeUnsupported,
-		w.info.WorkerID,
+		"updating back last time",
 		backLastTime,
+	)
+}
+
+func (w *Worker) unsupportedUpdateError(err error, action string, requested int64) error {
+	return fmt.Errorf(
+		"%w: static worker (worker ID: %d) does not support %s (requested: %d); "+
+			"use GORM worker allocator for time drift handling",
+		err,
+		w.info.WorkerID,
+		action,
+		requested,
 	)
 }

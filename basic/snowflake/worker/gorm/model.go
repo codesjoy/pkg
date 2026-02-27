@@ -156,22 +156,14 @@ func (d *snowflakeWorkerData) updateOverLastTime(
 	business, flag string,
 	overLastTime int64,
 ) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	result := d.db.WithContext(ctx).Model(&SnowflakeWorker{}).
-		Where("worker_id = ? and business = ? and flag = ?", workerID, business, flag).
-		Update("over_last_time", overLastTime)
-	if result.Error != nil {
-		return fmt.Errorf(
-			"failed to update over last time for worker %d: %w",
-			workerID,
-			result.Error,
-		)
-	}
-	if result.RowsAffected == 0 {
-		return errWorkerIDNotExist
-	}
-	return nil
+	return d.updateTimeColumn(
+		workerID,
+		business,
+		flag,
+		"over_last_time",
+		overLastTime,
+		"failed to update over last time for worker %d: %w",
+	)
 }
 
 func (d *snowflakeWorkerData) updateBackLastTime(
@@ -179,17 +171,32 @@ func (d *snowflakeWorkerData) updateBackLastTime(
 	business, flag string,
 	backLastTime int64,
 ) error {
+	return d.updateTimeColumn(
+		workerID,
+		business,
+		flag,
+		"back_last_time",
+		backLastTime,
+		"failed to update back last time for worker %d: %w",
+	)
+}
+
+func (d *snowflakeWorkerData) updateTimeColumn(
+	workerID int64,
+	business string,
+	flag string,
+	column string,
+	value int64,
+	errFormat string,
+) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+
 	result := d.db.WithContext(ctx).Model(&SnowflakeWorker{}).
 		Where("worker_id = ? and business = ? and flag = ?", workerID, business, flag).
-		Update("back_last_time", backLastTime)
+		Update(column, value)
 	if result.Error != nil {
-		return fmt.Errorf(
-			"failed to update back last time for worker %d: %w",
-			workerID,
-			result.Error,
-		)
+		return fmt.Errorf(errFormat, workerID, result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return errWorkerIDNotExist
