@@ -14,7 +14,10 @@
 
 package xkafka
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 func normalizeStrings(items []string) []string {
 	if len(items) == 0 {
@@ -42,4 +45,11 @@ func boolValue(value *bool, defaultValue bool) bool {
 		return defaultValue
 	}
 	return *value
+}
+
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }

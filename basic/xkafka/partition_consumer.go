@@ -69,9 +69,7 @@ func (c *PartitionConsumer) Consume(ctx context.Context, business consume.Handle
 	if business == nil {
 		return consume.ErrNilHandlerFunc
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = normalizeContext(ctx)
 
 	runner := rtpartition.NewRunner(c.consumer, rtpartition.Config{
 		Topic:                   c.cfg.Topic,

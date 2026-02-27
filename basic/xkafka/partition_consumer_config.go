@@ -129,6 +129,28 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 		return errors.New("partition consumer config is nil")
 	}
 
+	cfg.applyDefaults()
+	cfg.normalizeInputs()
+
+	if err := cfg.validateRequiredFields(); err != nil {
+		return err
+	}
+	if err := cfg.ensureDependencies(); err != nil {
+		return err
+	}
+	if err := cfg.validateExhaustedPolicy(); err != nil {
+		return err
+	}
+	if err := cfg.normalizeAndValidateRetryConfig(); err != nil {
+		return err
+	}
+	if err := cfg.validateDLQ(); err != nil {
+		return err
+	}
+	return cfg.normalizeAndValidateReconnect()
+}
+
+func (cfg *PartitionConsumerConfig) applyDefaults() {
 	if cfg.ShardCount == 0 {
 		cfg.ShardCount = DefaultShardCount
 	}
@@ -142,10 +164,14 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 		enabled := true
 		cfg.LoggerHandlerEnabled = &enabled
 	}
+}
 
+func (cfg *PartitionConsumerConfig) normalizeInputs() {
 	cfg.Brokers = normalizeStrings(cfg.Brokers)
 	cfg.Topic = strings.TrimSpace(cfg.Topic)
+}
 
+func (cfg *PartitionConsumerConfig) validateRequiredFields() error {
 	if len(cfg.Brokers) == 0 {
 		return errors.New("brokers are required")
 	}
@@ -170,7 +196,10 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 			cfg.InitialOffset,
 		)
 	}
+	return nil
+}
 
+func (cfg *PartitionConsumerConfig) ensureDependencies() error {
 	if cfg.KeyExtractor == nil {
 		cfg.KeyExtractor = KeyExtractor(router.DefaultConsumeKeyExtractor)
 	}
@@ -190,7 +219,10 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 	if err := cfg.SaramaConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid sarama config: %w", err)
 	}
+	return nil
+}
 
+func (cfg *PartitionConsumerConfig) validateExhaustedPolicy() error {
 	switch cfg.ExhaustedPolicy {
 	case "":
 		cfg.ExhaustedPolicy = ExhaustedPolicyBlock
@@ -198,7 +230,10 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported exhausted policy %q", cfg.ExhaustedPolicy)
 	}
+	return nil
+}
 
+func (cfg *PartitionConsumerConfig) normalizeAndValidateRetryConfig() error {
 	if cfg.RetryConfig == (RetryConfig{}) {
 		cfg.RetryConfig = cretry.DefaultConfig()
 	}
@@ -206,21 +241,27 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 	if err := cretry.ValidateConfig(cfg.RetryConfig); err != nil {
 		return err
 	}
+	return nil
+}
 
-	if cfg.ExhaustedPolicy == ExhaustedPolicyDLQCommit {
-		if cfg.DLQ == nil {
-			return errors.New("DLQ config is required when exhausted policy is dlq_commit")
-		}
-		cfg.DLQ.Topic = strings.TrimSpace(cfg.DLQ.Topic)
-		if cfg.DLQ.Topic == "" {
-			return errors.New("DLQ topic is required")
-		}
+func (cfg *PartitionConsumerConfig) validateDLQ() error {
+	if cfg.ExhaustedPolicy != ExhaustedPolicyDLQCommit {
+		return nil
 	}
+	if cfg.DLQ == nil {
+		return errors.New("DLQ config is required when exhausted policy is dlq_commit")
+	}
+	cfg.DLQ.Topic = strings.TrimSpace(cfg.DLQ.Topic)
+	if cfg.DLQ.Topic == "" {
+		return errors.New("DLQ topic is required")
+	}
+	return nil
+}
 
+func (cfg *PartitionConsumerConfig) normalizeAndValidateReconnect() error {
 	cfg.Reconnect = normalizeBackoff(cfg.Reconnect)
 	if err := validateBackoff(cfg.Reconnect); err != nil {
 		return err
 	}
-
 	return nil
 }

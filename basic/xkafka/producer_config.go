@@ -101,6 +101,28 @@ func (cfg *ProducerConfig) Validate() error {
 		return errors.New("producer config is nil")
 	}
 
+	cfg.applyDefaults()
+	cfg.normalizeInputs()
+
+	if err := cfg.validateRequiredFields(); err != nil {
+		return err
+	}
+	if err := cfg.normalizeAndValidateDispatch(); err != nil {
+		return err
+	}
+	if err := cfg.ensureDependencies(); err != nil {
+		return err
+	}
+	if err := cfg.normalizeAndValidateRetryConfig(); err != nil {
+		return err
+	}
+	if err := cfg.validateExhaustedPolicy(); err != nil {
+		return err
+	}
+	return cfg.normalizeAndValidateTopicHandlers()
+}
+
+func (cfg *ProducerConfig) applyDefaults() {
 	if cfg.TopicHandlers == nil {
 		cfg.TopicHandlers = make(map[string]ProduceTopicHandlers)
 	}
@@ -108,14 +130,21 @@ func (cfg *ProducerConfig) Validate() error {
 		enabled := true
 		cfg.LoggerHandlerEnabled = &enabled
 	}
+}
 
+func (cfg *ProducerConfig) normalizeInputs() {
 	cfg.Brokers = normalizeStrings(cfg.Brokers)
 	cfg.DefaultTopic = strings.TrimSpace(cfg.DefaultTopic)
+}
 
+func (cfg *ProducerConfig) validateRequiredFields() error {
 	if len(cfg.Brokers) == 0 && cfg.SyncProducer == nil {
 		return errors.New("producer brokers are required")
 	}
+	return nil
+}
 
+func (cfg *ProducerConfig) normalizeAndValidateDispatch() error {
 	cfg.Dispatch = normalizeProducerDispatchConfig(cfg.Dispatch)
 	if cfg.Dispatch.QueueSize <= 0 {
 		return fmt.Errorf("producer queue size must be > 0, got %d", cfg.Dispatch.QueueSize)
@@ -123,18 +152,23 @@ func (cfg *ProducerConfig) Validate() error {
 
 	switch cfg.Dispatch.Mode {
 	case ProducerDispatchModeSerial:
+		return nil
 	case ProducerDispatchModeKeySharded:
 		if cfg.Dispatch.ShardCount <= 0 {
 			return fmt.Errorf("producer shard count must be > 0, got %d", cfg.Dispatch.ShardCount)
 		}
+		return nil
 	case ProducerDispatchModeParallel:
 		if cfg.Dispatch.WorkerCount <= 0 {
 			return fmt.Errorf("producer worker count must be > 0, got %d", cfg.Dispatch.WorkerCount)
 		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported producer dispatch mode %q", cfg.Dispatch.Mode)
 	}
+}
 
+func (cfg *ProducerConfig) ensureDependencies() error {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -148,7 +182,10 @@ func (cfg *ProducerConfig) Validate() error {
 	if err := cfg.SaramaConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid producer sarama config: %w", err)
 	}
+	return nil
+}
 
+func (cfg *ProducerConfig) normalizeAndValidateRetryConfig() error {
 	if cfg.RetryConfig == (RetryConfig{}) {
 		cfg.RetryConfig = ppretry.DefaultConfig()
 	}
@@ -156,7 +193,10 @@ func (cfg *ProducerConfig) Validate() error {
 	if err := ppretry.ValidateConfig(cfg.RetryConfig); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (cfg *ProducerConfig) validateExhaustedPolicy() error {
 	switch cfg.ExhaustedPolicy {
 	case "":
 		cfg.ExhaustedPolicy = ProducerExhaustedPolicyBlock
@@ -166,7 +206,10 @@ func (cfg *ProducerConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported producer exhausted policy %q", cfg.ExhaustedPolicy)
 	}
+	return nil
+}
 
+func (cfg *ProducerConfig) normalizeAndValidateTopicHandlers() error {
 	for topic, handlers := range cfg.TopicHandlers {
 		topicName := strings.TrimSpace(topic)
 		if topicName == "" {
@@ -186,6 +229,5 @@ func (cfg *ProducerConfig) Validate() error {
 			)
 		}
 	}
-
 	return nil
 }

@@ -86,6 +86,28 @@ func (cfg *GroupConsumerConfig) Validate() error {
 		return errors.New("group consumer config is nil")
 	}
 
+	cfg.applyDefaults()
+	cfg.normalizeInputs()
+
+	if err := cfg.validateRequiredFields(); err != nil {
+		return err
+	}
+	if err := cfg.ensureDependencies(); err != nil {
+		return err
+	}
+	if err := cfg.validateExhaustedPolicy(); err != nil {
+		return err
+	}
+	if err := cfg.normalizeAndValidateRetryConfig(); err != nil {
+		return err
+	}
+	if err := cfg.validateDLQ(); err != nil {
+		return err
+	}
+	return cfg.normalizeAndValidateTopicHandlers()
+}
+
+func (cfg *GroupConsumerConfig) applyDefaults() {
 	if cfg.ShardCount == 0 {
 		cfg.ShardCount = DefaultShardCount
 	}
@@ -99,11 +121,15 @@ func (cfg *GroupConsumerConfig) Validate() error {
 		enabled := true
 		cfg.LoggerHandlerEnabled = &enabled
 	}
+}
 
+func (cfg *GroupConsumerConfig) normalizeInputs() {
 	cfg.Brokers = normalizeStrings(cfg.Brokers)
 	cfg.Topics = normalizeStrings(cfg.Topics)
 	cfg.GroupID = strings.TrimSpace(cfg.GroupID)
+}
 
+func (cfg *GroupConsumerConfig) validateRequiredFields() error {
 	if len(cfg.Brokers) == 0 {
 		return errors.New("brokers are required")
 	}
@@ -119,7 +145,10 @@ func (cfg *GroupConsumerConfig) Validate() error {
 	if cfg.ShardQueueSize <= 0 {
 		return fmt.Errorf("shard queue size must be > 0, got %d", cfg.ShardQueueSize)
 	}
+	return nil
+}
 
+func (cfg *GroupConsumerConfig) ensureDependencies() error {
 	if cfg.KeyExtractor == nil {
 		cfg.KeyExtractor = KeyExtractor(router.DefaultConsumeKeyExtractor)
 	}
@@ -136,7 +165,10 @@ func (cfg *GroupConsumerConfig) Validate() error {
 	if err := cfg.SaramaConfig.Validate(); err != nil {
 		return fmt.Errorf("invalid sarama config: %w", err)
 	}
+	return nil
+}
 
+func (cfg *GroupConsumerConfig) validateExhaustedPolicy() error {
 	switch cfg.ExhaustedPolicy {
 	case "":
 		cfg.ExhaustedPolicy = ExhaustedPolicyBlock
@@ -144,7 +176,10 @@ func (cfg *GroupConsumerConfig) Validate() error {
 	default:
 		return fmt.Errorf("unsupported exhausted policy %q", cfg.ExhaustedPolicy)
 	}
+	return nil
+}
 
+func (cfg *GroupConsumerConfig) normalizeAndValidateRetryConfig() error {
 	if cfg.RetryConfig == (RetryConfig{}) {
 		cfg.RetryConfig = cretry.DefaultConfig()
 	}
@@ -152,17 +187,24 @@ func (cfg *GroupConsumerConfig) Validate() error {
 	if err := cretry.ValidateConfig(cfg.RetryConfig); err != nil {
 		return err
 	}
+	return nil
+}
 
-	if cfg.ExhaustedPolicy == ExhaustedPolicyDLQCommit {
-		if cfg.DLQ == nil {
-			return errors.New("DLQ config is required when exhausted policy is dlq_commit")
-		}
-		cfg.DLQ.Topic = strings.TrimSpace(cfg.DLQ.Topic)
-		if cfg.DLQ.Topic == "" {
-			return errors.New("DLQ topic is required")
-		}
+func (cfg *GroupConsumerConfig) validateDLQ() error {
+	if cfg.ExhaustedPolicy != ExhaustedPolicyDLQCommit {
+		return nil
 	}
+	if cfg.DLQ == nil {
+		return errors.New("DLQ config is required when exhausted policy is dlq_commit")
+	}
+	cfg.DLQ.Topic = strings.TrimSpace(cfg.DLQ.Topic)
+	if cfg.DLQ.Topic == "" {
+		return errors.New("DLQ topic is required")
+	}
+	return nil
+}
 
+func (cfg *GroupConsumerConfig) normalizeAndValidateTopicHandlers() error {
 	for topic, handlers := range cfg.TopicHandlers {
 		topicName := strings.TrimSpace(topic)
 		if topicName == "" {
@@ -178,6 +220,5 @@ func (cfg *GroupConsumerConfig) Validate() error {
 			return fmt.Errorf("topic %q uses unsupported chain mode %q", topicName, handlers.Mode)
 		}
 	}
-
 	return nil
 }

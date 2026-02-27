@@ -69,9 +69,7 @@ func (c *GroupConsumer) Consume(ctx context.Context, business consume.HandlerFun
 	if business == nil {
 		return consume.ErrNilHandlerFunc
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = normalizeContext(ctx)
 
 	for {
 		if err := ctx.Err(); err != nil {

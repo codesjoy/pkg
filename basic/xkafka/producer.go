@@ -79,9 +79,7 @@ func (p *Producer) Produce(ctx context.Context, msg *produce.Message) (*produce.
 	if p == nil {
 		return nil, errors.New("producer is nil")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = normalizeContext(ctx)
 
 	prepared, err := p.prepareMessage(msg)
 	if err != nil {
@@ -99,9 +97,7 @@ func (p *Producer) ProduceBatch(
 	if p == nil {
 		return nil, errors.New("producer is nil")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = normalizeContext(ctx)
 	if len(msgs) == 0 {
 		return nil, nil
 	}
@@ -122,9 +118,7 @@ func (p *Producer) ProduceAsync(ctx context.Context, msg *produce.Message) (prod
 	if p == nil {
 		return nil, errors.New("producer is nil")
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx = normalizeContext(ctx)
 
 	prepared, err := p.prepareMessage(msg)
 	if err != nil {

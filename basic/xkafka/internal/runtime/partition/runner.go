@@ -150,16 +150,10 @@ func (r *Runner) consumeOnce(ctx context.Context, business consume.HandlerFunc) 
 	for {
 		select {
 		case <-runCtx.Done():
-			if fatalErr := rt.FatalErr(); fatalErr != nil {
-				return fatalErr
-			}
-			return runCtx.Err()
+			return runtimeErrorOr(rt, runCtx.Err())
 		case msg, ok := <-pc.Messages():
 			if !ok {
-				if fatalErr := rt.FatalErr(); fatalErr != nil {
-					return fatalErr
-				}
-				return errors.New("partition consumer messages channel closed")
+				return runtimeErrorOr(rt, errors.New("partition consumer messages channel closed"))
 			}
 
 			rt.committer.observe(msg.Offset)
@@ -185,10 +179,7 @@ func (r *Runner) consumeOnce(ctx context.Context, business consume.HandlerFunc) 
 			}
 
 			if err := rt.enqueue(task); err != nil {
-				if fatalErr := rt.FatalErr(); fatalErr != nil {
-					return fatalErr
-				}
-				return err
+				return runtimeErrorOr(rt, err)
 			}
 		case consumeErr, ok := <-errCh:
 			if !ok || consumeErr == nil {
@@ -197,6 +188,13 @@ func (r *Runner) consumeOnce(ctx context.Context, business consume.HandlerFunc) 
 			return fmt.Errorf("partition consumer error: %w", consumeErr.Err)
 		}
 	}
+}
+
+func runtimeErrorOr(rt *shardRuntime, fallback error) error {
+	if fatalErr := rt.FatalErr(); fatalErr != nil {
+		return fatalErr
+	}
+	return fallback
 }
 
 func (r *Runner) loadStartOffset(ctx context.Context) (int64, error) {
