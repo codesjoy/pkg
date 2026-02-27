@@ -6,6 +6,8 @@ Enhanced GORM utilities with pagination, transaction management, plugins, and mo
 
 - **Pagination**: Built-in support for paginated queries with count tracking
 - **Transaction Management**: Type-safe context-based transaction handling
+- **Sharding**: Table sharding support powered by `gorm.io/sharding`
+- **Database Routing**: Multi-database read/write routing powered by `gorm.io/plugin/dbresolver`
 - **Plugins**:
   - Structured logging with `log/slog`
   - Metrics collection (query count, duration, errors)
@@ -216,8 +218,85 @@ db, err := xgorm.New(
     xgorm.WithMaxIdleConns(10),
     xgorm.WithMaxOpenConns(100),
     xgorm.WithConnMaxLifetime(3600),  // seconds
+
+    // Table sharding
+    xgorm.WithSharding(
+        sharding.Config{
+            ShardingKey:         "user_id",
+            NumberOfShards:      64,
+            PrimaryKeyGenerator: sharding.PKSnowflake,
+        },
+        &Order{},
+    ),
+
+    // Multi-database routing (global rule + table-specific rule)
+    xgorm.WithDBResolver(dbresolver.Config{
+        Sources:  []gorm.Dialector{postgres.Open(primaryDSN)},
+        Replicas: []gorm.Dialector{postgres.Open(replicaDSN)},
+    }),
+    xgorm.WithDBResolver(dbresolver.Config{
+        Sources:  []gorm.Dialector{postgres.Open(orderPrimaryDSN)},
+        Replicas: []gorm.Dialector{postgres.Open(orderReplicaDSN)},
+    }, &Order{}),
+    xgorm.WithDBResolverConnPool(
+        20,                 // max idle
+        200,                // max open
+        time.Hour,          // conn max lifetime
+        30*time.Minute,     // conn max idle time
+    ),
 )
 ```
+
+## Sharding & Multi-Database
+
+### Table Sharding
+
+```go
+db, err := xgorm.New(
+    postgres.Open(dsn),
+    xgorm.WithSharding(
+        sharding.Config{
+            ShardingKey:         "user_id",
+            NumberOfShards:      16,
+            PrimaryKeyGenerator: sharding.PKSnowflake,
+        },
+        &Order{},
+    ),
+)
+```
+
+### Multi-Database Read/Write Routing
+
+```go
+db, err := xgorm.New(
+    postgres.Open(primaryDSN),
+    xgorm.WithDBResolver(dbresolver.Config{
+        Sources:  []gorm.Dialector{postgres.Open(primaryDSN)},
+        Replicas: []gorm.Dialector{postgres.Open(replicaDSN)},
+    }),
+)
+```
+
+### Combine Sharding + DBResolver
+
+```go
+db, err := xgorm.New(
+    postgres.Open(primaryDSN),
+    xgorm.WithSharding(sharding.Config{
+        ShardingKey:         "user_id",
+        NumberOfShards:      16,
+        PrimaryKeyGenerator: sharding.PKSnowflake,
+    }, &Order{}),
+    xgorm.WithDBResolver(dbresolver.Config{
+        Sources:  []gorm.Dialector{postgres.Open(primaryDSN)},
+        Replicas: []gorm.Dialector{postgres.Open(replicaDSN)},
+    }),
+)
+```
+
+Notes:
+- Missing sharding key on sharded tables returns `sharding.ErrMissingShardingKey`.
+- `PrepareStmt=true` is not supported together with sharding.
 
 ### Breaking Changes
 
@@ -276,7 +355,7 @@ if xgorm.HasTransaction(ctx) {
 
 ## Testing
 
-Run tests:
+Run unit tests:
 
 ```bash
 # From repository root
@@ -287,8 +366,20 @@ make MODULES="basic/xgorm" test.race
 make MODULES="basic/xgorm" coverage
 
 # Or run directly inside module
-cd basic/xgorm && go test ./...
+cd basic/xgorm && GOWORK=off go test ./...
 ```
+
+Run integration tests (Docker-backed PostgreSQL):
+
+```bash
+cd basic/xgorm
+GOWORK=off go test -tags=integration ./testing/integration -v
+```
+
+Notes:
+- `make MODULES="basic/xgorm" test` remains unit-test focused.
+- Integration tests require Docker Desktop (or another compatible Docker daemon).
+- Integration suite covers pagination/transaction and PostgreSQL dbresolver + sharding routing scenarios.
 
 ## Performance
 
@@ -310,11 +401,17 @@ The package is optimized for performance:
 
 ## Examples
 
-See the `examples_test.go` file for complete examples of:
-- Pagination with sorting
-- Transaction management
-- Plugin usage
-- Error handling
+Runnable examples live under `examples/`:
+
+- `examples/postgres`: PostgreSQL example with `WrapPageQuery`, `Transaction`, and `FindOne`
+
+Run from `basic/xgorm/examples`:
+
+```bash
+GOWORK=off go run ./postgres
+```
+
+See `basic/xgorm/examples/README.md` for Docker setup and environment variables.
 
 ## License
 
