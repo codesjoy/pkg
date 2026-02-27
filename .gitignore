@@ -46,3 +46,5 @@ Thumbs.db
 .chglog/state.env
 .chglog/archive/*.md
 !.chglog/archive/.gitkeep
+
+_output
