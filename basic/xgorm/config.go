@@ -22,9 +22,23 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"gorm.io/plugin/dbresolver"
+	"gorm.io/sharding"
 
 	tracerplugin "github.com/codesjoy/pkg/basic/xgorm/plugin/tracer"
 )
+
+type dbResolverRule struct {
+	Config dbresolver.Config
+	Datas  []any
+}
+
+type dbResolverConnPoolConfig struct {
+	MaxIdleConns    int
+	MaxOpenConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+}
 
 // Config holds configuration for creating a new GORM instance.
 type Config struct {
@@ -53,6 +67,17 @@ type Config struct {
 	MaxOpenConns    int
 	ConnMaxLifetime int // in seconds
 
+	// ShardingConfig is the table sharding rule.
+	// When set, sharding plugin will be registered for ShardingTables.
+	ShardingConfig *sharding.Config
+	// ShardingTables are tables/models that use ShardingConfig.
+	ShardingTables []any
+
+	// dbResolverRules stores dbresolver register rules in order.
+	dbResolverRules []dbResolverRule
+	// dbResolverConnPool applies connection pool settings to resolver pools.
+	dbResolverConnPool *dbResolverConnPoolConfig
+
 	// gormConfigMutators are applied after building the default gorm.Config.
 	gormConfigMutators []func(*gorm.Config)
 }
@@ -68,15 +93,17 @@ func DefaultConfig() *Config {
 		MaxIdleConns:           10,
 		MaxOpenConns:           100,
 		ConnMaxLifetime:        3600, // 1 hour
+		dbResolverRules:        make([]dbResolverRule, 0),
 		gormConfigMutators:     make([]func(*gorm.Config), 0),
 	}
 }
 
 // New creates a new GORM instance with the given dialector and options.
-// It applies configuration options and registers the tracer plugin.
+// It applies configuration options and registers optional plugins.
 //
 // The logger is set directly in gorm.Config (not as a plugin) for better integration.
 // Metrics are registered as OpenTelemetry callbacks (not as a plugin).
+// Sharding/dbresolver are registered as GORM plugins when configured.
 //
 // Example usage:
 //
@@ -105,6 +132,18 @@ func New(dialector gorm.Dialector, opts ...Option) (*gorm.DB, error) {
 		mutate(gormConfig)
 	}
 
+	if cfg.ShardingConfig != nil {
+		if len(cfg.ShardingTables) == 0 {
+			return nil, ErrShardingTablesRequired
+		}
+		if gormConfig.PrepareStmt {
+			return nil, ErrShardingPrepareStmtUnsupported
+		}
+	}
+	if cfg.dbResolverConnPool != nil && len(cfg.dbResolverRules) == 0 {
+		return nil, ErrDBResolverNotConfigured
+	}
+
 	// Open database connection
 	db, err := gorm.Open(dialector, gormConfig)
 	if err != nil {
@@ -126,6 +165,36 @@ func New(dialector gorm.Dialector, opts ...Option) (*gorm.DB, error) {
 	cleanup := func() {
 		_ = CloseMetrics(db)
 		_ = sqlDB.Close()
+	}
+
+	// Register sharding before dbresolver so read/write routing can be applied
+	// after table routing in current callback order.
+	if cfg.ShardingConfig != nil {
+		plugin := sharding.Register(*cfg.ShardingConfig, cfg.ShardingTables...)
+		if err := db.Use(plugin); err != nil {
+			cleanup()
+			return nil, err
+		}
+	}
+
+	if len(cfg.dbResolverRules) > 0 {
+		first := cfg.dbResolverRules[0]
+		resolver := dbresolver.Register(first.Config, first.Datas...)
+		for i := 1; i < len(cfg.dbResolverRules); i++ {
+			rule := cfg.dbResolverRules[i]
+			resolver = resolver.Register(rule.Config, rule.Datas...)
+		}
+		if cfg.dbResolverConnPool != nil {
+			resolver = resolver.
+				SetMaxIdleConns(cfg.dbResolverConnPool.MaxIdleConns).
+				SetMaxOpenConns(cfg.dbResolverConnPool.MaxOpenConns).
+				SetConnMaxLifetime(cfg.dbResolverConnPool.ConnMaxLifetime).
+				SetConnMaxIdleTime(cfg.dbResolverConnPool.ConnMaxIdleTime)
+		}
+		if err := db.Use(resolver); err != nil {
+			cleanup()
+			return nil, err
+		}
 	}
 
 	// Register OpenTelemetry metrics

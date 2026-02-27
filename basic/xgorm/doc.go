@@ -13,5 +13,5 @@
 // limitations under the License.
 
 // Package xgorm provides enhanced GORM utilities such as pagination, transactions,
-// structured logging, metrics, and tracing helpers.
+// structured logging, metrics, tracing helpers, sharding, and database routing.
 package xgorm

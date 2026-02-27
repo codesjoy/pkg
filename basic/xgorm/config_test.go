@@ -15,7 +15,9 @@
 package xgorm
 
 import (
+	"fmt"
 	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,7 +27,58 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"gorm.io/plugin/dbresolver"
+	"gorm.io/sharding"
 )
+
+type ShardingOrder struct {
+	ID      int64 `gorm:"primaryKey"`
+	UserID  int64
+	Product string
+}
+
+func (ShardingOrder) TableName() string {
+	return "orders"
+}
+
+type ResolverUser struct {
+	ID   int64 `gorm:"primaryKey"`
+	Name string
+}
+
+func (ResolverUser) TableName() string {
+	return "resolver_users"
+}
+
+type ResolverOrder struct {
+	ID      int64 `gorm:"primaryKey"`
+	Product string
+}
+
+func (ResolverOrder) TableName() string {
+	return "resolver_orders"
+}
+
+func createShardingTables(t *testing.T, db *gorm.DB, table string, shardCount int) {
+	t.Helper()
+	for i := 0; i < shardCount; i++ {
+		err := db.Exec(
+			fmt.Sprintf(
+				"CREATE TABLE IF NOT EXISTS %s_%d (id INTEGER PRIMARY KEY, user_id INTEGER, product TEXT)",
+				table,
+				i,
+			),
+		).Error
+		require.NoError(t, err)
+	}
+}
+
+func openSQLiteForTest(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	require.NoError(t, err)
+	return db
+}
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
@@ -39,6 +92,10 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 10, cfg.MaxIdleConns)
 	assert.Equal(t, 100, cfg.MaxOpenConns)
 	assert.Equal(t, 3600, cfg.ConnMaxLifetime)
+	assert.Nil(t, cfg.ShardingConfig)
+	assert.Empty(t, cfg.ShardingTables)
+	assert.Empty(t, cfg.dbResolverRules)
+	assert.Nil(t, cfg.dbResolverConnPool)
 }
 
 func TestNew_Basic(t *testing.T) {
@@ -364,6 +421,215 @@ func TestWithGormConfig_MultipleMutators(t *testing.T) {
 	assert.NotNil(t, db)
 	assert.True(t, db.DisableNestedTransaction)
 	assert.True(t, db.AllowGlobalUpdate)
+}
+
+func TestWithSharding(t *testing.T) {
+	cfg := DefaultConfig()
+	opt := WithSharding(sharding.Config{
+		ShardingKey:         "user_id",
+		NumberOfShards:      4,
+		PrimaryKeyGenerator: sharding.PKSnowflake,
+	}, &ShardingOrder{})
+	opt(cfg)
+
+	require.NotNil(t, cfg.ShardingConfig)
+	assert.Equal(t, "user_id", cfg.ShardingConfig.ShardingKey)
+	assert.Len(t, cfg.ShardingTables, 1)
+}
+
+func TestWithDBResolver(t *testing.T) {
+	cfg := DefaultConfig()
+	opt := WithDBResolver(dbresolver.Config{
+		Sources:  []gorm.Dialector{sqlite.Open(":memory:")},
+		Replicas: []gorm.Dialector{sqlite.Open(":memory:")},
+	}, &ResolverOrder{})
+	opt(cfg)
+
+	assert.Len(t, cfg.dbResolverRules, 1)
+	assert.Len(t, cfg.dbResolverRules[0].Datas, 1)
+}
+
+func TestWithDBResolverConnPool(t *testing.T) {
+	cfg := DefaultConfig()
+	opt := WithDBResolverConnPool(11, 22, time.Minute, 2*time.Minute)
+	opt(cfg)
+
+	require.NotNil(t, cfg.dbResolverConnPool)
+	assert.Equal(t, 11, cfg.dbResolverConnPool.MaxIdleConns)
+	assert.Equal(t, 22, cfg.dbResolverConnPool.MaxOpenConns)
+	assert.Equal(t, time.Minute, cfg.dbResolverConnPool.ConnMaxLifetime)
+	assert.Equal(t, 2*time.Minute, cfg.dbResolverConnPool.ConnMaxIdleTime)
+}
+
+func TestNew_WithSharding_Basic(t *testing.T) {
+	db, err := New(
+		sqlite.Open(":memory:"),
+		WithSharding(sharding.Config{
+			ShardingKey:         "user_id",
+			NumberOfShards:      4,
+			PrimaryKeyGenerator: sharding.PKSnowflake,
+		}, &ShardingOrder{}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, db)
+
+	createShardingTables(t, db, "orders", 4)
+
+	err = db.Create(&ShardingOrder{UserID: 5, Product: "phone"}).Error
+	require.NoError(t, err)
+
+	var got ShardingOrder
+	err = db.Model(&ShardingOrder{}).Where("user_id = ?", 5).First(&got).Error
+	require.NoError(t, err)
+	assert.Equal(t, "phone", got.Product)
+}
+
+func TestNew_WithSharding_MissingShardingKey(t *testing.T) {
+	db, err := New(
+		sqlite.Open(":memory:"),
+		WithSharding(sharding.Config{
+			ShardingKey:         "user_id",
+			NumberOfShards:      4,
+			PrimaryKeyGenerator: sharding.PKSnowflake,
+		}, &ShardingOrder{}),
+	)
+	require.NoError(t, err)
+
+	err = db.Model(&ShardingOrder{}).Where("product = ?", "phone").Find(&[]ShardingOrder{}).Error
+	assert.ErrorIs(t, err, sharding.ErrMissingShardingKey)
+}
+
+func TestNew_WithSharding_NoTables(t *testing.T) {
+	_, err := New(
+		sqlite.Open(":memory:"),
+		WithSharding(sharding.Config{
+			ShardingKey:         "user_id",
+			NumberOfShards:      4,
+			PrimaryKeyGenerator: sharding.PKSnowflake,
+		}),
+	)
+	assert.ErrorIs(t, err, ErrShardingTablesRequired)
+}
+
+func TestNew_WithSharding_PrepareStmtUnsupported(t *testing.T) {
+	_, err := New(
+		sqlite.Open(":memory:"),
+		WithSharding(sharding.Config{
+			ShardingKey:         "user_id",
+			NumberOfShards:      4,
+			PrimaryKeyGenerator: sharding.PKSnowflake,
+		}, &ShardingOrder{}),
+		WithGormConfig(func(cfg *gorm.Config) {
+			cfg.PrepareStmt = true
+		}),
+	)
+	assert.ErrorIs(t, err, ErrShardingPrepareStmtUnsupported)
+}
+
+func TestNew_DBResolverConnPoolWithoutRules(t *testing.T) {
+	_, err := New(
+		sqlite.Open(":memory:"),
+		WithDBResolverConnPool(10, 20, time.Minute, time.Minute),
+	)
+	assert.ErrorIs(t, err, ErrDBResolverNotConfigured)
+}
+
+func TestNew_WithDBResolver_GlobalAndPerTable(t *testing.T) {
+	tempDir := t.TempDir()
+	globalSourcePath := filepath.Join(tempDir, "global_source.db")
+	globalReplicaPath := filepath.Join(tempDir, "global_replica.db")
+	orderSourcePath := filepath.Join(tempDir, "order_source.db")
+	orderReplicaPath := filepath.Join(tempDir, "order_replica.db")
+
+	db, err := New(
+		sqlite.Open(globalSourcePath),
+		WithDBResolver(dbresolver.Config{
+			Sources:  []gorm.Dialector{sqlite.Open(globalSourcePath)},
+			Replicas: []gorm.Dialector{sqlite.Open(globalReplicaPath)},
+		}),
+		WithDBResolver(dbresolver.Config{
+			Sources:  []gorm.Dialector{sqlite.Open(orderSourcePath)},
+			Replicas: []gorm.Dialector{sqlite.Open(orderReplicaPath)},
+		}, &ResolverOrder{}),
+		WithDBResolverConnPool(5, 50, time.Minute, time.Minute),
+	)
+	require.NoError(t, err)
+
+	globalSource := openSQLiteForTest(t, globalSourcePath)
+	globalReplica := openSQLiteForTest(t, globalReplicaPath)
+	orderSource := openSQLiteForTest(t, orderSourcePath)
+	orderReplica := openSQLiteForTest(t, orderReplicaPath)
+
+	for _, handle := range []*gorm.DB{globalSource, globalReplica, orderSource, orderReplica} {
+		require.NoError(t, handle.AutoMigrate(&ResolverUser{}, &ResolverOrder{}))
+	}
+
+	require.NoError(t, globalSource.Create(&ResolverUser{ID: 1, Name: "global-source"}).Error)
+	require.NoError(t, globalReplica.Create(&ResolverUser{ID: 1, Name: "global-replica"}).Error)
+	require.NoError(t, orderSource.Create(&ResolverOrder{ID: 1, Product: "order-source"}).Error)
+	require.NoError(t, orderReplica.Create(&ResolverOrder{ID: 1, Product: "order-replica"}).Error)
+
+	var user ResolverUser
+	err = db.Model(&ResolverUser{}).First(&user, 1).Error
+	require.NoError(t, err)
+	assert.Equal(t, "global-replica", user.Name)
+
+	var order ResolverOrder
+	err = db.Model(&ResolverOrder{}).First(&order, 1).Error
+	require.NoError(t, err)
+	assert.Equal(t, "order-replica", order.Product)
+}
+
+func TestNew_WithShardingAndDBResolver_Combined(t *testing.T) {
+	tempDir := t.TempDir()
+	sourcePath := filepath.Join(tempDir, "source.db")
+	replicaPath := filepath.Join(tempDir, "replica.db")
+
+	db, err := New(
+		sqlite.Open(sourcePath),
+		WithSharding(sharding.Config{
+			ShardingKey:         "user_id",
+			NumberOfShards:      4,
+			PrimaryKeyGenerator: sharding.PKSnowflake,
+		}, &ShardingOrder{}),
+		WithDBResolver(dbresolver.Config{
+			Sources:  []gorm.Dialector{sqlite.Open(sourcePath)},
+			Replicas: []gorm.Dialector{sqlite.Open(replicaPath)},
+		}),
+	)
+	require.NoError(t, err)
+
+	sourceDB := openSQLiteForTest(t, sourcePath)
+	replicaDB := openSQLiteForTest(t, replicaPath)
+	createShardingTables(t, sourceDB, "orders", 4)
+	createShardingTables(t, replicaDB, "orders", 4)
+
+	require.NoError(
+		t,
+		sourceDB.Exec("INSERT INTO orders_1(id, user_id, product) VALUES(1, 1, 'source')").Error,
+	)
+	require.NoError(
+		t,
+		replicaDB.Exec("INSERT INTO orders_1(id, user_id, product) VALUES(1, 1, 'replica')").Error,
+	)
+
+	var got ShardingOrder
+	err = db.Model(&ShardingOrder{}).Where("user_id = ?", 1).First(&got).Error
+	require.NoError(t, err)
+	assert.Equal(t, "replica", got.Product)
+
+	err = db.Model(&ShardingOrder{}).
+		Where("user_id = ?", 1).
+		Update("product", "updated-source").
+		Error
+	require.NoError(t, err)
+
+	var sourceRow ShardingOrder
+	var replicaRow ShardingOrder
+	require.NoError(t, sourceDB.Table("orders_1").Where("id = ?", 1).First(&sourceRow).Error)
+	require.NoError(t, replicaDB.Table("orders_1").Where("id = ?", 1).First(&replicaRow).Error)
+	assert.Equal(t, "updated-source", sourceRow.Product)
+	assert.Equal(t, "replica", replicaRow.Product)
 }
 
 // Benchmark tests

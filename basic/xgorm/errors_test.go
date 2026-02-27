@@ -29,6 +29,28 @@ func TestErrInvalidSliceType(t *testing.T) {
 	assert.Equal(t, "invalid slice type: must be a pointer to slice or map", err.Error())
 }
 
+func TestErrShardingTablesRequired(t *testing.T) {
+	err := ErrShardingTablesRequired
+	assert.Error(t, err)
+	assert.Equal(t, "sharding tables are required", err.Error())
+}
+
+func TestErrShardingPrepareStmtUnsupported(t *testing.T) {
+	err := ErrShardingPrepareStmtUnsupported
+	assert.Error(t, err)
+	assert.Equal(t, "prepare statement mode is not supported with sharding", err.Error())
+}
+
+func TestErrDBResolverNotConfigured(t *testing.T) {
+	err := ErrDBResolverNotConfigured
+	assert.Error(t, err)
+	assert.Equal(
+		t,
+		"dbresolver connection pool options require at least one dbresolver rule",
+		err.Error(),
+	)
+}
+
 func TestErrInvalidModel(t *testing.T) {
 	err := ErrInvalidModel
 	assert.Error(t, err)

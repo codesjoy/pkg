@@ -51,6 +51,19 @@ var (
 
 	// ErrNilDatabase is returned when attempting to register metrics with a nil database.
 	ErrNilDatabase = errors.New("database cannot be nil")
+
+	// ErrShardingTablesRequired is returned when sharding is enabled without any target tables.
+	ErrShardingTablesRequired = errors.New("sharding tables are required")
+
+	// ErrShardingPrepareStmtUnsupported is returned when PrepareStmt is enabled with sharding.
+	ErrShardingPrepareStmtUnsupported = errors.New(
+		"prepare statement mode is not supported with sharding",
+	)
+
+	// ErrDBResolverNotConfigured is returned when dbresolver pool options are set without resolver rules.
+	ErrDBResolverNotConfigured = errors.New(
+		"dbresolver connection pool options require at least one dbresolver rule",
+	)
 )
 
 // PaginationError represents errors related to pagination operations.

@@ -22,6 +22,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"gorm.io/plugin/dbresolver"
+	"gorm.io/sharding"
 )
 
 // Option is a function that configures a GORM instance.
@@ -181,5 +183,51 @@ func WithGormConfig(fn func(*gorm.Config)) Option {
 			return
 		}
 		cfg.gormConfigMutators = append(cfg.gormConfigMutators, fn)
+	}
+}
+
+// WithSharding enables table sharding for the specified tables.
+//
+// It uses gorm.io/sharding as the underlying plugin.
+//
+// Note: When sharding is enabled, PrepareStmt mode is not supported.
+func WithSharding(config sharding.Config, tables ...any) Option {
+	return func(cfg *Config) {
+		c := config
+		cfg.ShardingConfig = &c
+		cfg.ShardingTables = append([]any(nil), tables...)
+	}
+}
+
+// WithDBResolver registers a dbresolver routing rule.
+//
+// Multiple calls are supported and will be registered in order.
+// It uses gorm.io/plugin/dbresolver as the underlying plugin.
+func WithDBResolver(config dbresolver.Config, datas ...any) Option {
+	return func(cfg *Config) {
+		rule := dbResolverRule{
+			Config: config,
+			Datas:  append([]any(nil), datas...),
+		}
+		cfg.dbResolverRules = append(cfg.dbResolverRules, rule)
+	}
+}
+
+// WithDBResolverConnPool sets connection pool settings for all dbresolver pools.
+//
+// This option requires at least one WithDBResolver(...) rule.
+func WithDBResolverConnPool(
+	maxIdleConns int,
+	maxOpenConns int,
+	connMaxLifetime time.Duration,
+	connMaxIdleTime time.Duration,
+) Option {
+	return func(cfg *Config) {
+		cfg.dbResolverConnPool = &dbResolverConnPoolConfig{
+			MaxIdleConns:    maxIdleConns,
+			MaxOpenConns:    maxOpenConns,
+			ConnMaxLifetime: connMaxLifetime,
+			ConnMaxIdleTime: connMaxIdleTime,
+		}
 	}
 }
