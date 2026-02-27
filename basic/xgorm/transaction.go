@@ -35,10 +35,7 @@ type transaction struct {
 
 // NewTransaction creates a transaction helper bound to a base GORM DB handle.
 func NewTransaction(db *gorm.DB) Transaction {
-	trans := &transaction{
-		db: db,
-	}
-	return trans
+	return &transaction{db: db}
 }
 
 func (t *transaction) Begin(ctx context.Context) context.Context {
@@ -53,38 +50,19 @@ func (t *transaction) Begin(ctx context.Context) context.Context {
 }
 
 func (t *transaction) Commit(ctx context.Context) error {
-	tx := TransactionFromContext(ctx)
-	if tx == nil {
-		return ErrTransactionNotActive
-	}
-
-	err := tx.WithContext(ctx).Commit().Error
-	if err != nil {
-		return NewTransactionError("commit", err)
-	}
-
-	// Clear transaction from context
-	return nil
+	return t.runWithTransaction(ctx, "commit", func(tx *gorm.DB) error {
+		return tx.WithContext(ctx).Commit().Error
+	})
 }
 
 func (t *transaction) Rollback(ctx context.Context) error {
-	tx := TransactionFromContext(ctx)
-	if tx == nil {
-		return ErrTransactionNotActive
-	}
-
-	err := tx.WithContext(ctx).Rollback().Error
-	if err != nil {
-		return NewTransactionError("rollback", err)
-	}
-
-	// Clear transaction from context
-	return nil
+	return t.runWithTransaction(ctx, "rollback", func(tx *gorm.DB) error {
+		return tx.WithContext(ctx).Rollback().Error
+	})
 }
 
 func (t *transaction) GetTx(ctx context.Context) *gorm.DB {
-	tx := TransactionFromContext(ctx)
-	if tx != nil {
+	if tx := TransactionFromContext(ctx); tx != nil {
 		return tx
 	}
 	return t.db
@@ -94,6 +72,22 @@ func (t *transaction) Transaction(ctx context.Context, fx func(tx *gorm.DB) erro
 	tx := t.GetTx(ctx)
 	if err := tx.Transaction(fx); err != nil {
 		return NewTransactionError("transaction", err)
+	}
+	return nil
+}
+
+func (t *transaction) runWithTransaction(
+	ctx context.Context,
+	action string,
+	fn func(*gorm.DB) error,
+) error {
+	tx := TransactionFromContext(ctx)
+	if tx == nil {
+		return ErrTransactionNotActive
+	}
+
+	if err := fn(tx); err != nil {
+		return NewTransactionError(action, err)
 	}
 	return nil
 }

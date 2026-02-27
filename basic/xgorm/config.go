@@ -16,6 +16,7 @@ package xgorm
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"go.opentelemetry.io/otel/metric"
@@ -116,109 +117,45 @@ func DefaultConfig() *Config {
 //	defer xgorm.CloseMetrics(db)
 func New(dialector gorm.Dialector, opts ...Option) (*gorm.DB, error) {
 	cfg := DefaultConfig()
+	applyOptions(cfg, opts)
 
-	// Apply functional options
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	// Create GORM config with the logger
-	gormConfig := &gorm.Config{
-		DryRun:                 cfg.DryRun,
-		SkipDefaultTransaction: cfg.SkipDefaultTransaction,
-		Logger:                 cfg.Logger,
-	}
-	for _, mutate := range cfg.gormConfigMutators {
-		mutate(gormConfig)
+	gormConfig := buildGORMConfig(cfg)
+	if err := validateConfigCompatibility(cfg, gormConfig); err != nil {
+		return nil, err
 	}
 
-	if cfg.ShardingConfig != nil {
-		if len(cfg.ShardingTables) == 0 {
-			return nil, ErrShardingTablesRequired
-		}
-		if gormConfig.PrepareStmt {
-			return nil, ErrShardingPrepareStmtUnsupported
-		}
-	}
-	if cfg.dbResolverConnPool != nil && len(cfg.dbResolverRules) == 0 {
-		return nil, ErrDBResolverNotConfigured
-	}
-
-	// Open database connection
 	db, err := gorm.Open(dialector, gormConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Configure connection pool
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	if cfg.ConnMaxLifetime > 0 {
-		sqlDB.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetime) * time.Second)
-	}
+	configureConnectionPool(sqlDB, cfg)
 
 	cleanup := func() {
 		_ = CloseMetrics(db)
 		_ = sqlDB.Close()
 	}
 
-	// Register sharding before dbresolver so read/write routing can be applied
-	// after table routing in current callback order.
-	if cfg.ShardingConfig != nil {
-		plugin := sharding.Register(*cfg.ShardingConfig, cfg.ShardingTables...)
-		if err := db.Use(plugin); err != nil {
-			cleanup()
-			return nil, err
-		}
+	if err := registerSharding(db, cfg); err != nil {
+		cleanup()
+		return nil, err
+	}
+	if err := registerDBResolver(db, cfg); err != nil {
+		cleanup()
+		return nil, err
 	}
 
-	if len(cfg.dbResolverRules) > 0 {
-		first := cfg.dbResolverRules[0]
-		resolver := dbresolver.Register(first.Config, first.Datas...)
-		for i := 1; i < len(cfg.dbResolverRules); i++ {
-			rule := cfg.dbResolverRules[i]
-			resolver = resolver.Register(rule.Config, rule.Datas...)
-		}
-		if cfg.dbResolverConnPool != nil {
-			resolver = resolver.
-				SetMaxIdleConns(cfg.dbResolverConnPool.MaxIdleConns).
-				SetMaxOpenConns(cfg.dbResolverConnPool.MaxOpenConns).
-				SetConnMaxLifetime(cfg.dbResolverConnPool.ConnMaxLifetime).
-				SetConnMaxIdleTime(cfg.dbResolverConnPool.ConnMaxIdleTime)
-		}
-		if err := db.Use(resolver); err != nil {
-			cleanup()
-			return nil, err
-		}
+	if err := registerMetrics(db, cfg); err != nil {
+		cleanup()
+		return nil, err
 	}
-
-	// Register OpenTelemetry metrics
-	if cfg.EnableMetrics {
-		if cfg.Meter == nil {
-			cleanup()
-			return nil, ErrNilMeter
-		}
-		reporter, err := RegisterConnectionPoolMetrics(cfg.Meter, db, nil)
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
-		// Store the reporter in the DB instance for later cleanup
-		db.InstanceSet("otel_metrics_reporter", reporter)
-	}
-
-	// Register tracer plugin (only remaining plugin)
-	if cfg.EnableTracer && cfg.Tracer != nil {
-		tracerPlugin := tracerplugin.New(cfg.Tracer)
-		if err := db.Use(tracerPlugin); err != nil {
-			cleanup()
-			return nil, err
-		}
+	if err := registerTracer(db, cfg); err != nil {
+		cleanup()
+		return nil, err
 	}
 
 	return db, nil
@@ -251,4 +188,100 @@ func CloseMetrics(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+func applyOptions(cfg *Config, opts []Option) {
+	for _, opt := range opts {
+		opt(cfg)
+	}
+}
+
+func buildGORMConfig(cfg *Config) *gorm.Config {
+	gormConfig := &gorm.Config{
+		DryRun:                 cfg.DryRun,
+		SkipDefaultTransaction: cfg.SkipDefaultTransaction,
+		Logger:                 cfg.Logger,
+	}
+	for _, mutate := range cfg.gormConfigMutators {
+		mutate(gormConfig)
+	}
+	return gormConfig
+}
+
+func validateConfigCompatibility(cfg *Config, gormConfig *gorm.Config) error {
+	if cfg.ShardingConfig != nil {
+		if len(cfg.ShardingTables) == 0 {
+			return ErrShardingTablesRequired
+		}
+		if gormConfig.PrepareStmt {
+			return ErrShardingPrepareStmtUnsupported
+		}
+	}
+	if cfg.dbResolverConnPool != nil && len(cfg.dbResolverRules) == 0 {
+		return ErrDBResolverNotConfigured
+	}
+	return nil
+}
+
+func configureConnectionPool(sqlDB *sql.DB, cfg *Config) {
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	if cfg.ConnMaxLifetime > 0 {
+		sqlDB.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetime) * time.Second)
+	}
+}
+
+func registerSharding(db *gorm.DB, cfg *Config) error {
+	if cfg.ShardingConfig == nil {
+		return nil
+	}
+	// Register sharding before dbresolver so read/write routing can be applied
+	// after table routing in current callback order.
+	plugin := sharding.Register(*cfg.ShardingConfig, cfg.ShardingTables...)
+	return db.Use(plugin)
+}
+
+func registerDBResolver(db *gorm.DB, cfg *Config) error {
+	if len(cfg.dbResolverRules) == 0 {
+		return nil
+	}
+
+	first := cfg.dbResolverRules[0]
+	resolver := dbresolver.Register(first.Config, first.Datas...)
+	for i := 1; i < len(cfg.dbResolverRules); i++ {
+		rule := cfg.dbResolverRules[i]
+		resolver = resolver.Register(rule.Config, rule.Datas...)
+	}
+	if cfg.dbResolverConnPool != nil {
+		resolver = resolver.
+			SetMaxIdleConns(cfg.dbResolverConnPool.MaxIdleConns).
+			SetMaxOpenConns(cfg.dbResolverConnPool.MaxOpenConns).
+			SetConnMaxLifetime(cfg.dbResolverConnPool.ConnMaxLifetime).
+			SetConnMaxIdleTime(cfg.dbResolverConnPool.ConnMaxIdleTime)
+	}
+	return db.Use(resolver)
+}
+
+func registerMetrics(db *gorm.DB, cfg *Config) error {
+	if !cfg.EnableMetrics {
+		return nil
+	}
+	if cfg.Meter == nil {
+		return ErrNilMeter
+	}
+
+	reporter, err := RegisterConnectionPoolMetrics(cfg.Meter, db, nil)
+	if err != nil {
+		return err
+	}
+	// Store the reporter in the DB instance for later cleanup.
+	db.InstanceSet("otel_metrics_reporter", reporter)
+	return nil
+}
+
+func registerTracer(db *gorm.DB, cfg *Config) error {
+	if !cfg.EnableTracer || cfg.Tracer == nil {
+		return nil
+	}
+	return db.Use(tracerplugin.New(cfg.Tracer))
 }

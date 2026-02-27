@@ -166,23 +166,19 @@ func RegisterConnectionPoolMetrics(
 	// Register callback function to observe metrics
 	callback := func(_ context.Context, observer metric.Observer) error {
 		stats := sqlDB.Stats()
-
-		// Convert attributes to ObserveOption
-		opts := []metric.ObserveOption{}
-		if len(attrs) > 0 {
-			opts = append(opts, metric.WithAttributes(attrs...))
-		}
-
-		// Observe gauge values (current state)
-		observer.ObserveInt64(openConnections, int64(stats.OpenConnections), opts...)
-		observer.ObserveInt64(inUseConnections, int64(stats.InUse), opts...)
-		observer.ObserveInt64(idleConnections, int64(stats.Idle), opts...)
-
-		// Observe counter values (cumulative)
-		observer.ObserveInt64(waitCount, stats.WaitCount, opts...)
-		observer.ObserveInt64(waitDuration, stats.WaitDuration.Milliseconds(), opts...)
-		observer.ObserveInt64(maxIdleClosed, stats.MaxIdleClosed, opts...)
-		observer.ObserveInt64(maxLifetimeClosed, stats.MaxLifetimeClosed, opts...)
+		opts := buildObserveOptions(attrs)
+		observeDBStats(
+			observer,
+			stats,
+			opts,
+			openConnections,
+			inUseConnections,
+			idleConnections,
+			waitCount,
+			waitDuration,
+			maxIdleClosed,
+			maxLifetimeClosed,
+		)
 
 		return nil
 	}
@@ -215,3 +211,34 @@ type gormDB interface {
 
 // Ensure *gorm.DB implements gormDB at compile time.
 // This will fail to compile if *gorm.DB doesn't have the DB() method.
+
+func buildObserveOptions(attrs []attribute.KeyValue) []metric.ObserveOption {
+	if len(attrs) == 0 {
+		return nil
+	}
+	return []metric.ObserveOption{metric.WithAttributes(attrs...)}
+}
+
+func observeDBStats(
+	observer metric.Observer,
+	stats sql.DBStats,
+	opts []metric.ObserveOption,
+	openConnections metric.Int64ObservableGauge,
+	inUseConnections metric.Int64ObservableGauge,
+	idleConnections metric.Int64ObservableGauge,
+	waitCount metric.Int64ObservableCounter,
+	waitDuration metric.Int64ObservableCounter,
+	maxIdleClosed metric.Int64ObservableCounter,
+	maxLifetimeClosed metric.Int64ObservableCounter,
+) {
+	// Observe gauge values (current state).
+	observer.ObserveInt64(openConnections, int64(stats.OpenConnections), opts...)
+	observer.ObserveInt64(inUseConnections, int64(stats.InUse), opts...)
+	observer.ObserveInt64(idleConnections, int64(stats.Idle), opts...)
+
+	// Observe counter values (cumulative).
+	observer.ObserveInt64(waitCount, stats.WaitCount, opts...)
+	observer.ObserveInt64(waitDuration, stats.WaitDuration.Milliseconds(), opts...)
+	observer.ObserveInt64(maxIdleClosed, stats.MaxIdleClosed, opts...)
+	observer.ObserveInt64(maxLifetimeClosed, stats.MaxLifetimeClosed, opts...)
+}
