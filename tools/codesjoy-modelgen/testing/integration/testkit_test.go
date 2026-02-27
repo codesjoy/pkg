@@ -364,7 +364,8 @@ func integrationContext(t *testing.T) (context.Context, context.CancelFunc) {
 
 func mustMySQLDSN(t *testing.T) string {
 	t.Helper()
-	if globalIntegrationHarness == nil || strings.TrimSpace(globalIntegrationHarness.mysqlDSN) == "" {
+	if globalIntegrationHarness == nil ||
+		strings.TrimSpace(globalIntegrationHarness.mysqlDSN) == "" {
 		t.Fatal("mysql integration harness is not ready")
 	}
 	return globalIntegrationHarness.mysqlDSN
