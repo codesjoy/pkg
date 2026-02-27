@@ -119,22 +119,26 @@ func AllocECPointBuffer(v *big.Int, crv elliptic.Curve) []byte {
 
 	// For most common cases we know before hand what the byte length
 	// is going to be. optimize
-	var inBytes int
-	switch bits {
-	// TODO: use constant?
-	// nolint: mnd
-	case 224, 256, 384:
-		inBytes = bits / 8
-	case 521: //nolint: mnd
-		inBytes = ec521BufferSize
-	default:
-		inBytes = bits / 8
-		if (bits % 8) != 0 {
-			inBytes++
-		}
-	}
+	inBytes := curveBytes(bits)
 
 	buf := getCrvFixedBuffer(inBytes)
 	v.FillBytes(buf)
 	return buf
+}
+
+func curveBytes(bits int) int {
+	// TODO: use constant?
+	// nolint: mnd
+	switch bits {
+	case 224, 256, 384:
+		return bits / 8
+	case 521: //nolint: mnd
+		return ec521BufferSize
+	default:
+		inBytes := bits / 8
+		if (bits % 8) != 0 {
+			inBytes++
+		}
+		return inBytes
+	}
 }
