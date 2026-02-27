@@ -214,13 +214,8 @@ func (t *TableBuilder) Build() *Table {
 	columnByFieldPath := make(map[string]*Column)
 	implicitFilterColumns := make([]*Column, 0, len(t.columns))
 	for _, c := range t.columns {
-		if _, ok := columnByFieldPath[c.fieldPath.String()]; ok {
-			panic("multiple columns with the same field path: " + c.fieldPath.String())
-		}
-		columnByFieldPath[c.fieldPath.String()] = c
-		if c.implicitFilter {
-			implicitFilterColumns = append(implicitFilterColumns, c)
-		}
+		registerColumn(columnByFieldPath, c)
+		implicitFilterColumns = appendImplicitFilterColumn(implicitFilterColumns, c)
 	}
 
 	return &Table{
@@ -228,4 +223,19 @@ func (t *TableBuilder) Build() *Table {
 		implicitFilterColumns: implicitFilterColumns,
 		columnByFieldPath:     columnByFieldPath,
 	}
+}
+
+func registerColumn(columnByFieldPath map[string]*Column, column *Column) {
+	fieldPath := column.fieldPath.String()
+	if _, ok := columnByFieldPath[fieldPath]; ok {
+		panic("multiple columns with the same field path: " + fieldPath)
+	}
+	columnByFieldPath[fieldPath] = column
+}
+
+func appendImplicitFilterColumn(columns []*Column, column *Column) []*Column {
+	if !column.implicitFilter {
+		return columns
+	}
+	return append(columns, column)
 }

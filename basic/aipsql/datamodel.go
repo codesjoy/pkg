@@ -452,37 +452,37 @@ type Table struct {
 	CompositeIndexes []CompositeIndex
 }
 
-// findColumnByFieldPath is a helper function that finds a column by field path
-// and validates it using the provided check function.
-// Returns the column, list of valid column names for error messages, and error if any.
+// findColumnByFieldPath looks up one column and verifies it with checkFunc.
+// When not found, it returns nil with valid field names for error construction.
 func (t *Table) findColumnByFieldPath(
 	path FieldPath,
 	checkFunc func(*Column) bool,
-) (*Column, []string, error) {
+) (*Column, []string) {
 	col := t.columnByFieldPath[path.String()]
 	if col != nil && checkFunc(col) {
-		return col, nil, nil
+		return col, nil
 	}
+	return nil, t.collectFieldPaths(checkFunc)
+}
 
-	// Build list of valid column names for error message
-	// Pre-allocate capacity for column names (upper bound is total columns)
-	validNames := make([]string, 0, len(t.columns))
+func (t *Table) collectFieldPaths(checkFunc func(*Column) bool) []string {
+	fieldPaths := make([]string, 0, len(t.columns))
 	for _, column := range t.columns {
 		if checkFunc(column) {
-			validNames = append(validNames, column.fieldPath.String())
+			fieldPaths = append(fieldPaths, column.fieldPath.String())
 		}
 	}
-	return nil, validNames, fmt.Errorf("column not found")
+	return fieldPaths
 }
 
 // FilterableColumnByFieldPath returns the database name of the filterable column
 // with the given field path.
 func (t *Table) FilterableColumnByFieldPath(path FieldPath) (*Column, error) {
-	col, validNames, err := t.findColumnByFieldPath(
+	col, validNames := t.findColumnByFieldPath(
 		path,
 		func(c *Column) bool { return c.filterable },
 	)
-	if err != nil {
+	if col == nil {
 		return nil, fmt.Errorf(
 			"no filterable field %q, valid fields are %s",
 			path.String(),
@@ -495,11 +495,11 @@ func (t *Table) FilterableColumnByFieldPath(path FieldPath) (*Column, error) {
 // SortableColumnByFieldPath returns the sortable database column
 // with the given externally-visible field path.
 func (t *Table) SortableColumnByFieldPath(path FieldPath) (*Column, error) {
-	col, validNames, err := t.findColumnByFieldPath(
+	col, validNames := t.findColumnByFieldPath(
 		path,
 		func(c *Column) bool { return c.sortable },
 	)
-	if err != nil {
+	if col == nil {
 		return nil, fmt.Errorf(
 			"no sortable field named %q, valid fields are %s",
 			path.String(),

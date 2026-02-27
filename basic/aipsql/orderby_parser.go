@@ -126,12 +126,9 @@ func ParseOrderBy(text string) ([]OrderBy, error) {
 		return nil, nil
 	}
 
-	expr, err := orderByParser.ParseString("", text)
+	expr, err := parseOrderByList(text)
 	if err != nil {
-		// participle includes "lexer: " in some syntax errors. Normalize the
-		// prefix so callers get stable error messages across parser versions.
-		message := strings.Replace(err.Error(), "lexer: ", "", 1)
-		return nil, fmt.Errorf("syntax error: %s", message)
+		return nil, err
 	}
 
 	result := make([]OrderBy, 0, len(expr.SortOrder))
@@ -141,14 +138,34 @@ func ParseOrderBy(text string) ([]OrderBy, error) {
 			FieldPath:  NewFieldPath(clause.FieldPath.Path()...),
 			Descending: clause.Order.Desc,
 		}
-		if _, ok := uniqueFieldPaths[orderBy.FieldPath.String()]; ok {
-			return nil, fmt.Errorf("field appears multiple times: %q", orderBy.FieldPath)
+		if err := trackUniqueOrderByField(uniqueFieldPaths, orderBy.FieldPath); err != nil {
+			return nil, err
 		}
-		uniqueFieldPaths[orderBy.FieldPath.String()] = struct{}{}
 		result = append(result, orderBy)
 	}
 
 	return result, nil
+}
+
+func parseOrderByList(text string) (*orderByList, error) {
+	expr, err := orderByParser.ParseString("", text)
+	if err == nil {
+		return expr, nil
+	}
+
+	// participle includes "lexer: " in some syntax errors. Normalize the
+	// prefix so callers get stable error messages across parser versions.
+	message := strings.Replace(err.Error(), "lexer: ", "", 1)
+	return nil, fmt.Errorf("syntax error: %s", message)
+}
+
+func trackUniqueOrderByField(seen map[string]struct{}, fieldPath FieldPath) error {
+	key := fieldPath.String()
+	if _, ok := seen[key]; ok {
+		return fmt.Errorf("field appears multiple times: %q", fieldPath)
+	}
+	seen[key] = struct{}{}
+	return nil
 }
 
 func isStringLiteral(segment string) bool {

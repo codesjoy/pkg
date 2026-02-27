@@ -307,13 +307,8 @@ func (p *QueryPlanner) PlanList(
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range requestedOrder {
-		if entry.FieldPath.Equals(registered.tieBreaker) {
-			return nil, fmt.Errorf(
-				"order_by must not contain tie breaker field %q; it is appended automatically",
-				registered.tieBreaker.String(),
-			)
-		}
+	if err := validateRequestedOrder(requestedOrder, registered.tieBreaker); err != nil {
+		return nil, err
 	}
 
 	effectiveOrder := MergeWithDefaultOrder(registered.defaultOrder, requestedOrder)
@@ -337,50 +332,20 @@ func (p *QueryPlanner) PlanList(
 
 	limit := p.resolvePageSize(registered, req.PageSize)
 
-	seekClause := ""
-	seekParams := []QueryParameter{}
-	seekEnabled := false
-	if strings.TrimSpace(req.PageToken) != "" {
-		seekToken, err := DecodeSeekPageToken(req.PageToken)
-		if err != nil {
-			return nil, err
-		}
-		if len(seekToken.SortValues) != len(effectiveOrder) {
-			return nil, fmt.Errorf(
-				"page token sort value count %d does not match planned order field count %d",
-				len(seekToken.SortValues),
-				len(effectiveOrder),
-			)
-		}
-
-		if len(effectiveOrder) == 0 {
-			seekClause, seekParams, err = buildTieBreakerOnlySeekClause(
-				registered.table,
-				registered.tieBreaker,
-				seekToken.TieBreakerValue,
-				parameterPrefix+"seek_",
-			)
-		} else {
-			seekClause, seekParams, err = registered.table.BuildSeekPaginationClause(
-				effectiveOrder,
-				seekToken.SortValues,
-				registered.tieBreaker,
-				seekToken.TieBreakerValue,
-				parameterPrefix+"seek_",
-				dialect,
-			)
-		}
-		if err != nil {
-			return nil, err
-		}
-		seekEnabled = true
+	seekClause, seekParams, seekEnabled, err := p.planSeekClause(
+		registered,
+		effectiveOrder,
+		req.PageToken,
+		parameterPrefix,
+		dialect,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	whereClause := combineWhereClauses(filterClause, seekClause)
 
-	params := make([]QueryParameter, 0, len(filterParams)+len(seekParams))
-	params = append(params, filterParams...)
-	params = append(params, seekParams...)
+	params := mergePlanParams(filterParams, seekParams)
 
 	sql := buildSQL(
 		registered.selectClause,
@@ -417,6 +382,76 @@ func (p *QueryPlanner) PlanList(
 	}
 
 	return plan, nil
+}
+
+func validateRequestedOrder(requestedOrder []OrderBy, tieBreaker FieldPath) error {
+	for _, entry := range requestedOrder {
+		if entry.FieldPath.Equals(tieBreaker) {
+			return fmt.Errorf(
+				"order_by must not contain tie breaker field %q; it is appended automatically",
+				tieBreaker.String(),
+			)
+		}
+	}
+	return nil
+}
+
+func (p *QueryPlanner) planSeekClause(
+	registered registeredTableSpec,
+	effectiveOrder []OrderBy,
+	pageToken string,
+	parameterPrefix string,
+	dialect SQLDialect,
+) (string, []QueryParameter, bool, error) {
+	if strings.TrimSpace(pageToken) == "" {
+		return "", nil, false, nil
+	}
+
+	seekToken, err := DecodeSeekPageToken(pageToken)
+	if err != nil {
+		return "", nil, false, err
+	}
+	if len(seekToken.SortValues) != len(effectiveOrder) {
+		return "", nil, false, fmt.Errorf(
+			"page token sort value count %d does not match planned order field count %d",
+			len(seekToken.SortValues),
+			len(effectiveOrder),
+		)
+	}
+
+	seekParamPrefix := parameterPrefix + "seek_"
+	if len(effectiveOrder) == 0 {
+		seekClause, seekParams, err := buildTieBreakerOnlySeekClause(
+			registered.table,
+			registered.tieBreaker,
+			seekToken.TieBreakerValue,
+			seekParamPrefix,
+		)
+		if err != nil {
+			return "", nil, false, err
+		}
+		return seekClause, seekParams, true, nil
+	}
+
+	seekClause, seekParams, err := registered.table.BuildSeekPaginationClause(
+		effectiveOrder,
+		seekToken.SortValues,
+		registered.tieBreaker,
+		seekToken.TieBreakerValue,
+		seekParamPrefix,
+		dialect,
+	)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return seekClause, seekParams, true, nil
+}
+
+func mergePlanParams(filterParams, seekParams []QueryParameter) []QueryParameter {
+	merged := make([]QueryParameter, 0, len(filterParams)+len(seekParams))
+	merged = append(merged, filterParams...)
+	merged = append(merged, seekParams...)
+	return merged
 }
 
 func (p *QueryPlanner) lookupTableSpec(tableName string) (registeredTableSpec, error) {

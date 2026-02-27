@@ -69,38 +69,17 @@ func (l *filterLexer) Next() (*token, error) {
 		return &token{kind: kindEnd}, nil
 	}
 	input := l.input
-	switch {
-	case len(input) >= 2 && input[:2] == "<=":
+	if comparator, ok := twoCharComparatorToken(input); ok {
 		l.input = input[2:]
-		return &token{kind: kindComparator, value: "<="}, nil
-	case len(input) >= 2 && input[:2] == ">=":
-		l.input = input[2:]
-		return &token{kind: kindComparator, value: ">="}, nil
-	case len(input) >= 2 && input[:2] == "!=":
-		l.input = input[2:]
-		return &token{kind: kindComparator, value: "!="}, nil
+		return comparator, nil
 	}
 
-	switch input[0] {
-	case '<', '>', '=', ':':
+	if single, ok := singleCharToken(input[0]); ok {
 		l.input = input[1:]
-		return &token{kind: kindComparator, value: input[:1]}, nil
-	case '-':
-		l.input = input[1:]
-		return &token{kind: kindNegate, value: "-"}, nil
-	case '.':
-		l.input = input[1:]
-		return &token{kind: kindDot, value: "."}, nil
-	case '(':
-		l.input = input[1:]
-		return &token{kind: kindLParen, value: "("}, nil
-	case ')':
-		l.input = input[1:]
-		return &token{kind: kindRParen, value: ")"}, nil
-	case ',':
-		l.input = input[1:]
-		return &token{kind: kindComma, value: ","}, nil
-	case '"':
+		return single, nil
+	}
+
+	if input[0] == '"' {
 		stringTokenLength, ok := filterStringTokenLength(input)
 		if !ok {
 			return nil, fmt.Errorf("error: unable to lex token from %q", input)
@@ -130,6 +109,37 @@ func (l *filterLexer) Next() (*token, error) {
 	value := input[:textTokenLength]
 	l.input = input[textTokenLength:]
 	return &token{kind: kindText, value: value}, nil
+}
+
+func twoCharComparatorToken(input string) (*token, bool) {
+	if len(input) < 2 {
+		return nil, false
+	}
+	switch input[:2] {
+	case "<=", ">=", "!=":
+		return &token{kind: kindComparator, value: input[:2]}, true
+	default:
+		return nil, false
+	}
+}
+
+func singleCharToken(ch byte) (*token, bool) {
+	switch ch {
+	case '<', '>', '=', ':':
+		return &token{kind: kindComparator, value: string(ch)}, true
+	case '-':
+		return &token{kind: kindNegate, value: "-"}, true
+	case '.':
+		return &token{kind: kindDot, value: "."}, true
+	case '(':
+		return &token{kind: kindLParen, value: "("}, true
+	case ')':
+		return &token{kind: kindRParen, value: ")"}, true
+	case ',':
+		return &token{kind: kindComma, value: ","}, true
+	default:
+		return nil, false
+	}
 }
 
 func trimFilterLeadingWhitespace(input string) string {

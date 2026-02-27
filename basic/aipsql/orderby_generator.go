@@ -71,23 +71,34 @@ func (t *Table) orderByClause(order []OrderBy, dialect SQLDialect) (string, erro
 		if i > 0 {
 			result.WriteString(", ")
 		}
-		column, err := t.SortableColumnByFieldPath(o.FieldPath)
+		clause, err := t.buildOrderByFieldClause(o, seenColumns)
 		if err != nil {
 			return "", err
 		}
-		if _, ok := seenColumns[column.databaseName]; ok {
-			return "", fmt.Errorf(
-				"field appears in order_by multiple times: %q",
-				o.FieldPath.String(),
-			)
-		}
-		seenColumns[column.databaseName] = struct{}{}
-		result.WriteString(column.databaseName)
-		if o.Descending {
-			result.WriteString(" DESC")
-		}
+		result.WriteString(clause)
 	}
 	return result.String(), nil
+}
+
+func (t *Table) buildOrderByFieldClause(order OrderBy, seenColumns map[string]struct{}) (string, error) {
+	column, err := t.SortableColumnByFieldPath(order.FieldPath)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := seenColumns[column.databaseName]; ok {
+		return "", fmt.Errorf(
+			"field appears in order_by multiple times: %q",
+			order.FieldPath.String(),
+		)
+	}
+	seenColumns[column.databaseName] = struct{}{}
+
+	var clause strings.Builder
+	clause.WriteString(column.databaseName)
+	if order.Descending {
+		clause.WriteString(" DESC")
+	}
+	return clause.String(), nil
 }
 
 // findMatchingOrderByIndex finds a composite index that matches the ORDER BY fields.

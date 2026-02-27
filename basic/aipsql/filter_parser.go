@@ -100,26 +100,7 @@ func (p *parser) expression() (*Expression, error) {
 	if s == nil {
 		return nil, nil
 	}
-	e := &Expression{}
-	e.Sequences = append(e.Sequences, s)
-	for {
-		and, err := p.accept(kindAnd)
-		if err != nil {
-			return nil, err
-		}
-		if and == nil {
-			break
-		}
-		s, err := p.sequence()
-		if err != nil {
-			return nil, err
-		}
-		if s == nil {
-			return nil, fmt.Errorf("expected sequence after AND")
-		}
-		e.Sequences = append(e.Sequences, s)
-	}
-	return e, nil
+	return p.collectConjoinedSequences(s)
 }
 
 func (p *parser) sequence() (*Sequence, error) {
@@ -148,26 +129,7 @@ func (p *parser) factor() (*Factor, error) {
 	if t == nil {
 		return nil, nil
 	}
-	f := &Factor{}
-	f.Terms = append(f.Terms, t)
-	for {
-		or, err := p.accept(kindOr)
-		if err != nil {
-			return nil, err
-		}
-		if or == nil {
-			break
-		}
-		t, err := p.term()
-		if err != nil {
-			return nil, err
-		}
-		if t == nil {
-			return nil, fmt.Errorf("expected term after OR")
-		}
-		f.Terms = append(f.Terms, t)
-	}
-	return f, nil
+	return p.collectDisjoinedTerms(t)
 }
 
 func (p *parser) term() (*Term, error) {
@@ -317,4 +279,52 @@ func (p *parser) arg() (*Arg, error) {
 		return &Arg{Composite: composite}, nil
 	}
 	return nil, nil
+}
+
+func (p *parser) collectConjoinedSequences(first *Sequence) (*Expression, error) {
+	expression := &Expression{
+		Sequences: []*Sequence{first},
+	}
+	for {
+		andToken, err := p.accept(kindAnd)
+		if err != nil {
+			return nil, err
+		}
+		if andToken == nil {
+			return expression, nil
+		}
+
+		nextSequence, err := p.sequence()
+		if err != nil {
+			return nil, err
+		}
+		if nextSequence == nil {
+			return nil, fmt.Errorf("expected sequence after AND")
+		}
+		expression.Sequences = append(expression.Sequences, nextSequence)
+	}
+}
+
+func (p *parser) collectDisjoinedTerms(first *Term) (*Factor, error) {
+	factor := &Factor{
+		Terms: []*Term{first},
+	}
+	for {
+		orToken, err := p.accept(kindOr)
+		if err != nil {
+			return nil, err
+		}
+		if orToken == nil {
+			return factor, nil
+		}
+
+		nextTerm, err := p.term()
+		if err != nil {
+			return nil, err
+		}
+		if nextTerm == nil {
+			return nil, fmt.Errorf("expected term after OR")
+		}
+		factor.Terms = append(factor.Terms, nextTerm)
+	}
 }
