@@ -39,6 +39,8 @@ make fmt
 make lint
 ```
 
+By default, generated Go files are skipped by `fmt`, `fmt.check`, `lint`, and `fix`. Use `INCLUDE_GENERATED=1` when you need generated outputs included in checks.
+
 Use auto-fix mode when needed:
 
 ```bash

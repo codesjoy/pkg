@@ -6,10 +6,10 @@
 TEST_FLAGS := -v -race -count=1
 TEST_TIMEOUT := 10m
 
-# Lint config
+# Lint config (single source of truth)
 GOLANGCI_LINT_CONFIG := $(ROOT_DIR)/.golangci.yaml
 
-# Exclude tests pattern (e.g., "vendor|test")
+# Optional regex for package directories excluded from lint/fix (e.g., "vendor|test")
 EXCLUDE_TESTS ?=
 
 # ==============================================================================
@@ -105,7 +105,7 @@ go.fmt.golines:
 go.fmt.check:
 	@$(call require-tool,$(GOFUMPT))
 	@$(LOG_INFO) "Checking code formatting"
-	@unformatted=$$($(GOFUMPT) -l . 2>/dev/null | grep -v vendor); \
+	@unformatted=$$($(call find-go-files,.,vendor) -exec $(GOFUMPT) -l {} + 2>/dev/null); \
 	if [ -n "$$unformatted" ]; then \
 		echo "Code is not formatted. Run 'make fmt'"; \
 		echo "$$unformatted"; \
@@ -120,14 +120,14 @@ go.fmt.check:
 # Features:
 #   - Multi-module support: Lints all discovered go.mod modules
 #   - Auto-fix: make fix applies automatic fixes where possible
-#   - Configurable exclusions: Use EXCLUDE_TESTS= to skip specific patterns
+#   - Configurable exclusions: Use EXCLUDE_TESTS= to skip package directories by regex
 #   - Custom configuration: Edit .golangci.yaml to enable/disable linters
 #
 # Usage:
 #   make lint                          - Run all linters across all modules
 #   make fix                           - Run linters with auto-fix enabled
 #   make go.lint.<module>              - Lint specific module
-#   make lint EXCLUDE_TESTS="vendor"   - Exclude patterns from linting
+#   make lint EXCLUDE_TESTS="vendor|example" - Exclude package directory regexes from linting
 #
 # CI Integration:
 #   - Use 'make lint' in CI/CD pipelines as a quality gate
@@ -168,7 +168,20 @@ go.lint.%:
 	@$(call require-file,$(GOLANGCI_LINT_CONFIG))
 	@$(call resolve-module-path,$*); \
 	$(LOG_INFO) "Linting $$module_path"; \
-	cd "$(ROOT_DIR)/$$module_path" && GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) ./...
+	cd "$(ROOT_DIR)/$$module_path" || exit 1; \
+	lint_config="$(GOLANGCI_LINT_CONFIG)"; \
+	lint_config_tmp_dir=""; \
+	if [ "$(strip $(INCLUDE_GENERATED))" = "1" ]; then \
+		lint_config_tmp_dir=$$(mktemp -d); \
+		lint_config_tmp="$$lint_config_tmp_dir/golangci.yaml"; \
+		sed 's/generated: strict/generated: disable/g' "$(GOLANGCI_LINT_CONFIG)" > "$$lint_config_tmp"; \
+		lint_config="$$lint_config_tmp"; \
+	fi; \
+	cleanup() { \
+		if [ -n "$$lint_config_tmp_dir" ]; then rm -rf "$$lint_config_tmp_dir"; fi; \
+	}; \
+	trap cleanup EXIT; \
+	GOWORK=off $(GOLANGCI_LINT) run --config="$$lint_config" ./...
 
 ## go.lint.check: Check all modules
 go.lint.check:
@@ -177,14 +190,35 @@ go.lint.check:
 	$(call validate-module-selection,$(MODULES))
 	@$(LOG_INFO) "Running linters"
 	@source $(ROOT_DIR)/scripts/lib/logger.sh >/dev/null 2>&1; \
+	lint_config="$(GOLANGCI_LINT_CONFIG)"; \
+	lint_config_tmp_dir=""; \
+	if [ "$(strip $(INCLUDE_GENERATED))" = "1" ]; then \
+		lint_config_tmp_dir=$$(mktemp -d); \
+		lint_config_tmp="$$lint_config_tmp_dir/golangci.yaml"; \
+		sed 's/generated: strict/generated: disable/g' "$(GOLANGCI_LINT_CONFIG)" > "$$lint_config_tmp"; \
+		lint_config="$$lint_config_tmp"; \
+	fi; \
+	cleanup() { \
+		if [ -n "$$lint_config_tmp_dir" ]; then rm -rf "$$lint_config_tmp_dir"; fi; \
+	}; \
+	trap cleanup EXIT; \
 	for module in $(MODULES); do \
 		log::info "$$module"; \
 		cd "$(ROOT_DIR)/$$module" || exit 1; \
+		lint_targets=$$(GOWORK=off $(GO) list -f '{{.Dir}}' ./... | sed '/^$$/d'); \
 		if [ -n "$(EXCLUDE_TESTS)" ]; then \
-			GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) --exclude="$(EXCLUDE_TESTS)" ./... || exit 1; \
-		else \
-			GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) ./... || exit 1; \
+			lint_targets=$$(printf "%s\n" "$$lint_targets" | grep -Ev "$(EXCLUDE_TESTS)" || true); \
+			lint_targets=$$(printf "%s\n" "$$lint_targets" | sed '/^$$/d'); \
 		fi; \
+		if [ -z "$$lint_targets" ]; then \
+			if [ -n "$(EXCLUDE_TESTS)" ]; then \
+				log::warn "$$module has no packages after EXCLUDE_TESTS filter ($(EXCLUDE_TESTS)), skipping"; \
+			else \
+				log::warn "$$module has no packages to lint, skipping"; \
+			fi; \
+			continue; \
+		fi; \
+		GOWORK=off $(GOLANGCI_LINT) run --config="$$lint_config" $$lint_targets || exit 1; \
 	done
 
 ## go.fix: Run linters with auto-fix
@@ -194,14 +228,35 @@ go.fix: go.lint.ensure-compatible
 	$(call validate-module-selection,$(MODULES))
 	@$(LOG_INFO) "Running linters with auto-fix"
 	@source $(ROOT_DIR)/scripts/lib/logger.sh >/dev/null 2>&1; \
+	lint_config="$(GOLANGCI_LINT_CONFIG)"; \
+	lint_config_tmp_dir=""; \
+	if [ "$(strip $(INCLUDE_GENERATED))" = "1" ]; then \
+		lint_config_tmp_dir=$$(mktemp -d); \
+		lint_config_tmp="$$lint_config_tmp_dir/golangci.yaml"; \
+		sed 's/generated: strict/generated: disable/g' "$(GOLANGCI_LINT_CONFIG)" > "$$lint_config_tmp"; \
+		lint_config="$$lint_config_tmp"; \
+	fi; \
+	cleanup() { \
+		if [ -n "$$lint_config_tmp_dir" ]; then rm -rf "$$lint_config_tmp_dir"; fi; \
+	}; \
+	trap cleanup EXIT; \
 	for module in $(MODULES); do \
 		log::info "$$module"; \
 		cd "$(ROOT_DIR)/$$module" || exit 1; \
+		lint_targets=$$(GOWORK=off $(GO) list -f '{{.Dir}}' ./... | sed '/^$$/d'); \
 		if [ -n "$(EXCLUDE_TESTS)" ]; then \
-			GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) --fix --exclude="$(EXCLUDE_TESTS)" ./... || exit 1; \
-		else \
-			GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) --fix ./... || exit 1; \
+			lint_targets=$$(printf "%s\n" "$$lint_targets" | grep -Ev "$(EXCLUDE_TESTS)" || true); \
+			lint_targets=$$(printf "%s\n" "$$lint_targets" | sed '/^$$/d'); \
 		fi; \
+		if [ -z "$$lint_targets" ]; then \
+			if [ -n "$(EXCLUDE_TESTS)" ]; then \
+				log::warn "$$module has no packages after EXCLUDE_TESTS filter ($(EXCLUDE_TESTS)), skipping"; \
+			else \
+				log::warn "$$module has no packages to lint-fix, skipping"; \
+			fi; \
+			continue; \
+		fi; \
+		GOWORK=off $(GOLANGCI_LINT) run --config="$$lint_config" --fix $$lint_targets || exit 1; \
 	done
 
 ## go.fix.%: Fix specific module
@@ -210,7 +265,20 @@ go.fix.%:
 	@$(call require-file,$(GOLANGCI_LINT_CONFIG))
 	@$(call resolve-module-path,$*); \
 	$(LOG_INFO) "Fixing $$module_path"; \
-	cd "$(ROOT_DIR)/$$module_path" && GOWORK=off $(GOLANGCI_LINT) run --config=$(GOLANGCI_LINT_CONFIG) --fix ./...
+	cd "$(ROOT_DIR)/$$module_path" || exit 1; \
+	lint_config="$(GOLANGCI_LINT_CONFIG)"; \
+	lint_config_tmp_dir=""; \
+	if [ "$(strip $(INCLUDE_GENERATED))" = "1" ]; then \
+		lint_config_tmp_dir=$$(mktemp -d); \
+		lint_config_tmp="$$lint_config_tmp_dir/golangci.yaml"; \
+		sed 's/generated: strict/generated: disable/g' "$(GOLANGCI_LINT_CONFIG)" > "$$lint_config_tmp"; \
+		lint_config="$$lint_config_tmp"; \
+	fi; \
+	cleanup() { \
+		if [ -n "$$lint_config_tmp_dir" ]; then rm -rf "$$lint_config_tmp_dir"; fi; \
+	}; \
+	trap cleanup EXIT; \
+	GOWORK=off $(GOLANGCI_LINT) run --config="$$lint_config" --fix ./...
 
 # ==============================================================================
 # Test Targets
@@ -237,7 +305,7 @@ go.fix.%:
 # Test Configuration:
 #   - TEST_FLAGS:           Additional flags (default: -v -race -count=1)
 #   - TEST_TIMEOUT:         Test timeout (default: 10m)
-#   - EXCLUDE_TESTS:        Pattern to exclude from tests
+#   - EXCLUDE_TESTS:        Regex to exclude package dirs from lint/fix
 #
 # Examples:
 #   make test                      Run all unit tests

@@ -1,24 +1,26 @@
+# Default profile excludes generated Go files.
+# Use INCLUDE_GENERATED=1 in make targets to include generated files.
 version: "2"
 
 linters:
   default: none
   enable:
-    # 基础检查
+    # basic checks
     - govet
     - staticcheck
     - errcheck
     - ineffassign
     - unused
 
-    # 风格
+    # style
     - revive
     - unconvert
     - gocritic
 
-    # 安全
+    # security
     - gosec
 
-    # 并发
+    # concurrency
     - bodyclose
     - noctx
   settings:
@@ -32,6 +34,14 @@ linters:
         - name: unused-parameter
           disabled: true
   exclusions:
+    generated: strict
+    paths:
+      - '(^|/).*\.pb\.go$'
+      - '(^|/).*\.pb\.gw\.go$'
+      - '(^|/).*\.gen\.go$'
+      - '(^|/).*_gen\.go$'
+      - '(^|/).*_generated\.go$'
+      - '(^|/)zz_generated.*\.go$'
     rules:
       - path: _test\.go
         linters:
@@ -70,3 +80,12 @@ formatters:
     - gofumpt
     - goimports
     - golines
+  exclusions:
+    generated: strict
+    paths:
+      - '(^|/).*\.pb\.go$'
+      - '(^|/).*\.pb\.gw\.go$'
+      - '(^|/).*\.gen\.go$'
+      - '(^|/).*_gen\.go$'
+      - '(^|/).*_generated\.go$'
+      - '(^|/)zz_generated.*\.go$'

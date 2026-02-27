@@ -125,11 +125,14 @@ LOG_LEVEL=0
 # Coverage threshold (default 60)
 COVERAGE=80
 
-# Optional exclusion pattern passed to linters
-EXCLUDE_TESTS="vendor|test"
+# Optional regex used to filter package dirs in lint/fix
+EXCLUDE_TESTS="vendor|example"
 
 # Include example modules in lint/fix/test/coverage (default: 0)
 INCLUDE_EXAMPLES=1
+
+# Include generated Go files in fmt/lint/fix (default: 0)
+INCLUDE_GENERATED=1
 
 # Override critical tool versions for make tools
 GOLANGCI_LINT_VERSION=v2.7.2

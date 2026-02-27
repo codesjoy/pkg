@@ -29,6 +29,10 @@ MODULE_EXCLUDE ?=
 EXAMPLE_MODULE_PATTERNS ?= %/example %/examples
 INCLUDE_EXAMPLES ?= 0
 
+# Generated source filtering (default excludes generated Go files from fmt/lint/fix)
+INCLUDE_GENERATED ?= 0
+GENERATED_GO_FILE_PATTERNS ?= *.pb.go *.pb.gw.go *.gen.go *_gen.go *_generated.go zz_generated*.go
+
 # Track whether MODULES was explicitly set by caller.
 MODULES_ORIGIN := $(origin MODULES)
 MODULES_EXPLICIT := 0
@@ -156,8 +160,12 @@ endef
 # Efficient find with exclusions (avoids piped grep)
 # Usage: $(call find-go-files,directory,exclude_patterns...)
 # Example: $(call find-go-files,.,vendor _output)
+define find-generated-go-file-excludes
+$(if $(filter 1,$(strip $(INCLUDE_GENERATED))),,$(foreach pattern,$(GENERATED_GO_FILE_PATTERNS),-not -name "$(pattern)"))
+endef
+
 define find-go-files
-$(FIND) $(1) -name "*.go" $(foreach pattern,$(2),-not -path "*/$(pattern)/*")
+$(FIND) $(1) -name "*.go" $(foreach pattern,$(2),-not -path "*/$(pattern)/*") $(call find-generated-go-file-excludes)
 endef
 
 # ==============================================================================
