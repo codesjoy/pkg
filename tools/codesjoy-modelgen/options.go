@@ -61,10 +61,7 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 		return Options{}, fmt.Errorf("unexpected args: %s", strings.Join(fs.Args(), " "))
 	}
 
-	visitedFlags := make(map[string]struct{})
-	fs.Visit(func(f *flag.Flag) {
-		visitedFlags[f.Name] = struct{}{}
-	})
+	visitedFlags := collectVisitedFlags(fs)
 
 	opts := Options{
 		Dialect:       strings.TrimSpace(*dialect),
@@ -90,21 +87,11 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 }
 
 func (o Options) validate() error {
-	if o.Dialect == "" {
-		return fmt.Errorf("--dialect is required")
+	if err := o.validateRequired(); err != nil {
+		return err
 	}
 	if _, err := normalizeDialect(o.Dialect); err != nil {
 		return err
-	}
-
-	if o.DSN == "" {
-		return fmt.Errorf("--dsn is required")
-	}
-	if o.OutDir == "" {
-		return fmt.Errorf("--out-dir is required")
-	}
-	if o.PackageName == "" {
-		return fmt.Errorf("--package is required")
 	}
 	if !token.IsIdentifier(o.PackageName) || types.Universe.Lookup(o.PackageName) != nil {
 		return fmt.Errorf("invalid --package value %q", o.PackageName)
@@ -151,4 +138,28 @@ func splitCSV(raw string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+func collectVisitedFlags(fs *flag.FlagSet) map[string]struct{} {
+	visited := make(map[string]struct{})
+	fs.Visit(func(f *flag.Flag) {
+		visited[f.Name] = struct{}{}
+	})
+	return visited
+}
+
+func (o Options) validateRequired() error {
+	if o.Dialect == "" {
+		return fmt.Errorf("--dialect is required")
+	}
+	if o.DSN == "" {
+		return fmt.Errorf("--dsn is required")
+	}
+	if o.OutDir == "" {
+		return fmt.Errorf("--out-dir is required")
+	}
+	if o.PackageName == "" {
+		return fmt.Errorf("--package is required")
+	}
+	return nil
 }

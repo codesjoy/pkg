@@ -18,13 +18,7 @@ func ResolveTables(
 	resolved := make([]ResolvedTable, 0, len(metas))
 	warnings := make([]string, 0)
 	for _, meta := range metas {
-		if len(cliTableSet) > 0 && !containsKey(cliTableSet, meta.Name) {
-			continue
-		}
-		if len(includeSet) > 0 && !containsKey(includeSet, meta.Name) {
-			continue
-		}
-		if containsKey(excludeSet, meta.Name) {
+		if !shouldIncludeTable(meta.Name, cliTableSet, includeSet, excludeSet) {
 			continue
 		}
 
@@ -33,33 +27,10 @@ func ResolveTables(
 			continue
 		}
 
-		modelName := ToPascalCase(meta.Name)
-		if hasTableOv && strings.TrimSpace(tableOv.ModelName) != "" {
-			modelName = strings.TrimSpace(tableOv.ModelName)
-		}
-		aipsqlBuilder := "New" + modelName + "AIPTable"
-		if hasTableOv && strings.TrimSpace(tableOv.AIPSQLBuilder) != "" {
-			aipsqlBuilder = strings.TrimSpace(tableOv.AIPSQLBuilder)
-		}
-
-		generateAIPTable := true
-		if overrides.GenAIPSQL != nil {
-			generateAIPTable = *overrides.GenAIPSQL
-		}
-		if hasTableOv && tableOv.GenAIPSQL != nil {
-			generateAIPTable = *tableOv.GenAIPSQL
-		}
-		if opts.GenAIPSQLSet {
-			generateAIPTable = opts.GenAIPSQL
-		}
-
-		timestampMode := timestampModeUnixSec
-		if strings.TrimSpace(overrides.TimestampMode) != "" {
-			timestampMode = strings.ToLower(strings.TrimSpace(overrides.TimestampMode))
-		}
-		if hasTableOv && strings.TrimSpace(tableOv.TimestampMode) != "" {
-			timestampMode = strings.ToLower(strings.TrimSpace(tableOv.TimestampMode))
-		}
+		modelName := resolveModelName(meta.Name, tableOv, hasTableOv)
+		aipsqlBuilder := resolveAIPSQLBuilder(modelName, tableOv, hasTableOv)
+		generateAIPTable := resolveGenerateAIPTable(overrides, tableOv, hasTableOv, opts)
+		timestampMode := resolveTableTimestampMode(overrides, tableOv, hasTableOv)
 		if opts.TimestampModeSet {
 			timestampMode = strings.ToLower(strings.TrimSpace(opts.TimestampMode))
 		}
@@ -93,16 +64,7 @@ func ResolveTables(
 		}
 
 		keptColumns := makeStringSetFromResolved(columns)
-		compositeIndexes := make([]IndexMeta, 0, len(meta.Indexes))
-		for _, index := range meta.Indexes {
-			if len(index.Columns) < 2 {
-				continue
-			}
-			if !allColumnsPresent(index.Columns, keptColumns) {
-				continue
-			}
-			compositeIndexes = append(compositeIndexes, index)
-		}
+		compositeIndexes := filterCompositeIndexes(meta.Indexes, keptColumns)
 
 		resolved = append(resolved, ResolvedTable{
 			Schema:           meta.Schema,
@@ -301,4 +263,86 @@ func allColumnsPresent(columns []string, set map[string]struct{}) bool {
 
 func boolPtrValue(v *bool) bool {
 	return v != nil && *v
+}
+
+func shouldIncludeTable(
+	tableName string,
+	cliTableSet map[string]struct{},
+	includeSet map[string]struct{},
+	excludeSet map[string]struct{},
+) bool {
+	if len(cliTableSet) > 0 && !containsKey(cliTableSet, tableName) {
+		return false
+	}
+	if len(includeSet) > 0 && !containsKey(includeSet, tableName) {
+		return false
+	}
+	return !containsKey(excludeSet, tableName)
+}
+
+func resolveModelName(tableName string, tableOv TableOverride, hasTableOv bool) string {
+	modelName := ToPascalCase(tableName)
+	if hasTableOv && strings.TrimSpace(tableOv.ModelName) != "" {
+		modelName = strings.TrimSpace(tableOv.ModelName)
+	}
+	return modelName
+}
+
+func resolveAIPSQLBuilder(modelName string, tableOv TableOverride, hasTableOv bool) string {
+	builder := "New" + modelName + "AIPTable"
+	if hasTableOv && strings.TrimSpace(tableOv.AIPSQLBuilder) != "" {
+		builder = strings.TrimSpace(tableOv.AIPSQLBuilder)
+	}
+	return builder
+}
+
+func resolveGenerateAIPTable(
+	overrides OverrideConfig,
+	tableOv TableOverride,
+	hasTableOv bool,
+	opts Options,
+) bool {
+	generateAIPTable := true
+	if overrides.GenAIPSQL != nil {
+		generateAIPTable = *overrides.GenAIPSQL
+	}
+	if hasTableOv && tableOv.GenAIPSQL != nil {
+		generateAIPTable = *tableOv.GenAIPSQL
+	}
+	if opts.GenAIPSQLSet {
+		generateAIPTable = opts.GenAIPSQL
+	}
+	return generateAIPTable
+}
+
+func resolveTableTimestampMode(
+	overrides OverrideConfig,
+	tableOv TableOverride,
+	hasTableOv bool,
+) string {
+	timestampMode := timestampModeUnixSec
+	if strings.TrimSpace(overrides.TimestampMode) != "" {
+		timestampMode = strings.ToLower(strings.TrimSpace(overrides.TimestampMode))
+	}
+	if hasTableOv && strings.TrimSpace(tableOv.TimestampMode) != "" {
+		timestampMode = strings.ToLower(strings.TrimSpace(tableOv.TimestampMode))
+	}
+	return timestampMode
+}
+
+func filterCompositeIndexes(
+	indexes []IndexMeta,
+	keptColumns map[string]struct{},
+) []IndexMeta {
+	compositeIndexes := make([]IndexMeta, 0, len(indexes))
+	for _, index := range indexes {
+		if len(index.Columns) < 2 {
+			continue
+		}
+		if !allColumnsPresent(index.Columns, keptColumns) {
+			continue
+		}
+		compositeIndexes = append(compositeIndexes, index)
+	}
+	return compositeIndexes
 }

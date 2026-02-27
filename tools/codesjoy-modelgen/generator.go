@@ -26,14 +26,8 @@ func NewGenerator() *Generator {
 
 // Run executes generation with the provided options.
 func (g *Generator) Run(ctx context.Context, opts Options, stdout io.Writer) error {
-	if g.Introspector == nil {
-		return fmt.Errorf("introspector is required")
-	}
-	if g.Renderer == nil {
-		return fmt.Errorf("renderer is required")
-	}
-	if g.Writer == nil {
-		return fmt.Errorf("writer is required")
+	if err := g.validateDependencies(); err != nil {
+		return err
 	}
 
 	normalizedDialect, err := normalizeDialect(opts.Dialect)
@@ -42,15 +36,9 @@ func (g *Generator) Run(ctx context.Context, opts Options, stdout io.Writer) err
 	}
 	opts.Dialect = normalizedDialect
 
-	tables, err := g.Introspector.Inspect(
-		ctx,
-		opts.Dialect,
-		opts.DSN,
-		opts.Schema,
-		opts.Tables,
-	)
+	tables, err := g.inspectTables(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("inspect metadata: %w", err)
+		return err
 	}
 
 	overrides, err := LoadOverrideConfig(opts.OverrideFile)
@@ -71,24 +59,10 @@ func (g *Generator) Run(ctx context.Context, opts Options, stdout io.Writer) err
 		return fmt.Errorf("render files: %w", err)
 	}
 
-	generated := make([]GeneratedFile, 0, len(renderedFiles))
-	for _, rf := range renderedFiles {
-		generated = append(generated, GeneratedFile{
-			Path:    filepath.Join(opts.OutDir, rf.Name),
-			Content: rf.Content,
-		})
-	}
-	for _, table := range resolvedTables {
-		warnLegacySplitFiles(opts.OutDir, table.Name, stdout)
-	}
-
-	for _, file := range generated {
-		if err := g.Writer.Write(file, opts.Force, opts.DryRun); err != nil {
-			return err
-		}
-		if opts.DryRun {
-			_, _ = fmt.Fprintf(stdout, "[dry-run] %s\n", file.Path)
-		}
+	generated := toGeneratedFiles(opts.OutDir, renderedFiles)
+	warnLegacySplitFilesForTables(opts.OutDir, resolvedTables, stdout)
+	if err := g.writeGeneratedFiles(generated, opts, stdout); err != nil {
+		return err
 	}
 
 	if !opts.DryRun {
@@ -118,4 +92,60 @@ func warnLegacySplitFiles(outDir string, tableName string, stdout io.Writer) {
 			)
 		}
 	}
+}
+
+func (g *Generator) validateDependencies() error {
+	if g.Introspector == nil {
+		return fmt.Errorf("introspector is required")
+	}
+	if g.Renderer == nil {
+		return fmt.Errorf("renderer is required")
+	}
+	if g.Writer == nil {
+		return fmt.Errorf("writer is required")
+	}
+	return nil
+}
+
+func (g *Generator) inspectTables(ctx context.Context, opts Options) ([]TableMeta, error) {
+	tables, err := g.Introspector.Inspect(
+		ctx,
+		opts.Dialect,
+		opts.DSN,
+		opts.Schema,
+		opts.Tables,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("inspect metadata: %w", err)
+	}
+	return tables, nil
+}
+
+func toGeneratedFiles(outDir string, files []RenderedFile) []GeneratedFile {
+	generated := make([]GeneratedFile, 0, len(files))
+	for _, file := range files {
+		generated = append(generated, GeneratedFile{
+			Path:    filepath.Join(outDir, file.Name),
+			Content: file.Content,
+		})
+	}
+	return generated
+}
+
+func warnLegacySplitFilesForTables(outDir string, tables []ResolvedTable, stdout io.Writer) {
+	for _, table := range tables {
+		warnLegacySplitFiles(outDir, table.Name, stdout)
+	}
+}
+
+func (g *Generator) writeGeneratedFiles(files []GeneratedFile, opts Options, stdout io.Writer) error {
+	for _, file := range files {
+		if err := g.Writer.Write(file, opts.Force, opts.DryRun); err != nil {
+			return err
+		}
+		if opts.DryRun {
+			_, _ = fmt.Fprintf(stdout, "[dry-run] %s\n", file.Path)
+		}
+	}
+	return nil
 }

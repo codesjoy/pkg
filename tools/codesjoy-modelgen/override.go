@@ -62,30 +62,8 @@ func LoadOverrideConfig(path string) (OverrideConfig, error) {
 	if cfg.Tables == nil {
 		cfg.Tables = map[string]TableOverride{}
 	}
-	if strings.TrimSpace(cfg.TimestampMode) != "" {
-		if err := validateTimestampMode(cfg.TimestampMode); err != nil {
-			return OverrideConfig{}, err
-		}
-	}
-	for tableName, table := range cfg.Tables {
-		if strings.TrimSpace(table.TimestampMode) != "" {
-			if err := validateTimestampMode(table.TimestampMode); err != nil {
-				return OverrideConfig{}, fmt.Errorf("table %s: %w", tableName, err)
-			}
-		}
-		for columnName, col := range table.Columns {
-			if strings.TrimSpace(col.TimestampMode) == "" {
-				continue
-			}
-			if err := validateTimestampMode(col.TimestampMode); err != nil {
-				return OverrideConfig{}, fmt.Errorf(
-					"table %s column %s: %w",
-					tableName,
-					columnName,
-					err,
-				)
-			}
-		}
+	if err := validateOverrideTimestampModes(cfg); err != nil {
+		return OverrideConfig{}, err
 	}
 	cfg.IncludeTables = dedupeStrings(cfg.IncludeTables)
 	cfg.ExcludeTables = dedupeStrings(cfg.ExcludeTables)
@@ -133,4 +111,28 @@ func dedupeStrings(items []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+func validateOverrideTimestampModes(cfg OverrideConfig) error {
+	if strings.TrimSpace(cfg.TimestampMode) != "" {
+		if err := validateTimestampMode(cfg.TimestampMode); err != nil {
+			return err
+		}
+	}
+	for tableName, table := range cfg.Tables {
+		if strings.TrimSpace(table.TimestampMode) != "" {
+			if err := validateTimestampMode(table.TimestampMode); err != nil {
+				return fmt.Errorf("table %s: %w", tableName, err)
+			}
+		}
+		for columnName, col := range table.Columns {
+			if strings.TrimSpace(col.TimestampMode) == "" {
+				continue
+			}
+			if err := validateTimestampMode(col.TimestampMode); err != nil {
+				return fmt.Errorf("table %s column %s: %w", tableName, columnName, err)
+			}
+		}
+	}
+	return nil
 }
