@@ -1,0 +1,53 @@
+// Copyright 2022 The codesjoy Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package xredis
+
+import (
+	"strings"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// Config contains client construction settings.
+type Config struct {
+	redis.UniversalOptions
+}
+
+// Validate validates and normalizes xredis config.
+func (c *Config) Validate() error {
+	if c == nil {
+		return ErrEmptyAddrs
+	}
+
+	if len(c.Addrs) == 0 {
+		return ErrEmptyAddrs
+	}
+
+	normalizedAddrs := make([]string, 0, len(c.Addrs))
+	for _, addr := range c.Addrs {
+		trimmed := strings.TrimSpace(addr)
+		if trimmed == "" {
+			continue
+		}
+		normalizedAddrs = append(normalizedAddrs, trimmed)
+	}
+
+	if len(normalizedAddrs) == 0 {
+		return ErrEmptyAddrs
+	}
+
+	c.Addrs = normalizedAddrs
+	return nil
+}

@@ -19,6 +19,7 @@ The repository is organized by responsibility:
 | `basic/snowflake` | Distributed Snowflake ID generation with static/GORM workers | [basic/snowflake/README.md](./basic/snowflake/README.md) |
 | `basic/xerror` | Framework-agnostic domain errors with reason + canonical code matching | [basic/xerror/README.md](./basic/xerror/README.md) |
 | `basic/xkafka` | Sarama-based Group/Partition consumers plus Sync/Batch/Async producer with middleware chain (logger/retry/trace), shard ordering, and at-least-once semantics | [basic/xkafka/README.md](./basic/xkafka/README.md) |
+| `basic/xredis` | go-redis native-style client builder with middleware wiring for slog and OpenTelemetry | [basic/xredis/README.md](./basic/xredis/README.md) |
 | `basic/xjwt` | JWT-oriented key generation (RSA/ECDSA/Ed25519/X25519/JWK) | [basic/xjwt/README.md](./basic/xjwt/README.md) |
 | `utils` | Utility module with `base62`, `xcrypto`, `cookie`, `xemail`, `xgo` | [utils/README.md](./utils/README.md) |
 
@@ -41,6 +42,7 @@ go get github.com/codesjoy/pkg/basic/aipsql
 go get github.com/codesjoy/pkg/basic/snowflake
 go get github.com/codesjoy/pkg/basic/xerror
 go get github.com/codesjoy/pkg/basic/xkafka
+go get github.com/codesjoy/pkg/basic/xredis
 go get github.com/codesjoy/pkg/basic/xjwt
 go get github.com/codesjoy/pkg/utils
 ```
