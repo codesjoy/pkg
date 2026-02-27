@@ -1,40 +1,47 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- This repo is a Go workspace (`go.work`) with independently versioned modules.
-- `basic/` contains domain-facing libraries such as `aipsql`, `xgorm`, `snowflake`, `xerror`, `xjwt`, and `xkafka`.
-- `utils/` contains shared helpers (`base62`, `xcrypto`, `cookie`, `xemail`, `xgo`).
-- `tools/` hosts build-time tooling modules, including `protoc-gen-codesjoy-reason` and its example module.
-- Shared automation lives in `scripts/make-rules/*.mk`; local git checks live in `scripts/hooks/`.
-- Keep tests and examples close to code (for example, `basic/aipsql/testing/integration` and `basic/snowflake/examples`).
+This repository is a multi-module Go workspace managed by [`go.work`](./go.work). Core code is grouped by responsibility:
+
+- `basic/`: reusable platform/business libraries (for example `basic/xgorm`, `basic/xkafka`, `basic/aipsql`), each with its own `go.mod`.
+- `utils/`: shared utility module (`base62`, `xcrypto`, `xmap`, `xnet`, etc.).
+- `tools/`: developer tools and code generators (for example `tools/codesjoy-modelgen`, `tools/protoc-gen-codesjoy-reason`).
+- `scripts/`: Make rule fragments, hooks, and shell utilities.
+- `_output/`: generated artifacts such as coverage reports.
+
+Keep tests close to code (`*_test.go`). Integration tests live under module paths like `testing/integration/`.
 
 ## Build, Test, and Development Commands
-- `make tools`: install/update required developer tools and hooks.
-- `make sync && make tidy`: refresh `go.work` and tidy dependencies.
-- `make fmt` / `make fmt.check`: apply or verify formatting.
-- `make lint` / `make fix`: run `golangci-lint` checks or apply supported auto-fixes.
-- `make test`, `make test.race`, `make test.bench`, `make coverage`: run unit, race, benchmark, and coverage gates.
-- Scope commands while iterating:
-  - `make MODULES="basic/xjwt" test`
-  - `make MODULES="utils" lint`
-  - `make MODULE_EXCLUDE="basic/snowflake/examples" test`
+Use root `Makefile` targets:
+
+- `make tools && make hooks.install && make sync`: install tooling/hooks and refresh workspace.
+- `make fmt`: run `gofmt`, `gofumpt`, `goimports`, `golines`.
+- `make lint`: run configured `golangci-lint` checks.
+- `make test`, `make test.race`, `make test.bench`: unit/race/benchmark runs.
+- `make coverage`: coverage gate (default threshold `COVERAGE=60`), outputs to `_output/coverage/`.
+- `make check.fast` / `make check`: aggregated local/CI-style gates.
+
+Scope commands when possible, for example: `make MODULES="basic/xgorm" test`.
 
 ## Coding Style & Naming Conventions
-- Follow idiomatic Go style and `gofmt` output (tabs, standard layout).
-- Use short, lowercase package names without underscores.
-- Add GoDoc comments for exported identifiers (enforced by `revive`).
-- Prefer explicit error handling; do not silently ignore errors.
-- Run `make fmt lint` before opening a PR.
+- Target Go version: 1.25.7+.
+- Follow idiomatic Go naming: lowercase package names, exported identifiers in `CamelCase` with GoDoc comments.
+- Run `make fmt` before committing; generated files are excluded by default (set `INCLUDE_GENERATED=1` when needed).
+- Keep module names/path segments explicit (for example `basic/xredis`, `tools/codesjoy-modelgen`).
 
 ## Testing Guidelines
-- Place unit tests beside implementation files as `*_test.go`.
-- Name tests `TestXxx` and benchmarks `BenchmarkXxx`.
-- Put dependency-heavy integration tests under `testing/integration/`.
-- At minimum run `make test`; use `make coverage` for broader changes.
+- Prefer table-driven unit tests alongside implementation files.
+- Use integration suites only when behavior depends on external services (often Docker-backed).
+- Run scoped checks during development, then full checks before PR:
+  - `make MODULES="utils" test`
+  - `make check`
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commits: `type(scope): description`.
-- Common types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
-- Keep subject lines <= 72 chars, lowercase after `:`, and no trailing period.
-- If using `!`, include a `BREAKING CHANGE:` footer in the commit body.
-- PRs should include purpose, key changes, tests run, and linked issues/docs where relevant.
+- Commit messages must follow Conventional Commits (enforced by `gitlint`):
+  - Module-scoped changes: `type(scope): subject` (for example, `feat(xgorm): add sharding support`).
+  - Repo-level changes without a clear module owner: `type: subject`.
+- Allowed `type` values: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
+- `subject` must start lowercase, be concise, <= 72 chars, and must not end with `.`.
+- Use stable, concise scopes (prefer module names like `xgorm`, `xkafka`, `utils`; use tool scopes like `tools-modelgen` when appropriate).
+- Commits using `!` must include a `BREAKING CHANGE:` footer.
+- PRs should include: affected modules, test commands run, and docs updates for API/behavior changes.
