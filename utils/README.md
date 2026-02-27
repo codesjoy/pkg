@@ -4,13 +4,14 @@ General-purpose utility libraries for Go applications.
 
 ## Overview
 
-This module provides five focused utility packages for common Go programming tasks:
+This module provides six focused utility packages for common Go programming tasks:
 
 - **base62** - Base62 encoding/decoding for int64 values
 - **xcrypto** - HMAC-SHA256 cryptographic functions
 - **cookie** - HTTP Cookie header parsing and formatting
 - **xemail** - Email address syntax validation
 - **xgo** - Panic-safe goroutine execution
+- **xnet** - Local network address selection and random TCP listen helpers
 
 All packages are production-ready with comprehensive tests, benchmarks, and zero external dependencies.
 
@@ -244,6 +245,69 @@ runner.Go(func() {
 
 ---
 
+### xnet - Network Utilities
+
+Provide policy-oriented helpers for local address discovery and safe random TCP listening.
+
+**Use Cases:**
+- Pick a preferred local IP address (private-first or public-first)
+- Enumerate local IPv4/IPv6 addresses with stable ordering
+- Bind random TCP ports without TOCTOU race between lookup and listen
+
+**Example:**
+
+```go
+import (
+    "context"
+    "log"
+    "github.com/codesjoy/pkg/utils/xnet"
+)
+
+ctx := context.Background()
+
+// Select one local address (default policy: private-first, includes CGNAT)
+selected, err := xnet.SelectLocalAddr(ctx, xnet.LocalAddrOptions{
+    Family: xnet.FamilyAny,
+})
+if err != nil {
+    log.Fatal(err)
+}
+log.Printf("selected local ip: %s", selected)
+
+// List local addresses (stable, deduplicated, sorted)
+all, err := xnet.ListLocalAddrs(ctx, xnet.LocalAddrOptions{
+    IncludeLoopback:  true,
+    IncludeLinkLocal: true,
+})
+if err != nil {
+    log.Fatal(err)
+}
+log.Printf("local addrs: %v", all)
+
+// Listen on a random tcp4 port safely and keep listener open
+ln, addrPort, err := xnet.ListenTCPRandom(ctx, xnet.ListenOptions{Network: "tcp4"})
+if err != nil {
+    log.Fatal(err)
+}
+defer ln.Close()
+log.Printf("listening on %s", addrPort)
+```
+
+**API:**
+- `ListLocalAddrs(ctx context.Context, opts LocalAddrOptions) ([]netip.Addr, error)` - List filtered, deduplicated, sorted local addresses
+- `SelectLocalAddr(ctx context.Context, opts LocalAddrOptions) (netip.Addr, error)` - Select one local address by policy
+- `ListenTCPRandom(ctx context.Context, opts ListenOptions) (net.Listener, netip.AddrPort, error)` - Listen on random TCP port and return open listener
+
+**Types:**
+- `Family` / `FamilyAny` / `FamilyIPv4` / `FamilyIPv6` - Address family controls
+- `LocalAddrOptions` - Selection/filter behavior (public/private preference, CGNAT, loopback, link-local)
+- `ListenOptions` - Network/host controls for random TCP listen
+
+**Errors:**
+- `ErrNoUsableAddress` - No address matches the requested selection policy
+
+---
+
 ## Testing
 
 Run tests for all packages:
@@ -271,6 +335,7 @@ go test ./xcrypto
 go test ./cookie
 go test ./xemail
 go test ./xgo
+go test ./xnet
 ```
 
 ## Module Structure
@@ -292,6 +357,9 @@ utils/
 ├── xgo/              # Panic-safe goroutines
 │   ├── goroutine.go
 │   └── goroutine_test.go
+├── xnet/             # Network utilities
+│   ├── net.go
+│   └── net_test.go
 ├── go.mod
 └── README.md
 ```
@@ -310,6 +378,7 @@ All packages are optimized for performance:
 - **cookie**: Zero-allocation parsing where possible
 - **xemail**: Precompiled regex pattern
 - **xgo**: Minimal overhead panic recovery
+- **xnet**: netip-based filtering and safe random listen helpers
 
 Benchmark results on typical hardware:
 
@@ -344,6 +413,11 @@ BenchmarkParse-8           10000000    156 ns/op
    - Always use panic-safe goroutines in production
    - Set up custom panic handlers for critical services
    - Preserve context for tracing and cancellation
+
+6. **xnet**
+   - Prefer `SelectLocalAddr` over ad-hoc interface scans in app code
+   - Keep default private-first policy unless explicit public-first requirement exists
+   - Keep the returned listener from `ListenTCPRandom` open to avoid port races
 
 ## License
 
