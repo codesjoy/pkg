@@ -2,9 +2,9 @@
 # Makefile helper functions for golang
 #
 
-# Test flags
-TEST_FLAGS := -v -race -count=1
-TEST_TIMEOUT := 10m
+# Test flags (fallback defaults; repo defaults may be set in root Makefile)
+TEST_FLAGS ?= -v -race -count=1
+TEST_TIMEOUT ?= 10m
 
 # Lint config (single source of truth)
 GOLANGCI_LINT_CONFIG := $(ROOT_DIR)/.golangci.yaml

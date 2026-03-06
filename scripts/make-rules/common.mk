@@ -74,8 +74,8 @@ XARGS           := xargs
 OUTPUT_DIR    := $(ROOT_DIR)/_output
 COVERAGE_DIR  := $(OUTPUT_DIR)/coverage
 
-# Coverage threshold (default 60%)
-COVERAGE      := 60
+# Coverage threshold (fallback default; repo default may be set in root Makefile)
+COVERAGE      ?= 60
 
 # Platform support
 PLATFORMS ?= linux_amd64 linux_arm64 darwin_amd64 darwin_arm64

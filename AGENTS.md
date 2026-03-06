@@ -23,6 +23,10 @@ Use root `Makefile` targets:
 
 Scope commands when possible, for example: `make MODULES="basic/xgorm" test`.
 
+## Makefile Conventions
+- Public tunable Makefile variables must use `?=` so callers can override them from the CLI, environment, CI, or the root `Makefile`.
+- Internal derived values such as paths, discovery results, and normalized selections should use `:=`; use `=` only for intentional delayed-expansion helpers/macros.
+
 ## Coding Style & Naming Conventions
 - Target Go version: 1.25.7+.
 - Follow idiomatic Go naming: lowercase package names, exported identifiers in `CamelCase` with GoDoc comments.

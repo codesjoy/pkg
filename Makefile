@@ -3,6 +3,23 @@
 
 .DEFAULT_GOAL := help
 
+# ==============================================================================
+# User-overridable project defaults
+# Variable assignment policy for this repository:
+#   ?= Public tunables callers may override via CLI/env/CI/root defaults:
+#      COVERAGE, TEST_FLAGS, TEST_TIMEOUT, MODULES*, INCLUDE_*,
+#      EXCLUDE_TESTS, SHELLCHECK_*, TOOLS, *_VERSION, CHANGELOG_*.
+#   := Internal derived values, path snapshots, and implementation details:
+#      ROOT_DIR, ALL_MODULES, MODULES_SELECTED, GO_IN_MODULE,
+#      COVERAGE_DIR, GOLANGCI_LINT_CONFIG, GOBIN, PATH, PRE_COMMIT_FILE.
+#   =  Intentional delayed-expansion wrappers/macros:
+#      LOG_INFO, LOG_WARN, LOG_ERROR, LOG_SUCCESS, and define/endef helpers.
+COVERAGE ?= 80
+TEST_FLAGS ?= -v -race -count=1
+TEST_TIMEOUT ?= 10m
+
+# ==============================================================================
+
 # Include common.mk first (convention)
 include scripts/make-rules/common.mk
 
@@ -96,7 +113,9 @@ help:
 	@echo "  LOG_LEVEL=1       Show info, warn, error (default)"
 	@echo "  LOG_LEVEL=2       Show warn, error only"
 	@echo "  LOG_LEVEL=3       Show error only"
-	@echo "  COVERAGE=60       Set coverage threshold (default: 60%)"
+	@echo "  COVERAGE=$(COVERAGE) Set coverage threshold (default: $(COVERAGE)%)"
+	@echo "  TEST_FLAGS='$(TEST_FLAGS)' Additional flags passed to go test"
+	@echo "  TEST_TIMEOUT=$(TEST_TIMEOUT) Test timeout passed to go test"
 	@echo "  EXCLUDE_TESTS=    Regex for package dirs excluded in lint/fix (e.g., \"vendor|example\")"
 	@echo "  INCLUDE_GENERATED=1 Include generated Go files in fmt/lint/fix (default: 0)"
 	@echo "  INCLUDE_EXAMPLES=1 Include example/examples modules in lint/fix/test/coverage"
