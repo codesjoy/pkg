@@ -15,6 +15,7 @@
 package snowflake
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -37,9 +38,17 @@ type mockWorker struct {
 	updateBackCount   int
 	updateOverErr     error
 	updateBackErr     error
+	getInfoErr        error
+	nilInfo           bool
 }
 
 func (m *mockWorker) GetWorkerInfo() (*worker.Info, error) {
+	if m.getInfoErr != nil {
+		return nil, m.getInfoErr
+	}
+	if m.nilInfo {
+		return nil, nil
+	}
 	return &worker.Info{
 		WorkerID:     m.workerID,
 		OverLastTime: m.overLastTime,
@@ -523,4 +532,248 @@ func TestConfig_AutoCalculateMaxSeqNumber(t *testing.T) {
 			assert.Equal(t, tt.wantMaxSeq, sf.maxSeqNumber)
 		})
 	}
+}
+
+func TestSnowflake_EndOverCostAction(t *testing.T) {
+	t.Parallel()
+
+	sf := &Snowflake{
+		minSeqNumber:           3,
+		currentSeqNumber:       9,
+		lastTimeTick:           10,
+		isOverCost:             true,
+		overCostCountInOneTerm: 7,
+	}
+
+	sf.endOverCostAction(42)
+
+	assert.Equal(t, int64(42), sf.lastTimeTick)
+	assert.Equal(t, sf.minSeqNumber, sf.currentSeqNumber)
+	assert.False(t, sf.isOverCost)
+	assert.Zero(t, sf.overCostCountInOneTerm)
+}
+
+func TestSnowflake_BeginTurnBackAction(t *testing.T) {
+	t.Parallel()
+
+	t.Run("successfully enters turn back mode", func(t *testing.T) {
+		mockW := &mockWorker{workerID: 1, workerIDBitLength: 6}
+		sf := &Snowflake{
+			worker:          mockW,
+			lastTimeTick:    20,
+			minSeqNumber:    DefaultMinSeqNumber,
+			minBackTimeTick: -1,
+		}
+
+		ok := sf.beginTurnBackAction()
+
+		require.True(t, ok)
+		assert.True(t, mockW.updateBackCalled)
+		assert.Equal(t, 1, mockW.updateBackCount)
+		assert.Equal(t, int64(20), mockW.backLastTime)
+		assert.Equal(t, int64(19), sf.turnBackTimeTick)
+		assert.Equal(t, int64(1), sf.turnBackIndex)
+	})
+
+	t.Run("falls back when turn back window is exhausted", func(t *testing.T) {
+		mockW := &mockWorker{workerID: 1, workerIDBitLength: 6, backLastTime: 7}
+		sf := &Snowflake{
+			worker:          mockW,
+			lastTimeTick:    -1,
+			minSeqNumber:    DefaultMinSeqNumber,
+			turnBackIndex:   DefaultMinSeqNumber - 1,
+			minBackTimeTick: -2,
+		}
+
+		ok := sf.beginTurnBackAction()
+
+		require.False(t, ok)
+		assert.Zero(t, sf.turnBackTimeTick)
+		assert.Zero(t, sf.turnBackIndex)
+		assert.Equal(t, mockW.backLastTime, sf.minBackTimeTick)
+	})
+
+	t.Run("falls back when worker update fails", func(t *testing.T) {
+		mockW := &mockWorker{
+			workerID:          1,
+			workerIDBitLength: 6,
+			backLastTime:      5,
+			updateBackErr:     errors.New("persist failed"),
+		}
+		sf := &Snowflake{
+			worker:          mockW,
+			baseTime:        time.Now().UnixMilli() - 100,
+			lastTimeTick:    1,
+			minSeqNumber:    DefaultMinSeqNumber,
+			minBackTimeTick: -1,
+		}
+
+		ok := sf.beginTurnBackAction()
+
+		require.False(t, ok)
+		assert.True(t, mockW.updateBackCalled)
+		assert.Zero(t, sf.turnBackTimeTick)
+		assert.Zero(t, sf.turnBackIndex)
+		assert.Greater(t, sf.lastTimeTick, int64(1))
+		assert.Equal(t, mockW.backLastTime, sf.minBackTimeTick)
+	})
+}
+
+func TestSnowflake_EndTurnBackAction(t *testing.T) {
+	t.Parallel()
+
+	t.Run("refreshes min back time tick", func(t *testing.T) {
+		mockW := &mockWorker{workerID: 1, workerIDBitLength: 6, backLastTime: 33}
+		sf := &Snowflake{
+			worker:           mockW,
+			turnBackTimeTick: 11,
+			turnBackIndex:    2,
+			minBackTimeTick:  1,
+		}
+
+		sf.endTurnBackAction()
+
+		assert.Zero(t, sf.turnBackTimeTick)
+		assert.Zero(t, sf.turnBackIndex)
+		assert.Equal(t, int64(33), sf.minBackTimeTick)
+	})
+
+	t.Run("ignores missing worker info", func(t *testing.T) {
+		sf := &Snowflake{
+			worker:           &mockWorker{workerID: 1, workerIDBitLength: 6, nilInfo: true},
+			turnBackTimeTick: 8,
+			turnBackIndex:    3,
+			minBackTimeTick:  4,
+		}
+
+		sf.endTurnBackAction()
+
+		assert.Zero(t, sf.turnBackTimeTick)
+		assert.Zero(t, sf.turnBackIndex)
+		assert.Equal(t, int64(4), sf.minBackTimeTick)
+	})
+
+	t.Run("ignores worker info errors", func(t *testing.T) {
+		sf := &Snowflake{
+			worker:           &mockWorker{workerID: 1, workerIDBitLength: 6, getInfoErr: errors.New("boom")},
+			turnBackTimeTick: 8,
+			turnBackIndex:    3,
+			minBackTimeTick:  4,
+		}
+
+		sf.endTurnBackAction()
+
+		assert.Zero(t, sf.turnBackTimeTick)
+		assert.Zero(t, sf.turnBackIndex)
+		assert.Equal(t, int64(4), sf.minBackTimeTick)
+	})
+}
+
+func TestSnowflake_GetNextTimeTick(t *testing.T) {
+	t.Parallel()
+
+	sf := &Snowflake{
+		baseTime:     time.Now().UnixMilli(),
+		lastTimeTick: 0,
+	}
+
+	next := sf.getNextTimeTick()
+
+	assert.Greater(t, next, sf.lastTimeTick)
+}
+
+func TestSnowflake_CalcTurnBackID(t *testing.T) {
+	t.Parallel()
+
+	sf := &Snowflake{
+		workerID:         2,
+		seqBitLength:     4,
+		timestampShift:   10,
+		turnBackIndex:    3,
+		turnBackTimeTick: 9,
+	}
+
+	got := sf.calcTurnBackID(9)
+
+	assert.Equal(t, (int64(9)<<sf.timestampShift)+(sf.workerID<<sf.seqBitLength)+sf.turnBackIndex, got)
+	assert.Equal(t, int64(8), sf.turnBackTimeTick)
+}
+
+func TestSnowflake_NextNormalID_TurnBackPath(t *testing.T) {
+	t.Parallel()
+
+	mockW := &mockWorker{workerID: 1, workerIDBitLength: 6}
+	cfg := &Config{
+		BaseTime:         time.Now().UnixMilli() + 1000,
+		SeqBitLength:     6,
+		MinSeqNumber:     DefaultMinSeqNumber,
+		TopOverCostCount: DefaultTopOverCostCount,
+	}
+	cfg.WithWorker(mockW)
+
+	sf, err := NewSnowflake(cfg)
+	require.NoError(t, err)
+	sf.lastTimeTick = 20
+	sf.minBackTimeTick = -1
+
+	got := sf.nextNormalID()
+
+	require.True(t, mockW.updateBackCalled)
+	assert.Equal(t, (int64(19)<<sf.timestampShift)+(sf.workerID<<sf.seqBitLength)+int64(1), got)
+	assert.Equal(t, int64(18), sf.turnBackTimeTick)
+	assert.Equal(t, int64(1), sf.turnBackIndex)
+}
+
+func TestSnowflake_NextNormalID_ExitsTurnBackWhenClockRecovers(t *testing.T) {
+	t.Parallel()
+
+	mockW := &mockWorker{workerID: 1, workerIDBitLength: 6, backLastTime: 12}
+	cfg := &Config{
+		BaseTime:         time.Now().UnixMilli() - 100,
+		SeqBitLength:     6,
+		MinSeqNumber:     DefaultMinSeqNumber,
+		TopOverCostCount: DefaultTopOverCostCount,
+	}
+	cfg.WithWorker(mockW)
+
+	sf, err := NewSnowflake(cfg)
+	require.NoError(t, err)
+	sf.turnBackTimeTick = 7
+	sf.turnBackIndex = 2
+	sf.lastTimeTick = -1
+
+	got := sf.nextNormalID()
+
+	assert.Greater(t, got, int64(0))
+	assert.Zero(t, sf.turnBackTimeTick)
+	assert.Zero(t, sf.turnBackIndex)
+	assert.Equal(t, mockW.backLastTime, sf.minBackTimeTick)
+	assert.Equal(t, sf.minSeqNumber+1, sf.currentSeqNumber)
+}
+
+func TestSnowflake_NextOverCostID_ResetsWhenClockCatchesUp(t *testing.T) {
+	t.Parallel()
+
+	mockW := &mockWorker{workerID: 1, workerIDBitLength: 6}
+	cfg := &Config{
+		BaseTime:         time.Now().UnixMilli() - 100,
+		SeqBitLength:     6,
+		MinSeqNumber:     DefaultMinSeqNumber,
+		TopOverCostCount: DefaultTopOverCostCount,
+	}
+	cfg.WithWorker(mockW)
+
+	sf, err := NewSnowflake(cfg)
+	require.NoError(t, err)
+	sf.isOverCost = true
+	sf.lastTimeTick = -1
+	sf.currentSeqNumber = sf.maxSeqNumber + 10
+	sf.overCostCountInOneTerm = 4
+
+	got := sf.nextOverCostID()
+
+	assert.Greater(t, got, int64(0))
+	assert.False(t, sf.isOverCost)
+	assert.Equal(t, sf.minSeqNumber+1, sf.currentSeqNumber)
+	assert.Zero(t, sf.overCostCountInOneTerm)
 }

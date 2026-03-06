@@ -71,6 +71,85 @@ func TestPartitionConsumerCloseIdempotent(t *testing.T) {
 	require.Equal(t, 1, consumer.closeCalls)
 }
 
+func TestPartitionConsumerNilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var consumer *PartitionConsumer
+
+	err := consumer.Consume(
+		context.Background(),
+		func(context.Context, *consume.MessageContext) error { return nil },
+	)
+	require.EqualError(t, err, "partition consumer is nil")
+	require.NoError(t, consumer.Close())
+	require.Equal(t, "partition-consumer(nil)", consumer.String())
+}
+
+func TestPartitionConsumerExtractLogicalKey(t *testing.T) {
+	t.Parallel()
+
+	msg := &sarama.ConsumerMessage{Topic: "orders", Partition: 1}
+
+	t.Run("propagates extractor error", func(t *testing.T) {
+		consumer := &PartitionConsumer{cfg: PartitionConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "", errors.New("boom")
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.Error(t, err)
+		require.Empty(t, key)
+	})
+
+	t.Run("falls back when extractor returns empty key", func(t *testing.T) {
+		consumer := &PartitionConsumer{cfg: PartitionConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "", nil
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.NoError(t, err)
+		require.Equal(t, "orders:1", key)
+	})
+
+	t.Run("uses explicit key", func(t *testing.T) {
+		consumer := &PartitionConsumer{cfg: PartitionConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "order-1", nil
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.NoError(t, err)
+		require.Equal(t, "order-1", key)
+	})
+}
+
+func TestPartitionConsumerBuildConsumeChain(t *testing.T) {
+	t.Parallel()
+
+	marks := make([]string, 0, 2)
+	enabled := false
+	cfg := defaultPartitionConsumerConfig()
+	cfg.LoggerHandlerEnabled = &enabled
+	cfg.GlobalHandlers = []consume.Handler{
+		consumeMarkerHandler("global", &marks),
+	}
+
+	consumer := &PartitionConsumer{cfg: cfg}
+	require.Len(t, consumer.handlersForTopic("orders"), 2)
+
+	chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
+		marks = append(marks, "business")
+		return nil
+	})
+
+	require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
+	require.Equal(t, []string{"global", "business"}, marks)
+}
+
 type fakeSaramaConsumer struct {
 	closeCalls int
 	closeErr   error

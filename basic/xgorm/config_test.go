@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -127,6 +129,32 @@ func TestNew_WithMeter(t *testing.T) {
 	// Should error because meter is nil and EnableMetrics is true
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrNilMeter)
+}
+
+func TestNew_WithRealMeter(t *testing.T) {
+	meter := metricnoop.NewMeterProvider().Meter("test")
+
+	db, err := New(
+		sqlite.Open(":memory:"),
+		WithMeter(meter),
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, db)
+	assert.NoError(t, CloseMetrics(db))
+}
+
+func TestRegisterMetrics_WithRealMeter(t *testing.T) {
+	db := openSQLiteForTest(t, ":memory:").Session(&gorm.Session{Initialized: true})
+	cfg := DefaultConfig()
+	cfg.EnableMetrics = true
+	cfg.Meter = metricnoop.NewMeterProvider().Meter("test")
+
+	require.NoError(t, registerMetrics(db, cfg))
+
+	reporter, ok := db.InstanceGet("otel_metrics_reporter")
+	require.True(t, ok)
+	assert.IsType(t, &MetricsReporter{}, reporter)
+	assert.NoError(t, CloseMetrics(db))
 }
 
 func TestNew_WithTracer(t *testing.T) {
@@ -630,6 +658,47 @@ func TestNew_WithShardingAndDBResolver_Combined(t *testing.T) {
 	require.NoError(t, replicaDB.Table("orders_1").Where("id = ?", 1).First(&replicaRow).Error)
 	assert.Equal(t, "updated-source", sourceRow.Product)
 	assert.Equal(t, "replica", replicaRow.Product)
+}
+
+func TestCloseMetrics(t *testing.T) {
+	t.Run("nil database", func(t *testing.T) {
+		require.NoError(t, CloseMetrics(nil))
+	})
+
+	t.Run("missing reporter", func(t *testing.T) {
+		db := openSQLiteForTest(t, ":memory:").Session(&gorm.Session{Initialized: true})
+		require.NoError(t, CloseMetrics(db))
+	})
+
+	t.Run("ignores unexpected reporter type", func(t *testing.T) {
+		db := openSQLiteForTest(t, ":memory:").Session(&gorm.Session{Initialized: true})
+		db.InstanceSet("otel_metrics_reporter", "not-a-reporter")
+
+		require.NoError(t, CloseMetrics(db))
+	})
+
+	t.Run("stops reporter successfully", func(t *testing.T) {
+		db := openSQLiteForTest(t, ":memory:").Session(&gorm.Session{Initialized: true})
+		registration := &stubRegistration{}
+		db.InstanceSet("otel_metrics_reporter", &MetricsReporter{
+			registered: []metric.Registration{registration},
+		})
+
+		require.NoError(t, CloseMetrics(db))
+		assert.Equal(t, 1, registration.calls)
+	})
+
+	t.Run("propagates reporter stop error", func(t *testing.T) {
+		db := openSQLiteForTest(t, ":memory:").Session(&gorm.Session{Initialized: true})
+		registration := &stubRegistration{err: assert.AnError}
+		db.InstanceSet("otel_metrics_reporter", &MetricsReporter{
+			registered: []metric.Registration{registration},
+		})
+
+		err := CloseMetrics(db)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, 1, registration.calls)
+	})
 }
 
 // Benchmark tests

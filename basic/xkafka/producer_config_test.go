@@ -56,3 +56,85 @@ func TestProducerConfigDispatchModeValidate(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported producer dispatch mode")
 }
+
+func TestProducerConfigValidatePoliciesAndTopicHandlers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects unsupported exhausted policy", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			ExhaustedPolicy: "invalid",
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported producer exhausted policy")
+	})
+
+	t.Run("defaults topic handler mode to append", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			TopicHandlers: map[string]ProduceTopicHandlers{
+				"orders": {},
+			},
+		}
+
+		require.NoError(t, cfg.Validate())
+		require.Equal(t, ChainModeAppend, cfg.TopicHandlers["orders"].Mode)
+	})
+
+	t.Run("rejects empty topic handler key", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			TopicHandlers: map[string]ProduceTopicHandlers{
+				"   ": {},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty topic")
+	})
+
+	t.Run("rejects unsupported topic handler mode", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			TopicHandlers: map[string]ProduceTopicHandlers{
+				"orders": {Mode: "invalid"},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported chain mode")
+	})
+}
+
+func TestProducerConfigValidateDispatchModes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("serial dispatch", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			Dispatch: ProducerDispatchConfig{
+				Mode: ProducerDispatchModeSerial,
+			},
+		}
+
+		require.NoError(t, cfg.Validate())
+		require.Equal(t, ProducerDispatchModeSerial, cfg.Dispatch.Mode)
+		require.Equal(t, DefaultShardQueueSize, cfg.Dispatch.QueueSize)
+	})
+
+	t.Run("parallel dispatch normalizes worker count", func(t *testing.T) {
+		cfg := ProducerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			Dispatch: ProducerDispatchConfig{
+				Mode: ProducerDispatchModeParallel,
+			},
+		}
+
+		require.NoError(t, cfg.Validate())
+		require.Equal(t, DefaultProducerWorkerCount, cfg.Dispatch.WorkerCount)
+	})
+}

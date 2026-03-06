@@ -16,10 +16,14 @@ package tracer
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 	"gorm.io/driver/sqlite"
@@ -122,6 +126,72 @@ func TestPlugin_Tracing_WithError(t *testing.T) {
 
 	// If we got here without panicking, error handling works
 	assert.True(t, true)
+}
+
+func TestPlugin_DeleteOperation(t *testing.T) {
+	provider, recorder := newTracerProvider()
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	plugin := New(provider.Tracer("test"))
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Use(plugin))
+	require.NoError(t, db.AutoMigrate(&TracerTestUser{}))
+
+	user := TracerTestUser{Name: "Delete Me"}
+	require.NoError(t, db.Create(&user).Error)
+	require.NoError(t, db.Delete(&user).Error)
+
+	span := findSpanByName(recorder.Ended(), "gorm DELETE tracer_test_users")
+	require.NotNil(t, span)
+	assert.Equal(t, codes.Ok, span.Status().Code)
+}
+
+func TestPlugin_DeleteCallbacks(t *testing.T) {
+	provider, recorder := newTracerProvider()
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	plugin := New(provider.Tracer("test"))
+	db := &gorm.DB{
+		Config: &gorm.Config{Dialector: stubDialector{name: "sqlite"}},
+		Statement: &gorm.Statement{
+			Table:   "users",
+			Context: context.Background(),
+		},
+	}
+	db.Statement.SQL.WriteString("DELETE FROM users WHERE id = ?")
+
+	plugin.beforeDelete(db)
+	plugin.afterDelete(db)
+
+	span := findSpanByName(recorder.Ended(), "gorm DELETE users")
+	require.NotNil(t, span)
+	assert.Equal(t, codes.Ok, span.Status().Code)
+	assert.Equal(t, "DELETE FROM users WHERE id = ?", attrString(span, "db.statement"))
+}
+
+func TestPlugin_EndSpanRecordsError(t *testing.T) {
+	provider, recorder := newTracerProvider()
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	plugin := New(provider.Tracer("test"))
+	db := &gorm.DB{
+		Config: &gorm.Config{Dialector: stubDialector{name: "sqlite"}},
+		Statement: &gorm.Statement{
+			Table:   "users",
+			Context: context.Background(),
+		},
+		Error: errors.New("delete failed"),
+	}
+
+	plugin.startSpan(db, "DELETE")
+	plugin.endSpan(db, "DELETE")
+
+	span := findSpanByName(recorder.Ended(), "gorm DELETE users")
+	require.NotNil(t, span)
+	assert.Equal(t, codes.Error, span.Status().Code)
+	assert.Equal(t, "delete failed", span.Status().Description)
+	assert.Equal(t, "delete failed", attrString(span, "db.error"))
 }
 
 func TestPlugin_BuildSpanName(t *testing.T) {
@@ -290,6 +360,33 @@ func TestDBSystem(t *testing.T) {
 // Mock tracer for testing
 type mockTracer struct {
 	trace.Tracer
+}
+
+func newTracerProvider() (*sdktrace.TracerProvider, *tracetest.SpanRecorder) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	return provider, recorder
+}
+
+func findSpanByName(spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	for _, span := range spans {
+		if span.Name() == name {
+			return span
+		}
+	}
+	return nil
+}
+
+func attrString(span sdktrace.ReadOnlySpan, key string) string {
+	if span == nil {
+		return ""
+	}
+	for _, item := range span.Attributes() {
+		if string(item.Key) == key {
+			return item.Value.AsString()
+		}
+	}
+	return ""
 }
 
 func (m *mockTracer) Start(

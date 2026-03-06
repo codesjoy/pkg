@@ -227,3 +227,32 @@ func attrInt(span trace.ReadOnlySpan, key string) int64 {
 	}
 	return 0
 }
+
+func TestHeaderCarrier(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil safe", func(t *testing.T) {
+		var carrier *headerCarrier
+		require.Empty(t, carrier.Get("traceparent"))
+		require.Nil(t, carrier.Keys())
+		carrier.Set("traceparent", "value")
+	})
+
+	t.Run("get set and keys", func(t *testing.T) {
+		headers := []*sarama.RecordHeader{
+			nil,
+			{Key: []byte("x-request-id"), Value: []byte("1")},
+			{Key: []byte("traceparent"), Value: []byte("old")},
+		}
+		carrier := newHeaderCarrier(&headers)
+
+		require.Equal(t, "old", carrier.Get("TraceParent"))
+
+		carrier.Set("traceparent", "new")
+		carrier.Set("tracestate", "state")
+
+		require.Equal(t, "new", carrier.Get("traceparent"))
+		require.Equal(t, "state", carrier.Get("tracestate"))
+		require.Equal(t, []string{"x-request-id", "traceparent", "tracestate"}, carrier.Keys())
+	})
+}

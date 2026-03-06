@@ -128,6 +128,145 @@ func TestGroupConsumerStopPolicyNoCommit(t *testing.T) {
 	require.Equal(t, 1, group.calls)
 }
 
+func TestGroupConsumerNilReceiver(t *testing.T) {
+	t.Parallel()
+
+	var consumer *GroupConsumer
+
+	err := consumer.Consume(
+		context.Background(),
+		func(context.Context, *consume.MessageContext) error { return nil },
+	)
+	require.EqualError(t, err, "group consumer is nil")
+	require.NoError(t, consumer.Close())
+}
+
+func TestGroupConsumerExtractLogicalKey(t *testing.T) {
+	t.Parallel()
+
+	msg := &sarama.ConsumerMessage{Topic: "orders", Partition: 2}
+
+	t.Run("propagates extractor error", func(t *testing.T) {
+		consumer := &GroupConsumer{cfg: GroupConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "", errors.New("boom")
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.Error(t, err)
+		require.Empty(t, key)
+	})
+
+	t.Run("falls back when extractor returns empty key", func(t *testing.T) {
+		consumer := &GroupConsumer{cfg: GroupConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "", nil
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.NoError(t, err)
+		require.Equal(t, "orders:2", key)
+	})
+
+	t.Run("uses explicit key", func(t *testing.T) {
+		consumer := &GroupConsumer{cfg: GroupConsumerConfig{
+			KeyExtractor: func(*sarama.ConsumerMessage) (string, error) {
+				return "order-1", nil
+			},
+		}}
+
+		key, err := consumer.extractLogicalKey(msg)
+		require.NoError(t, err)
+		require.Equal(t, "order-1", key)
+	})
+}
+
+func TestGroupConsumerBuildConsumeChain(t *testing.T) {
+	t.Parallel()
+
+	t.Run("append mode keeps global and topic handlers", func(t *testing.T) {
+		marks := make([]string, 0, 3)
+		enabled := false
+		cfg := defaultGroupConsumerConfig()
+		cfg.LoggerHandlerEnabled = &enabled
+		cfg.GlobalHandlers = []consume.Handler{
+			consumeMarkerHandler("global", &marks),
+		}
+		cfg.TopicHandlers = map[string]ConsumeTopicHandlers{
+			"orders": {
+				Mode: ChainModeAppend,
+				Handlers: []consume.Handler{
+					consumeMarkerHandler("topic", &marks),
+				},
+			},
+		}
+
+		consumer := &GroupConsumer{cfg: cfg}
+		require.Len(t, consumer.handlersForTopic("orders"), 3)
+		chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
+			marks = append(marks, "business")
+			return nil
+		})
+
+		require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
+		require.Equal(t, []string{"global", "topic", "business"}, marks)
+	})
+
+	t.Run("replace mode drops global handlers", func(t *testing.T) {
+		marks := make([]string, 0, 2)
+		enabled := false
+		cfg := defaultGroupConsumerConfig()
+		cfg.LoggerHandlerEnabled = &enabled
+		cfg.GlobalHandlers = []consume.Handler{
+			consumeMarkerHandler("global", &marks),
+		}
+		cfg.TopicHandlers = map[string]ConsumeTopicHandlers{
+			"orders": {
+				Mode: ChainModeReplace,
+				Handlers: []consume.Handler{
+					consumeMarkerHandler("topic", &marks),
+				},
+			},
+		}
+
+		consumer := &GroupConsumer{cfg: cfg}
+		require.Len(t, consumer.handlersForTopic("orders"), 2)
+		chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
+			marks = append(marks, "business")
+			return nil
+		})
+
+		require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
+		require.Equal(t, []string{"topic", "business"}, marks)
+	})
+}
+
+func TestNewDLQWriter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil config returns nil writer", func(t *testing.T) {
+		writer, err := newDLQWriter([]string{"127.0.0.1:9092"}, sarama.NewConfig(), nil)
+		require.NoError(t, err)
+		require.Nil(t, writer)
+	})
+
+	t.Run("uses provided producer without creating a new one", func(t *testing.T) {
+		producer := &fakeProducerSyncProducer{}
+
+		writer, err := newDLQWriter(
+			nil,
+			nil,
+			&DLQConfig{Topic: "orders.dlq", Producer: producer},
+		)
+		require.NoError(t, err)
+		require.NotNil(t, writer)
+		require.NoError(t, writer.Close())
+		require.Equal(t, 0, producer.closeCalls)
+	})
+}
+
 type fakeSession struct {
 	ctx context.Context
 
@@ -248,4 +387,11 @@ func (g *fakeConsumerGroup) Close() error {
 
 func partitionKeyForTest(topic string, partition int32) string {
 	return fmt.Sprintf("%s:%d", topic, partition)
+}
+
+func consumeMarkerHandler(label string, marks *[]string) consume.Handler {
+	return consume.Func(func(ctx context.Context, msg *consume.MessageContext, next consume.Next) error {
+		*marks = append(*marks, label)
+		return next(ctx, msg)
+	})
 }

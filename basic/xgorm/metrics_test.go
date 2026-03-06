@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	metricembedded "go.opentelemetry.io/otel/metric/embedded"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 )
 
 // mockGormDB is a mock implementation of gormDB for testing.
@@ -230,4 +232,104 @@ func TestRegisterConnectionPoolMetrics_EmptyAttrs(t *testing.T) {
 
 	// Verify empty slice was created successfully
 	assert.Empty(t, attrs)
+}
+
+func TestMetricsReporter_Stop_UnregisterError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("unregister failed")
+	registration := &stubRegistration{err: wantErr}
+	reporter := &MetricsReporter{
+		registered: []metric.Registration{registration},
+	}
+
+	err := reporter.Stop(context.Background())
+
+	require.ErrorIs(t, err, wantErr)
+	assert.Equal(t, 1, registration.calls)
+}
+
+func TestBuildObserveOptions(t *testing.T) {
+	t.Parallel()
+
+	assert.Nil(t, buildObserveOptions(nil))
+	assert.Nil(t, buildObserveOptions([]attribute.KeyValue{}))
+	assert.Len(
+		t,
+		buildObserveOptions([]attribute.KeyValue{attribute.String("db.name", "orders")}),
+		1,
+	)
+}
+
+func TestObserveDBStats(t *testing.T) {
+	t.Parallel()
+
+	meter := metricnoop.NewMeterProvider().Meter("test")
+	openConnections, err := meter.Int64ObservableGauge("db.sql.pool.open_connections")
+	require.NoError(t, err)
+	inUseConnections, err := meter.Int64ObservableGauge("db.sql.pool.in_use_connections")
+	require.NoError(t, err)
+	idleConnections, err := meter.Int64ObservableGauge("db.sql.pool.idle_connections")
+	require.NoError(t, err)
+	waitCount, err := meter.Int64ObservableCounter("db.sql.pool.wait_count")
+	require.NoError(t, err)
+	waitDuration, err := meter.Int64ObservableCounter("db.sql.pool.wait_duration_ms")
+	require.NoError(t, err)
+	maxIdleClosed, err := meter.Int64ObservableCounter("db.sql.pool.max_idle_closed")
+	require.NoError(t, err)
+	maxLifetimeClosed, err := meter.Int64ObservableCounter("db.sql.pool.max_lifetime_closed")
+	require.NoError(t, err)
+
+	observer := &stubObserver{}
+	opts := buildObserveOptions([]attribute.KeyValue{attribute.String("db.name", "orders")})
+	observeDBStats(
+		observer,
+		sql.DBStats{
+			OpenConnections:   8,
+			InUse:             3,
+			Idle:              5,
+			WaitCount:         4,
+			WaitDuration:      1200 * time.Millisecond,
+			MaxIdleClosed:     2,
+			MaxLifetimeClosed: 1,
+		},
+		opts,
+		openConnections,
+		inUseConnections,
+		idleConnections,
+		waitCount,
+		waitDuration,
+		maxIdleClosed,
+		maxLifetimeClosed,
+	)
+
+	assert.Equal(t, []int64{8, 3, 5, 4, 1200, 2, 1}, observer.values)
+	assert.Len(t, observer.optCounts, 7)
+	for _, count := range observer.optCounts {
+		assert.Equal(t, 1, count)
+	}
+}
+
+type stubRegistration struct {
+	metricembedded.Registration
+	err   error
+	calls int
+}
+
+func (s *stubRegistration) Unregister() error {
+	s.calls++
+	return s.err
+}
+
+type stubObserver struct {
+	metricembedded.Observer
+	values    []int64
+	optCounts []int
+}
+
+func (s *stubObserver) ObserveFloat64(metric.Float64Observable, float64, ...metric.ObserveOption) {}
+
+func (s *stubObserver) ObserveInt64(_ metric.Int64Observable, value int64, opts ...metric.ObserveOption) {
+	s.values = append(s.values, value)
+	s.optCounts = append(s.optCounts, len(opts))
 }

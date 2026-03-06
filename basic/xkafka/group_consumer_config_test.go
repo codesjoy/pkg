@@ -54,3 +54,111 @@ func TestGroupConsumerConfigTopicHandlerModeDefault(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, ChainModeAppend, cfg.TopicHandlers["orders"].Mode)
 }
+
+func TestGroupConsumerConfigValidateDLQAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects unsupported exhausted policy", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			GroupID:         "group",
+			Topics:          []string{"orders"},
+			ExhaustedPolicy: "invalid",
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported exhausted policy")
+	})
+
+	t.Run("requires dlq config when dlq commit is enabled", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			GroupID:         "group",
+			Topics:          []string{"orders"},
+			ExhaustedPolicy: ExhaustedPolicyDLQCommit,
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DLQ config is required")
+	})
+
+	t.Run("requires dlq topic", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			GroupID:         "group",
+			Topics:          []string{"orders"},
+			ExhaustedPolicy: ExhaustedPolicyDLQCommit,
+			DLQ:             &DLQConfig{Topic: "   "},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DLQ topic is required")
+	})
+
+	t.Run("accepts valid dlq config", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			GroupID:         "group",
+			Topics:          []string{"orders"},
+			ExhaustedPolicy: ExhaustedPolicyDLQCommit,
+			DLQ:             &DLQConfig{Topic: " orders.dlq "},
+		}
+
+		require.NoError(t, cfg.Validate())
+		require.Equal(t, "orders.dlq", cfg.DLQ.Topic)
+	})
+}
+
+func TestGroupConsumerConfigValidateTopicHandlers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects empty topic", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			GroupID: "group",
+			Topics:  []string{"orders"},
+			TopicHandlers: map[string]ConsumeTopicHandlers{
+				"   ": {},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "empty topic")
+	})
+
+	t.Run("rejects unsupported chain mode", func(t *testing.T) {
+		cfg := GroupConsumerConfig{
+			Brokers: []string{"127.0.0.1:9092"},
+			GroupID: "group",
+			Topics:  []string{"orders"},
+			TopicHandlers: map[string]ConsumeTopicHandlers{
+				"orders": {Mode: "invalid"},
+			},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported chain mode")
+	})
+}
+
+func TestGroupConsumerConfigValidateDefaultsDependencies(t *testing.T) {
+	t.Parallel()
+
+	cfg := GroupConsumerConfig{
+		Brokers: []string{"127.0.0.1:9092"},
+		GroupID: "group",
+		Topics:  []string{"orders"},
+	}
+
+	require.NoError(t, cfg.Validate())
+	require.NotNil(t, cfg.KeyExtractor)
+	require.NotNil(t, cfg.Logger)
+	require.NotNil(t, cfg.SaramaConfig)
+	require.NotNil(t, cfg.LoggerHandlerEnabled)
+	require.Equal(t, ExhaustedPolicyBlock, cfg.ExhaustedPolicy)
+}

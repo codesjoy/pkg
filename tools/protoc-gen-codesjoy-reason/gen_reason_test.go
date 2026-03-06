@@ -20,6 +20,7 @@ import (
 
 	reasonv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/proto/codesjoy/reason/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/code"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
@@ -110,33 +111,97 @@ func TestGenerateFile_SkipWhenNoDefaultReason(t *testing.T) {
 	assert.Empty(t, content)
 }
 
-func newTestPlugin() (*protogen.Plugin, error) {
-	return protogen.Options{}.New(&pluginpb.CodeGeneratorRequest{
-		FileToGenerate: []string{"test.proto"},
-		ProtoFile: []*descriptorpb.FileDescriptorProto{
+func TestReasonsExecute_InvalidTemplate(t *testing.T) {
+	oldTpl := tpl
+	tpl = "{{"
+	defer func() { tpl = oldTpl }()
+
+	_, err := (&Reasons{}).execute()
+	require.Error(t, err)
+}
+
+func TestGenerateFiles(t *testing.T) {
+	t.Run("skips files marked as not generated", func(t *testing.T) {
+		gen, err := newTestPlugin()
+		require.NoError(t, err)
+
+		file := gen.Files[0]
+		proto.SetExtension(file.Enums[0].Desc.Options(), reasonv1.E_DefaultReason, int32(1))
+		proto.SetExtension(file.Enums[0].Values[0].Desc.Options(), reasonv1.E_Code, code.Code_OK)
+		file.Generate = false
+
+		require.NoError(t, generateFiles(gen))
+		assert.Empty(t, generatedFileContent(gen, "test_reason.pb.go"))
+	})
+
+	t.Run("returns first generation error", func(t *testing.T) {
+		gen, err := newTestPlugin()
+		require.NoError(t, err)
+
+		proto.SetExtension(gen.Files[0].Enums[0].Desc.Options(), reasonv1.E_DefaultReason, int32(1))
+
+		oldTpl := tpl
+		tpl = "{{"
+		defer func() { tpl = oldTpl }()
+
+		require.Error(t, generateFiles(gen))
+	})
+}
+
+func TestCollectReasons(t *testing.T) {
+	gen, err := newTestPluginWithFiles(
+		[]string{"test.proto"},
+		[]*descriptorpb.FileDescriptorProto{
 			{
 				Name:    proto.String("test.proto"),
 				Package: proto.String("codesjoy.reason.v1.test"),
 				Options: &descriptorpb.FileOptions{
-					GoPackage: proto.String(
-						"github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason;main",
-					),
+					GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason;main"),
 				},
 				EnumType: []*descriptorpb.EnumDescriptorProto{
-					{
-						Name: proto.String("ErrorReason"),
-						Value: []*descriptorpb.EnumValueDescriptorProto{
-							{
-								Name:    proto.String("OK"),
-								Number:  proto.Int32(0),
-								Options: &descriptorpb.EnumValueOptions{},
-							},
-						},
-						Options: &descriptorpb.EnumOptions{},
-					},
+					newReasonEnum("ErrorReason"),
+					newReasonEnumWithValue("IgnoredReason", "IGNORED"),
 				},
 			},
 		},
+	)
+	require.NoError(t, err)
+
+	file := gen.Files[0]
+	proto.SetExtension(file.Enums[0].Desc.Options(), reasonv1.E_DefaultReason, int32(1))
+	proto.SetExtension(file.Enums[0].Values[0].Desc.Options(), reasonv1.E_Code, code.Code_OK)
+
+	reasons := &Reasons{Domain: "codesjoy.reason.v1.test"}
+	require.NoError(t, collectReasons(file.Enums, reasons))
+	require.Len(t, reasons.Reason, 1)
+	require.Equal(t, "ErrorReason", reasons.Reason[0].Name)
+	require.Equal(t, code.Code_OK, reasons.Reason[0].Codes[0].Code)
+}
+
+func TestEnumValueCode(t *testing.T) {
+	gen, err := newTestPlugin()
+	require.NoError(t, err)
+
+	value := gen.Files[0].Enums[0].Values[0]
+
+	t.Run("falls back to unknown without extension", func(t *testing.T) {
+		got, err := enumValueCode(value)
+		require.NoError(t, err)
+		require.Equal(t, code.Code_UNKNOWN, got)
+	})
+
+	t.Run("reads enum code extension", func(t *testing.T) {
+		proto.SetExtension(value.Desc.Options(), reasonv1.E_Code, code.Code_CANCELLED)
+
+		got, err := enumValueCode(value)
+		require.NoError(t, err)
+		require.Equal(t, code.Code_CANCELLED, got)
+	})
+}
+
+func newTestPlugin() (*protogen.Plugin, error) {
+	return newTestPluginWithFiles([]string{"test.proto"}, []*descriptorpb.FileDescriptorProto{
+		newTestFile("test.proto"),
 	})
 }
 
@@ -147,4 +212,47 @@ func generatedFileContent(gen *protogen.Plugin, suffix string) string {
 		}
 	}
 	return ""
+}
+
+func newTestPluginWithFiles(
+	filesToGenerate []string,
+	files []*descriptorpb.FileDescriptorProto,
+) (*protogen.Plugin, error) {
+	return protogen.Options{}.New(&pluginpb.CodeGeneratorRequest{
+		FileToGenerate: filesToGenerate,
+		ProtoFile:      files,
+	})
+}
+
+func newTestFile(name string) *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String(name),
+		Package: proto.String("codesjoy.reason.v1.test"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason;main",
+			),
+		},
+		EnumType: []*descriptorpb.EnumDescriptorProto{
+			newReasonEnum("ErrorReason"),
+		},
+	}
+}
+
+func newReasonEnum(name string) *descriptorpb.EnumDescriptorProto {
+	return newReasonEnumWithValue(name, "OK")
+}
+
+func newReasonEnumWithValue(name, valueName string) *descriptorpb.EnumDescriptorProto {
+	return &descriptorpb.EnumDescriptorProto{
+		Name: proto.String(name),
+		Value: []*descriptorpb.EnumValueDescriptorProto{
+			{
+				Name:    proto.String(valueName),
+				Number:  proto.Int32(0),
+				Options: &descriptorpb.EnumValueOptions{},
+			},
+		},
+		Options: &descriptorpb.EnumOptions{},
+	}
 }

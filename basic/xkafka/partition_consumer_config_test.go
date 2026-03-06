@@ -89,3 +89,65 @@ func TestPartitionConsumerConfigReconnectNormalize(t *testing.T) {
 	require.GreaterOrEqual(t, cfg.Reconnect.MaxBackoff, cfg.Reconnect.InitialBackoff)
 	require.GreaterOrEqual(t, cfg.Reconnect.Multiplier, 1.0)
 }
+
+func TestPartitionConsumerConfigValidateDLQAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rejects unsupported exhausted policy", func(t *testing.T) {
+		cfg := PartitionConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			Topic:           "orders",
+			Partition:       0,
+			ExhaustedPolicy: "invalid",
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unsupported exhausted policy")
+	})
+
+	t.Run("requires dlq config when dlq commit is enabled", func(t *testing.T) {
+		cfg := PartitionConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			Topic:           "orders",
+			Partition:       0,
+			ExhaustedPolicy: ExhaustedPolicyDLQCommit,
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DLQ config is required")
+	})
+
+	t.Run("requires dlq topic", func(t *testing.T) {
+		cfg := PartitionConsumerConfig{
+			Brokers:         []string{"127.0.0.1:9092"},
+			Topic:           "orders",
+			Partition:       0,
+			ExhaustedPolicy: ExhaustedPolicyDLQCommit,
+			DLQ:             &DLQConfig{Topic: "   "},
+		}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "DLQ topic is required")
+	})
+}
+
+func TestPartitionConsumerConfigValidateDefaultsDependencies(t *testing.T) {
+	t.Parallel()
+
+	cfg := PartitionConsumerConfig{
+		Brokers:   []string{"127.0.0.1:9092"},
+		Topic:     "orders",
+		Partition: 0,
+	}
+
+	require.NoError(t, cfg.Validate())
+	require.NotNil(t, cfg.KeyExtractor)
+	require.NotNil(t, cfg.Logger)
+	require.NotNil(t, cfg.SaramaConfig)
+	require.NotNil(t, cfg.OffsetStore)
+	require.NotNil(t, cfg.LoggerHandlerEnabled)
+	require.Equal(t, ExhaustedPolicyBlock, cfg.ExhaustedPolicy)
+}
