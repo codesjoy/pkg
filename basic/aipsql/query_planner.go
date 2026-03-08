@@ -28,6 +28,16 @@ const (
 	defaultPlannerMaxPageSize     = 200
 )
 
+// PaginationMode controls how list pagination is planned.
+type PaginationMode string
+
+const (
+	// PaginationModeSeek uses seek/cursor pagination backed by page tokens.
+	PaginationModeSeek PaginationMode = "seek"
+	// PaginationModeOffset uses LIMIT/OFFSET pagination backed by offset page tokens.
+	PaginationModeOffset PaginationMode = "offset"
+)
+
 // QueryPlannerOptions controls default behavior for QueryPlanner.
 type QueryPlannerOptions struct {
 	// Dialect is the default SQL dialect for planning.
@@ -78,6 +88,10 @@ type TableSpec struct {
 	// It is appended to ORDER BY for deterministic seek pagination.
 	TieBreakerFieldPath FieldPath
 
+	// PaginationMode controls the default list pagination mode for this table.
+	// Default: seek.
+	PaginationMode PaginationMode
+
 	// DefaultPageSize overrides planner default for this table when request page_size <= 0.
 	DefaultPageSize int
 
@@ -97,8 +111,11 @@ type QueryRequest struct {
 	PageSize int
 
 	// PageToken is an opaque pagination token.
-	// QueryPlanner currently expects a seek token from EncodeSeekPageToken.
+	// Seek mode expects EncodeSeekPageToken; offset mode expects EncodeOffsetPageToken.
 	PageToken string
+
+	// PaginationMode overrides the table/default list pagination mode.
+	PaginationMode PaginationMode
 
 	// ParameterPrefix overrides the planner default prefix.
 	ParameterPrefix string
@@ -146,18 +163,46 @@ type PlanDebugInfo struct {
 	ParameterPrefix            string
 }
 
+// QueryParts contains reusable query fragments for one planned list query.
+type QueryParts struct {
+	TableName string
+
+	SelectClause     string
+	FromClause       string
+	FilterClause     string
+	PaginationClause string
+	WhereClause      string
+	OrderByClause    string
+
+	Parameters []QueryParameter
+	Limit      int
+	Offset     int
+
+	PaginationMode PaginationMode
+
+	TokenDescriptor SeekTokenDescriptor
+	Debug           *PlanDebugInfo
+}
+
 // QueryPlan is the planned SQL shape for one list query.
 type QueryPlan struct {
 	TableName string
 
-	SQL           string
-	FilterClause  string
-	SeekClause    string
-	WhereClause   string
-	OrderByClause string
+	SQL string
+
+	SelectClause     string
+	FromClause       string
+	FilterClause     string
+	PaginationClause string
+	SeekClause       string
+	WhereClause      string
+	OrderByClause    string
 
 	Parameters []QueryParameter
 	Limit      int
+	Offset     int
+
+	PaginationMode PaginationMode
 
 	TokenDescriptor SeekTokenDescriptor
 	Debug           *PlanDebugInfo
@@ -170,6 +215,7 @@ type registeredTableSpec struct {
 	selectClause string
 	defaultOrder []OrderBy
 	tieBreaker   FieldPath
+	pagination   PaginationMode
 	defaultLimit int
 	maxLimit     int
 }
@@ -264,12 +310,53 @@ func (p *QueryPlanner) RegisterTableSpecs(specs ...TableSpec) error {
 	return nil
 }
 
+// PlanListParts generates reusable query fragments from filter/order_by EBNF text.
+func (p *QueryPlanner) PlanListParts(
+	ctx context.Context,
+	tableName string,
+	req QueryRequest,
+) (*QueryParts, error) {
+	return p.planListParts(ctx, tableName, req)
+}
+
 // PlanList generates index-friendly SQL from filter/order_by EBNF text.
 func (p *QueryPlanner) PlanList(
 	ctx context.Context,
 	tableName string,
 	req QueryRequest,
 ) (*QueryPlan, error) {
+	parts, err := p.planListParts(ctx, tableName, req)
+	if err != nil {
+		return nil, err
+	}
+
+	plan := &QueryPlan{
+		TableName:        parts.TableName,
+		SQL:              buildSQL(parts.SelectClause, parts.FromClause, parts.WhereClause, parts.OrderByClause, parts.Limit, parts.Offset),
+		SelectClause:     parts.SelectClause,
+		FromClause:       parts.FromClause,
+		FilterClause:     parts.FilterClause,
+		PaginationClause: parts.PaginationClause,
+		WhereClause:      parts.WhereClause,
+		OrderByClause:    parts.OrderByClause,
+		Parameters:       parts.Parameters,
+		Limit:            parts.Limit,
+		Offset:           parts.Offset,
+		PaginationMode:   parts.PaginationMode,
+		TokenDescriptor:  parts.TokenDescriptor,
+		Debug:            parts.Debug,
+	}
+	if parts.PaginationMode == PaginationModeSeek {
+		plan.SeekClause = parts.PaginationClause
+	}
+	return plan, nil
+}
+
+func (p *QueryPlanner) planListParts(
+	ctx context.Context,
+	tableName string,
+	req QueryRequest,
+) (*QueryParts, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -315,9 +402,17 @@ func (p *QueryPlanner) PlanList(
 		effectiveOrder, _ = p.deriveIndexBackedOrder(registered)
 	}
 
-	tokenDescriptor := SeekTokenDescriptor{
-		SortOrder:           copyOrderByList(effectiveOrder),
-		TieBreakerFieldPath: registered.tieBreaker,
+	paginationMode, err := resolvePaginationMode(registered, req)
+	if err != nil {
+		return nil, err
+	}
+
+	tokenDescriptor := SeekTokenDescriptor{}
+	if paginationMode == PaginationModeSeek {
+		tokenDescriptor = SeekTokenDescriptor{
+			SortOrder:           copyOrderByList(effectiveOrder),
+			TieBreakerFieldPath: registered.tieBreaker,
+		}
 	}
 
 	orderForSQL := append(
@@ -331,43 +426,37 @@ func (p *QueryPlanner) PlanList(
 
 	limit := p.resolvePageSize(registered, req.PageSize)
 
-	seekClause, seekParams, seekEnabled, err := p.planSeekClause(
+	paginationClause, paginationParams, offset, seekEnabled, err := p.planPagination(
 		registered,
 		effectiveOrder,
 		req.PageToken,
 		parameterPrefix,
 		dialect,
+		paginationMode,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	whereClause := combineWhereClauses(filterClause, seekClause)
+	whereClause := combineWhereClauses(filterClause, paginationClause)
 
-	params := mergePlanParams(filterParams, seekParams)
-
-	sql := buildSQL(
-		registered.selectClause,
-		registered.fromClause,
-		whereClause,
-		orderByClause,
-		limit,
-	)
-
-	plan := &QueryPlan{
-		TableName:       registered.name,
-		SQL:             sql,
-		FilterClause:    filterClause,
-		SeekClause:      seekClause,
-		WhereClause:     whereClause,
-		OrderByClause:   orderByClause,
-		Parameters:      params,
-		Limit:           limit,
-		TokenDescriptor: tokenDescriptor,
+	parts := &QueryParts{
+		TableName:        registered.name,
+		SelectClause:     registered.selectClause,
+		FromClause:       registered.fromClause,
+		FilterClause:     filterClause,
+		PaginationClause: paginationClause,
+		WhereClause:      whereClause,
+		OrderByClause:    orderByClause,
+		Parameters:       mergePlanParams(filterParams, paginationParams),
+		Limit:            limit,
+		Offset:           offset,
+		PaginationMode:   paginationMode,
+		TokenDescriptor:  tokenDescriptor,
 	}
 
 	if req.EnableDebug {
-		plan.Debug = p.buildDebugInfo(
+		parts.Debug = p.buildDebugInfo(
 			registered,
 			filterAST,
 			requestedOrder,
@@ -380,7 +469,7 @@ func (p *QueryPlanner) PlanList(
 		)
 	}
 
-	return plan, nil
+	return parts, nil
 }
 
 func validateRequestedOrder(requestedOrder []OrderBy, tieBreaker FieldPath) error {
@@ -393,6 +482,32 @@ func validateRequestedOrder(requestedOrder []OrderBy, tieBreaker FieldPath) erro
 		}
 	}
 	return nil
+}
+
+func (p *QueryPlanner) planPagination(
+	registered registeredTableSpec,
+	effectiveOrder []OrderBy,
+	pageToken string,
+	parameterPrefix string,
+	dialect SQLDialect,
+	mode PaginationMode,
+) (string, []QueryParameter, int, bool, error) {
+	switch mode {
+	case PaginationModeSeek:
+		clause, params, seekEnabled, err := p.planSeekClause(
+			registered,
+			effectiveOrder,
+			pageToken,
+			parameterPrefix,
+			dialect,
+		)
+		return clause, params, 0, seekEnabled, err
+	case PaginationModeOffset:
+		offset, err := planOffset(pageToken)
+		return "", nil, offset, false, err
+	default:
+		return "", nil, 0, false, fmt.Errorf("unsupported pagination mode %q", mode)
+	}
 }
 
 func (p *QueryPlanner) planSeekClause(
@@ -444,6 +559,13 @@ func (p *QueryPlanner) planSeekClause(
 		return "", nil, false, err
 	}
 	return seekClause, seekParams, true, nil
+}
+
+func planOffset(pageToken string) (int, error) {
+	if strings.TrimSpace(pageToken) == "" {
+		return 0, nil
+	}
+	return DecodeOffsetPageToken(pageToken)
 }
 
 func mergePlanParams(filterParams, seekParams []QueryParameter) []QueryParameter {
@@ -535,6 +657,11 @@ func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, 
 		)
 	}
 
+	paginationMode, err := normalizePaginationMode(spec.PaginationMode)
+	if err != nil {
+		return registeredTableSpec{}, fmt.Errorf("table %q: %w", name, err)
+	}
+
 	return registeredTableSpec{
 		name:         name,
 		table:        spec.Table,
@@ -542,6 +669,7 @@ func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, 
 		selectClause: selectClause,
 		defaultOrder: defaultOrder,
 		tieBreaker:   spec.TieBreakerFieldPath,
+		pagination:   paginationMode,
 		defaultLimit: defaultLimit,
 		maxLimit:     maxLimit,
 	}, nil
@@ -619,6 +747,16 @@ func (p *QueryPlanner) deriveIndexBackedOrder(spec registeredTableSpec) ([]Order
 	return nil, false
 }
 
+func resolvePaginationMode(spec registeredTableSpec, req QueryRequest) (PaginationMode, error) {
+	if req.PaginationMode != "" {
+		return normalizePaginationMode(req.PaginationMode)
+	}
+	if spec.pagination != "" {
+		return normalizePaginationMode(spec.pagination)
+	}
+	return PaginationModeSeek, nil
+}
+
 func (p *QueryPlanner) buildDebugInfo(
 	spec registeredTableSpec,
 	filterAST *Filter,
@@ -673,9 +811,16 @@ func (p *QueryPlanner) buildDebugInfo(
 	}
 }
 
-func buildSQL(selectClause, fromClause, whereClause, orderByClause string, limit int) string {
+func buildSQL(
+	selectClause string,
+	fromClause string,
+	whereClause string,
+	orderByClause string,
+	limit int,
+	offset int,
+) string {
 	var b strings.Builder
-	b.Grow(len(selectClause) + len(fromClause) + len(whereClause) + len(orderByClause) + 48)
+	b.Grow(len(selectClause) + len(fromClause) + len(whereClause) + len(orderByClause) + 64)
 	b.WriteString("SELECT ")
 	b.WriteString(selectClause)
 	b.WriteString(" FROM ")
@@ -690,6 +835,10 @@ func buildSQL(selectClause, fromClause, whereClause, orderByClause string, limit
 	}
 	b.WriteString(" LIMIT ")
 	b.WriteString(strconv.Itoa(limit))
+	if offset > 0 {
+		b.WriteString(" OFFSET ")
+		b.WriteString(strconv.Itoa(offset))
+	}
 	return b.String()
 }
 
@@ -755,6 +904,17 @@ func isASCIIAlpha(ch rune) bool {
 
 func isASCIIDigit(ch rune) bool {
 	return ch >= '0' && ch <= '9'
+}
+
+func normalizePaginationMode(mode PaginationMode) (PaginationMode, error) {
+	switch mode {
+	case "":
+		return "", nil
+	case PaginationModeSeek, PaginationModeOffset:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid pagination mode %q", mode)
+	}
 }
 
 func copyOrderByList(order []OrderBy) []OrderBy {

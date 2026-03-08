@@ -302,4 +302,68 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		}
 		assert.Equal(t, offsetIDs, seekIDs)
 	})
+
+	t.Run("query planner offset pagination matches handwritten offset", func(t *testing.T) {
+		planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+			Dialect:         aip.SQLDialectPostgres,
+			StrictMode:      true,
+			DefaultPageSize: 20,
+			MaxPageSize:     100,
+		})
+		require.NoError(t, err)
+		require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
+			Name:         "items_offset_mode",
+			Table:        table,
+			FromClause:   "aip_items",
+			SelectClause: "id, created_at",
+			DefaultOrder: []aip.OrderBy{
+				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+			},
+			TieBreakerFieldPath: aip.NewFieldPath("id"),
+			PaginationMode:      aip.PaginationModeOffset,
+		}))
+
+		filter, err := aip.ParseFilter(`status="active"`)
+		require.NoError(t, err)
+		whereClause, whereParams, err := table.WhereClauseWithOptions(
+			filter,
+			"p_",
+			aip.WhereClauseOptions{
+				Dialect:    aip.SQLDialectPostgres,
+				StrictMode: true,
+			},
+		)
+		require.NoError(t, err)
+
+		offsetSQL := fmt.Sprintf(
+			"SELECT id, created_at FROM aip_items WHERE %s ORDER BY created_at DESC, id LIMIT 20 OFFSET 1000",
+			whereClause,
+		)
+		expectedRows, err := queryItemRows(ctx, harness, offsetSQL, whereParams)
+		require.NoError(t, err)
+		require.NotEmpty(t, expectedRows)
+
+		parts, err := planner.PlanListParts(ctx, "items_offset_mode", aip.QueryRequest{
+			Filter:    `status="active"`,
+			PageSize:  20,
+			PageToken: aip.EncodeOffsetPageToken(1000),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, aip.PaginationModeOffset, parts.PaginationMode)
+		assert.Equal(t, 1000, parts.Offset)
+		assert.Empty(t, parts.PaginationClause)
+
+		plan, err := planner.PlanList(ctx, "items_offset_mode", aip.QueryRequest{
+			Filter:    `status="active"`,
+			PageSize:  20,
+			PageToken: aip.EncodeOffsetPageToken(1000),
+		})
+		require.NoError(t, err)
+		assert.Contains(t, plan.SQL, "LIMIT 20 OFFSET 1000")
+		assert.Empty(t, plan.SeekClause)
+
+		actualRows, err := queryItemRows(ctx, harness, plan.SQL, plan.Parameters)
+		require.NoError(t, err)
+		assert.Equal(t, expectedRows, actualRows)
+	})
 }

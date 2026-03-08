@@ -43,6 +43,28 @@ func ApplyWhere(db *gorm.DB, whereSQL string, params []aip.QueryParameter) *gorm
 	return db.Where(whereSQL, NamedArgs(params)...)
 }
 
+// ApplyParts applies QueryParts WHERE/ORDER/LIMIT/OFFSET clauses onto a gorm query.
+func ApplyParts(db *gorm.DB, parts *aip.QueryParts) *gorm.DB {
+	if db == nil || parts == nil {
+		return db
+	}
+
+	if strings.TrimSpace(parts.WhereClause) != "" {
+		db = db.Where(parts.WhereClause, NamedArgs(parts.Parameters)...)
+	}
+	if strings.TrimSpace(parts.OrderByClause) != "" {
+		db = db.Order(parts.OrderByClause)
+	}
+	if parts.Limit > 0 {
+		db = db.Limit(parts.Limit)
+	}
+	if parts.Offset > 0 {
+		db = db.Offset(parts.Offset)
+	}
+
+	return db
+}
+
 // ApplyPlan applies a QueryPlan's WHERE/ORDER/LIMIT clauses onto a gorm query.
 func ApplyPlan(db *gorm.DB, plan *aip.QueryPlan) *gorm.DB {
 	if db == nil || plan == nil {
@@ -57,6 +79,9 @@ func ApplyPlan(db *gorm.DB, plan *aip.QueryPlan) *gorm.DB {
 	}
 	if plan.Limit > 0 {
 		db = db.Limit(plan.Limit)
+	}
+	if plan.Offset > 0 {
+		db = db.Offset(plan.Offset)
 	}
 
 	return db

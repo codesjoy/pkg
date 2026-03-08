@@ -192,20 +192,70 @@ err := aipsqlgorm.ApplyPlan(db.Model(&Order{}), plan).Find(&orders).Error
 // See adapter/gorm/README.md for complete integration patterns.
 ```
 
+### Plan Query Parts Without Full SQL
+
+```go
+planner, _ := aipsql.NewQueryPlanner(aipsql.QueryPlannerOptions{
+    Dialect: aipsql.SQLDialectPostgres,
+})
+
+parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
+    Filter:         `status="active"`,
+    PageSize:       20,
+    PaginationMode: aipsql.PaginationModeOffset,
+    PageToken:      aipsql.EncodeOffsetPageToken(40),
+})
+
+// Reuse fragments with your own query builder.
+query := fmt.Sprintf(
+    "SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
+    parts.SelectClause,
+    parts.FromClause,
+    parts.WhereClause,
+    parts.OrderByClause,
+    parts.Limit,
+    parts.Offset,
+)
+_ = query
+```
+
 ### Seek Pagination
 
 ```go
 // First page
-// SELECT * FROM orders ORDER BY created_at DESC, id DESC LIMIT 10
+plan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+    PageSize: 10,
+})
 
-// Get last row values: created_at='2024-01-15T10:30:00Z', id=12345
-token := aipsql.PaginationToken{
-    Values: []interface{}{"2024-01-15T10:30:00Z", 12345},
-}
+// Get last row values from the current page.
+lastCreatedAt := "2024-01-15T10:30:00Z"
+lastID := "12345"
+
+token, _ := aipsql.EncodeSeekPageToken(aipsql.SeekPageToken{
+    SortValues:      []string{lastCreatedAt},
+    TieBreakerValue: lastID,
+})
 
 // Next page uses seek predicate
-// WHERE (created_at < @seek_cmp_0 OR (created_at = @seek_eq_0 AND id < @seek_cmp_1))
-// ORDER BY created_at DESC, id DESC LIMIT 10
+nextPlan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+    PageSize:  10,
+    PageToken: token,
+})
+_ = nextPlan
+```
+
+### Offset Pagination
+
+```go
+parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
+    PageSize:       10,
+    PaginationMode: aipsql.PaginationModeOffset,
+    PageToken:      aipsql.EncodeOffsetPageToken(30),
+})
+
+// Generated SQL shape:
+// ORDER BY created_at DESC, id LIMIT 10 OFFSET 30
+_ = parts
 ```
 
 ## Testing
