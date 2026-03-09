@@ -176,11 +176,15 @@ err := aipsqlgorm.ApplyWhere(
 ### Execute QueryPlan with GORM
 
 ```go
-planner, _ := aipsql.NewQueryPlanner(aipsql.QueryPlannerOptions{
+planner, _ := aipsql.NewQueryPlanner(aipsql.TableSpec{
+    Table:               ordersTable,
+    DefaultOrder:        []aipsql.OrderBy{{FieldPath: aipsql.NewFieldPath("created_at"), Descending: true}},
+    TieBreakerFieldPath: aipsql.NewFieldPath("id"),
+}, aipsql.QueryPlannerOptions{
     Dialect: aipsql.SQLDialectPostgres,
 })
 
-plan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:   `status="active"`,
     OrderBy:  "created_at DESC",
     PageSize: 20,
@@ -192,14 +196,18 @@ err := aipsqlgorm.ApplyPlan(db.Model(&Order{}), plan).Find(&orders).Error
 // See adapter/gorm/README.md for complete integration patterns.
 ```
 
-### Plan Query Parts Without Full SQL
+### Plan Query Fragments Without Full SQL
 
 ```go
-planner, _ := aipsql.NewQueryPlanner(aipsql.QueryPlannerOptions{
+planner, _ := aipsql.NewQueryPlanner(aipsql.TableSpec{
+    Table:               ordersTable,
+    DefaultOrder:        []aipsql.OrderBy{{FieldPath: aipsql.NewFieldPath("created_at"), Descending: true}},
+    TieBreakerFieldPath: aipsql.NewFieldPath("id"),
+}, aipsql.QueryPlannerOptions{
     Dialect: aipsql.SQLDialectPostgres,
 })
 
-parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:         `status="active"`,
     PageSize:       20,
     PaginationMode: aipsql.PaginationModeOffset,
@@ -208,13 +216,11 @@ parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
 
 // Reuse fragments with your own query builder.
 query := fmt.Sprintf(
-    "SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
-    parts.SelectClause,
-    parts.FromClause,
-    parts.WhereClause,
-    parts.OrderByClause,
-    parts.Limit,
-    parts.Offset,
+    "SELECT id, created_at FROM orders WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
+    plan.WhereClause,
+    plan.OrderByClause,
+    plan.Limit,
+    plan.Offset,
 )
 _ = query
 ```
@@ -223,21 +229,17 @@ _ = query
 
 ```go
 // First page
-plan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     PageSize: 10,
 })
 
-// Get last row values from the current page.
-lastCreatedAt := "2024-01-15T10:30:00Z"
-lastID := "12345"
+rows, _ := queryCurrentPage(plan)
 
-token, _ := aipsql.EncodeSeekPageToken(aipsql.SeekPageToken{
-    SortValues:      []string{lastCreatedAt},
-    TieBreakerValue: lastID,
-})
+// next token depends on the actual last row from this page.
+token, _ := plan.NextPageToken(rows)
 
 // Next page uses seek predicate
-nextPlan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+nextPlan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     PageSize:  10,
     PageToken: token,
 })
@@ -247,15 +249,15 @@ _ = nextPlan
 ### Offset Pagination
 
 ```go
-parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     PageSize:       10,
     PaginationMode: aipsql.PaginationModeOffset,
     PageToken:      aipsql.EncodeOffsetPageToken(30),
 })
 
-// Generated SQL shape:
+// Generated clause shape:
 // ORDER BY created_at DESC, id LIMIT 10 OFFSET 30
-_ = parts
+_ = plan
 ```
 
 ## Testing

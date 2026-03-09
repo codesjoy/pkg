@@ -18,7 +18,6 @@ package integration
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -149,7 +148,13 @@ func TestMySQLIntegration_AIPSQLExecution(t *testing.T) {
 	})
 
 	t.Run("query planner seek pagination", func(t *testing.T) {
-		planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+		planner, err := aip.NewQueryPlanner(aip.TableSpec{
+			Table: table,
+			DefaultOrder: []aip.OrderBy{
+				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+			},
+			TieBreakerFieldPath: aip.NewFieldPath("id"),
+		}, aip.QueryPlannerOptions{
 			Dialect:                          aip.SQLDialectMySQL,
 			StrictMode:                       true,
 			EnableCompositeIndexOptimization: true,
@@ -158,45 +163,32 @@ func TestMySQLIntegration_AIPSQLExecution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
-			Name:         "items",
-			Table:        table,
-			FromClause:   "aip_items",
-			SelectClause: "id, created_at",
-			DefaultOrder: []aip.OrderBy{
-				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
-			},
-			TieBreakerFieldPath: aip.NewFieldPath("id"),
-		}))
-
-		firstPlan, err := planner.PlanList(ctx, "items", aip.QueryRequest{
+		firstPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:   `status="active" AND user_id="user_007"`,
 			PageSize: 6,
 		})
 		require.NoError(t, err)
+		firstSQL := buildListSQL("id, created_at", "aip_items", firstPlan)
 
-		firstRows, err := queryItemRows(ctx, harness, firstPlan.SQL, firstPlan.Parameters)
+		firstRows, err := queryItemRows(ctx, harness, firstSQL, firstPlan.Parameters)
 		require.NoError(t, err)
 		require.Len(t, firstRows, 6)
 
-		last := firstRows[len(firstRows)-1]
-		pageToken, err := aip.EncodeSeekPageToken(aip.SeekPageToken{
-			SortValues:      []string{last.CreatedAt},
-			TieBreakerValue: strconv.FormatInt(last.ID, 10),
-		})
+		pageToken, err := firstPlan.NextPageToken(firstRows)
 		require.NoError(t, err)
 
-		nextPlan, err := planner.PlanList(ctx, "items", aip.QueryRequest{
+		nextPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:    `status="active" AND user_id="user_007"`,
 			PageSize:  6,
 			PageToken: pageToken,
 		})
 		require.NoError(t, err)
-		nextRows, err := queryItemRows(ctx, harness, nextPlan.SQL, nextPlan.Parameters)
+		nextSQL := buildListSQL("id, created_at", "aip_items", nextPlan)
+		nextRows, err := queryItemRows(ctx, harness, nextSQL, nextPlan.Parameters)
 		require.NoError(t, err)
 		require.NotEmpty(t, nextRows)
 		assert.False(t, idsOverlap(firstRows, nextRows))
-		planText, err := explainPlanSummary(ctx, harness, firstPlan.SQL, firstPlan.Parameters)
+		planText, err := explainPlanSummary(ctx, harness, firstSQL, firstPlan.Parameters)
 		require.NoError(t, err)
 		assert.True(
 			t,

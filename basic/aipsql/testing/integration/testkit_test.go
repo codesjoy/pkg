@@ -224,6 +224,32 @@ type itemRow struct {
 	CreatedAt string
 }
 
+func buildListSQL(selectClause, fromClause string, plan *aip.QueryPlan) string {
+	var b strings.Builder
+	b.Grow(len(selectClause) + len(fromClause) + len(plan.WhereClause) + len(plan.OrderByClause) + 64)
+	b.WriteString("SELECT ")
+	b.WriteString(selectClause)
+	b.WriteString(" FROM ")
+	b.WriteString(fromClause)
+	if strings.TrimSpace(plan.WhereClause) != "" {
+		b.WriteString(" WHERE ")
+		b.WriteString(plan.WhereClause)
+	}
+	if strings.TrimSpace(plan.OrderByClause) != "" {
+		b.WriteString(" ORDER BY ")
+		b.WriteString(plan.OrderByClause)
+	}
+	if plan.Limit > 0 {
+		b.WriteString(" LIMIT ")
+		b.WriteString(strconv.Itoa(plan.Limit))
+	}
+	if plan.Offset > 0 {
+		b.WriteString(" OFFSET ")
+		b.WriteString(strconv.Itoa(plan.Offset))
+	}
+	return b.String()
+}
+
 func startDBHarness(ctx context.Context, dialect aip.SQLDialect) (*dbHarness, error) {
 	switch dialect {
 	case aip.SQLDialectPostgres:

@@ -393,50 +393,18 @@ merged := aipsql.MergeWithDefaultOrder(userOrder, defaultOrder)
 ### NewQueryPlanner
 
 ```go
-func NewQueryPlanner() *QueryPlanner
+func NewQueryPlanner(spec TableSpec, options QueryPlannerOptions) (*QueryPlanner, error)
 ```
 
-Create a new QueryPlanner instance.
+Create a QueryPlanner bound to one table specification.
 
 **Example**:
 ```go
-planner := aipsql.NewQueryPlanner()
-```
-
-### QueryPlanner.RegisterTable
-
-```go
-func (p *QueryPlanner) RegisterTable(name string, spec *TableSpec) error
-```
-
-Register a table with the planner.
-
-**Parameters**:
-- `name`: Unique table identifier
-- `spec`: Table specification
-
-**Example**:
-```go
-planner.RegisterTable("users", &aipsql.TableSpec{
-    Name:                "users",
+planner, err := aipsql.NewQueryPlanner(aipsql.TableSpec{
     Table:               usersTable,
-    DefaultOrder:        "created_at DESC, id DESC",
-    TieBreakerFieldPath: "id",
-    FromClause:          "users",
-})
-```
-
-### QueryPlanner.SetDefaultOptions
-
-```go
-func (p *QueryPlanner) SetDefaultOptions(opts DefaultOptions)
-```
-
-Set global default options for all queries.
-
-**Example**:
-```go
-planner.SetDefaultOptions(aipsql.DefaultOptions{
+    DefaultOrder:        []aipsql.OrderBy{{FieldPath: aipsql.NewFieldPath("created_at"), Descending: true}},
+    TieBreakerFieldPath: aipsql.NewFieldPath("id"),
+}, aipsql.QueryPlannerOptions{
     Dialect:                           aipsql.SQLDialectPostgres,
     EnableCompositeIndexOptimization: true,
     DefaultPageSize:                   20,
@@ -447,10 +415,10 @@ planner.SetDefaultOptions(aipsql.DefaultOptions{
 ### QueryPlanner.PlanList
 
 ```go
-func (p *QueryPlanner) PlanList(req *QueryRequest) (*QueryPlan, error)
+func (p *QueryPlanner) PlanList(ctx context.Context, req QueryRequest) (*QueryPlan, error)
 ```
 
-Generate a complete query plan.
+Generate final executable clauses for a list query.
 
 **Parameters**:
 - `req`: Query request
@@ -461,8 +429,7 @@ Generate a complete query plan.
 
 **Example**:
 ```go
-plan, err := planner.PlanList(&aipsql.QueryRequest{
-    Table:     "users",
+plan, err := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:    "status=\"active\"",
     PageSize:  20,
     PageToken: "ey...",
@@ -475,22 +442,22 @@ Table specification for QueryPlanner.
 
 ```go
 type TableSpec struct {
-    Name                string
     Table               *Table
-    DefaultOrder        string
-    TieBreakerFieldPath string
-    FromClause          string
-    SelectClause        string
+    DefaultOrder        []OrderBy
+    TieBreakerFieldPath FieldPath
+    PaginationMode      PaginationMode
+    DefaultPageSize     int
+    MaxPageSize         int
 }
 ```
 
 **Fields**:
-- `Name` - Table identifier
 - `Table` - Table schema
-- `DefaultOrder` - Default ORDER BY (AIP-132 syntax)
+- `DefaultOrder` - Default ORDER BY entries
 - `TieBreakerFieldPath` - Field for unique ordering
-- `FromClause` - Custom FROM (for JOINs)
-- `SelectClause` - Custom SELECT (optional)
+- `PaginationMode` - Default pagination mode (`seek` or `offset`)
+- `DefaultPageSize` - Default LIMIT value
+- `MaxPageSize` - Maximum LIMIT value
 
 ### QueryRequest
 
@@ -498,24 +465,24 @@ Query request structure.
 
 ```go
 type QueryRequest struct {
-    Table       string
-    Filter      string
-    OrderBy     string
-    PageSize    int
-    PageToken   string
-    Options     *WhereClauseOptions
-    EnableDebug bool
+    Filter                        string
+    OrderBy                       string
+    PageSize                      int
+    PageToken                     string
+    PaginationMode                PaginationMode
+    ParameterPrefix               string
+    Dialect                       SQLDialect
+    StrictMode                    *bool
+    EnableCompositeIndexOptimization *bool
 }
 ```
 
 **Fields**:
-- `Table` (required) - Table name
 - `Filter` (required) - AIP-160 filter
 - `PageSize` (required) - Results per page
 - `OrderBy` (optional) - AIP-132 order by
 - `PageToken` (optional) - Pagination token
-- `Options` (optional) - Override options
-- `EnableDebug` (optional) - Debug info
+- `PaginationMode` (optional) - Override default pagination mode
 
 ### QueryPlan
 
@@ -523,152 +490,97 @@ Generated query plan.
 
 ```go
 type QueryPlan struct {
-    FromClause      string
     WhereClause     string
     OrderByClause   string
+    Parameters      []QueryParameter
     Limit           int
-    Params          []Param
-    TokenDescriptor *TokenDescriptor
-    Debug           *DebugInfo
+    Offset          int
 }
 ```
 
 **Fields**:
-- `FromClause` - FROM clause
 - `WhereClause` - WHERE clause
 - `OrderByClause` - ORDER BY clause
 - `Limit` - LIMIT value
-- `Params` - All parameters
-- `TokenDescriptor` - Pagination metadata
-- `Debug` - Debug info (if enabled)
+- `Offset` - OFFSET value for offset pagination
+- `Parameters` - All parameters
 
 **Example**:
 ```go
-plan, _ := planner.PlanList(request)
+plan, _ := planner.PlanList(ctx, request)
 
 query := fmt.Sprintf(
-    "SELECT * FROM %s WHERE %s %s LIMIT %d",
-    plan.FromClause,
+    "SELECT id, created_at FROM users WHERE %s ORDER BY %s LIMIT %d",
     plan.WhereClause,
     plan.OrderByClause,
     plan.Limit,
 )
+results, _ := loadUsers(query, aipsql.ParamValues(plan.Parameters)...)
 
-rows, _ := db.Query(query, aipsql.ParamValues(plan.Params)...)
+// next token is derived after executing the current page because it depends
+// on the actual last row returned by the database.
+nextPageToken, _ := plan.NextPageToken(results)
+_ = nextPageToken
 ```
 
-### DebugInfo
+### QueryPlan.NextPageToken
 
-Debug information for troubleshooting.
+Computes the next page token from the current page rows.
 
 ```go
-type DebugInfo struct {
-    SelectedIndex      string
-    ConditionsReordered bool
-    OriginalOrder      []string
-    OptimizedOrder     []string
-    MatchModes         map[string]string
-}
+func (p *QueryPlan) NextPageToken(rows any) (string, error)
 ```
 
 **Example**:
 ```go
-plan, _ := planner.PlanList(&aipsql.QueryRequest{
-    EnableDebug: true,
-})
-
-if plan.Debug != nil {
-    log.Printf("Index: %s", plan.Debug.SelectedIndex)
-    log.Printf("Reordered: %v", plan.Debug.ConditionsReordered)
-}
+token, _ := plan.NextPageToken(results)
+_ = token
 ```
 
-### TokenDescriptor
-
-Pagination token metadata.
-
-```go
-type TokenDescriptor struct {
-    SortFields       []SortField
-    TieBreakerColumn *Column
-}
-
-type SortField struct {
-    FieldPath string
-    Direction string
-}
-```
-
-**Example**:
-```go
-// Encode next page token
-if len(results) == plan.Limit {
-    lastRow := results[len(results)-1]
-    values := extractSortValues(lastRow, plan.TokenDescriptor.SortFields)
-
-    token := aipsql.SeekPageToken{
-        SortValues: values,
-    }
-
-    nextPageToken := token.Encode()
-}
-```
+`PlanList` does not directly return `nextToken` because the token depends on the
+actual last row in the current page, which is only known after query execution.
 
 ## Helper Functions
 
 ### SeekPageToken
 
-Pagination token for seek pagination.
+Seek pagination token payload.
 
 ```go
 type SeekPageToken struct {
-    SortValues      []interface{}
-    TieBreakerValue interface{}
+    SortValues      []string
+    TieBreakerValue string
 }
 
-func (t *SeekPageToken) Encode() string
-func ParseSeekPageToken(token string) (*SeekPageToken, error)
+func EncodeSeekPageToken(token SeekPageToken) (string, error)
+func DecodeSeekPageToken(token string) (SeekPageToken, error)
 ```
 
 **Example**:
 ```go
-// Encode
 token := aipsql.SeekPageToken{
-    SortValues: []interface{}{lastRow.CreatedAt, lastRow.ID},
+    SortValues:      []string{lastRow.CreatedAt.Format(time.RFC3339Nano)},
+    TieBreakerValue: strconv.FormatInt(lastRow.ID, 10),
 }
-encoded := token.Encode()
-
-// Decode
-decoded, err := aipsql.ParseSeekPageToken(encoded)
+encoded, _ := aipsql.EncodeSeekPageToken(token)
+decoded, _ := aipsql.DecodeSeekPageToken(encoded)
+_ = decoded
 ```
 
-### BuildSeekPaginationClause
+### OffsetPageToken
+
+Offset pagination helper functions.
 
 ```go
-func BuildSeekPaginationClause(
-    orderByFields []OrderByField,
-    sortValues []interface{},
-    paramPrefix string,
-) (string, []Param, error)
+func EncodeOffsetPageToken(offset int) string
+func DecodeOffsetPageToken(token string) (int, error)
 ```
-
-Generate seek pagination WHERE clause.
 
 **Example**:
 ```go
-orderByFields := []aipsql.OrderByField{
-    {Column: createdAtColumn, Direction: "DESC"},
-    {Column: idColumn, Direction: "DESC"},
-}
-
-seekClause, params, _ := aipsql.BuildSeekPaginationClause(
-    orderByFields,
-    []interface{}{time.Now(), 123},
-    "p",
-)
-
-// Result:
-// (created_at < @p0 OR (created_at = @p1 AND id < @p2))
+nextPageToken := aipsql.EncodeOffsetPageToken(40)
+offset, _ := aipsql.DecodeOffsetPageToken(nextPageToken)
+_ = offset
 ```
 
 ## GORM Adapter API
@@ -707,7 +619,7 @@ Returns `db` unchanged when `db == nil` or `whereSQL` is empty.
 func ApplyPlan(db *gorm.DB, plan *aipsql.QueryPlan) *gorm.DB
 ```
 
-Applies the plan's `WhereClause`, `OrderByClause`, and `Limit` to a GORM query chain:
+Applies the plan's `WhereClause`, `OrderByClause`, `Limit`, and `Offset` to a GORM query chain:
 
 ```go
 db = aipsqlgorm.ApplyPlan(db, plan)
@@ -735,13 +647,13 @@ For full examples and caveats, see:
 **APIs**:
 - **Filter**: `ParseFilter`, `WhereClause`, `WhereClauseWithOptions`
 - **OrderBy**: `ParseOrderBy`, `OrderByClause`, `MergeWithDefaultOrder`
-- **QueryPlanner**: `NewQueryPlanner`, `RegisterTable`, `PlanList`
+- **QueryPlanner**: `NewQueryPlanner`, `PlanList`
 - **GORM Adapter**: `NamedArgs`, `ApplyWhere`, `ApplyPlan`
 
 **Helpers**:
 - `ParamValues` - Convert params for database driver
-- `SeekPageToken` - Pagination token encoding
-- `BuildSeekPaginationClause` - Seek pagination generation
+- `SeekPageToken` - Seek pagination token encoding
+- `OffsetPageToken` - Offset pagination helpers
 
 For more details:
 - [User Guide](guide.md) - Complete usage guide

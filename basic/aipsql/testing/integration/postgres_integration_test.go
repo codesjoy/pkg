@@ -19,7 +19,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -150,7 +149,13 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 	})
 
 	t.Run("query planner seek pagination", func(t *testing.T) {
-		planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+		planner, err := aip.NewQueryPlanner(aip.TableSpec{
+			Table: table,
+			DefaultOrder: []aip.OrderBy{
+				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+			},
+			TieBreakerFieldPath: aip.NewFieldPath("id"),
+		}, aip.QueryPlannerOptions{
 			Dialect:                          aip.SQLDialectPostgres,
 			StrictMode:                       true,
 			EnableCompositeIndexOptimization: true,
@@ -159,45 +164,33 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
-			Name:         "items",
-			Table:        table,
-			FromClause:   "aip_items",
-			SelectClause: "id, created_at",
-			DefaultOrder: []aip.OrderBy{
-				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
-			},
-			TieBreakerFieldPath: aip.NewFieldPath("id"),
-		}))
-
 		baseFilter := `status="active" AND user_id="user_007"`
 
-		firstPlan, err := planner.PlanList(ctx, "items", aip.QueryRequest{
+		firstPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:   baseFilter,
 			PageSize: 5,
 		})
 		require.NoError(t, err)
+		firstSQL := buildListSQL("id, created_at", "aip_items", firstPlan)
 
-		firstRows, err := queryItemRows(ctx, harness, firstPlan.SQL, firstPlan.Parameters)
+		firstRows, err := queryItemRows(ctx, harness, firstSQL, firstPlan.Parameters)
 		require.NoError(t, err)
 		require.Len(t, firstRows, 5)
 
 		last := firstRows[len(firstRows)-1]
-		pageToken, err := aip.EncodeSeekPageToken(aip.SeekPageToken{
-			SortValues:      []string{last.CreatedAt},
-			TieBreakerValue: strconv.FormatInt(last.ID, 10),
-		})
+		pageToken, err := firstPlan.NextPageToken(firstRows)
 		require.NoError(t, err)
 
-		nextPlan, err := planner.PlanList(ctx, "items", aip.QueryRequest{
+		nextPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:    baseFilter,
 			PageSize:  5,
 			PageToken: pageToken,
 		})
 		require.NoError(t, err)
-		assert.NotEmpty(t, nextPlan.SeekClause)
+		assert.Contains(t, nextPlan.WhereClause, "created_at < @p_seek_0")
+		nextSQL := buildListSQL("id, created_at", "aip_items", nextPlan)
 
-		nextRows, err := queryItemRows(ctx, harness, nextPlan.SQL, nextPlan.Parameters)
+		nextRows, err := queryItemRows(ctx, harness, nextSQL, nextPlan.Parameters)
 		require.NoError(t, err)
 		require.NotEmpty(t, nextRows)
 
@@ -213,7 +206,7 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		firstPlanExplain, err := explainPlanSummary(
 			ctx,
 			harness,
-			firstPlan.SQL,
+			firstSQL,
 			firstPlan.Parameters,
 		)
 		require.NoError(t, err)
@@ -234,23 +227,19 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 	})
 
 	t.Run("offset and seek return the same page", func(t *testing.T) {
-		planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+		planner, err := aip.NewQueryPlanner(aip.TableSpec{
+			Table: table,
+			DefaultOrder: []aip.OrderBy{
+				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+			},
+			TieBreakerFieldPath: aip.NewFieldPath("id"),
+		}, aip.QueryPlannerOptions{
 			Dialect:         aip.SQLDialectPostgres,
 			StrictMode:      true,
 			DefaultPageSize: 20,
 			MaxPageSize:     100,
 		})
 		require.NoError(t, err)
-		require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
-			Name:         "items_offset_compare",
-			Table:        table,
-			FromClause:   "aip_items",
-			SelectClause: "id, created_at",
-			DefaultOrder: []aip.OrderBy{
-				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
-			},
-			TieBreakerFieldPath: aip.NewFieldPath("id"),
-		}))
 
 		filter, err := aip.ParseFilter(`status="active"`)
 		require.NoError(t, err)
@@ -271,7 +260,6 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		cursorRows, err := queryItemRows(ctx, harness, cursorSQL, whereParams)
 		require.NoError(t, err)
 		require.Len(t, cursorRows, 1)
-		cursor := cursorRows[0]
 
 		offsetSQL := fmt.Sprintf(
 			"SELECT id FROM aip_items WHERE %s ORDER BY created_at DESC, id LIMIT 20 OFFSET 1000",
@@ -281,19 +269,22 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, offsetIDs)
 
-		pageToken, err := aip.EncodeSeekPageToken(aip.SeekPageToken{
-			SortValues:      []string{cursor.CreatedAt},
-			TieBreakerValue: strconv.FormatInt(cursor.ID, 10),
+		cursorPlan, err := planner.PlanList(ctx, aip.QueryRequest{
+			Filter:   `status="active"`,
+			PageSize: 1,
 		})
+		require.NoError(t, err)
+		cursorToken, err := cursorPlan.NextPageToken(cursorRows)
 		require.NoError(t, err)
 
-		seekPlan, err := planner.PlanList(ctx, "items_offset_compare", aip.QueryRequest{
+		seekPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:    `status="active"`,
 			PageSize:  20,
-			PageToken: pageToken,
+			PageToken: cursorToken,
 		})
 		require.NoError(t, err)
-		seekRows, err := queryItemRows(ctx, harness, seekPlan.SQL, seekPlan.Parameters)
+		seekSQL := buildListSQL("id, created_at", "aip_items", seekPlan)
+		seekRows, err := queryItemRows(ctx, harness, seekSQL, seekPlan.Parameters)
 		require.NoError(t, err)
 
 		seekIDs := make([]int64, 0, len(seekRows))
@@ -304,24 +295,20 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 	})
 
 	t.Run("query planner offset pagination matches handwritten offset", func(t *testing.T) {
-		planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+		planner, err := aip.NewQueryPlanner(aip.TableSpec{
+			Table: table,
+			DefaultOrder: []aip.OrderBy{
+				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+			},
+			TieBreakerFieldPath: aip.NewFieldPath("id"),
+			PaginationMode:      aip.PaginationModeOffset,
+		}, aip.QueryPlannerOptions{
 			Dialect:         aip.SQLDialectPostgres,
 			StrictMode:      true,
 			DefaultPageSize: 20,
 			MaxPageSize:     100,
 		})
 		require.NoError(t, err)
-		require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
-			Name:         "items_offset_mode",
-			Table:        table,
-			FromClause:   "aip_items",
-			SelectClause: "id, created_at",
-			DefaultOrder: []aip.OrderBy{
-				{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
-			},
-			TieBreakerFieldPath: aip.NewFieldPath("id"),
-			PaginationMode:      aip.PaginationModeOffset,
-		}))
 
 		filter, err := aip.ParseFilter(`status="active"`)
 		require.NoError(t, err)
@@ -343,26 +330,18 @@ func TestPostgresIntegration_AIPSQLExecution(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, expectedRows)
 
-		parts, err := planner.PlanListParts(ctx, "items_offset_mode", aip.QueryRequest{
+		plan, err := planner.PlanList(ctx, aip.QueryRequest{
 			Filter:    `status="active"`,
 			PageSize:  20,
 			PageToken: aip.EncodeOffsetPageToken(1000),
 		})
 		require.NoError(t, err)
-		assert.Equal(t, aip.PaginationModeOffset, parts.PaginationMode)
-		assert.Equal(t, 1000, parts.Offset)
-		assert.Empty(t, parts.PaginationClause)
+		assert.Equal(t, 1000, plan.Offset)
+		assert.Equal(t, "created_at DESC, id", plan.OrderByClause)
 
-		plan, err := planner.PlanList(ctx, "items_offset_mode", aip.QueryRequest{
-			Filter:    `status="active"`,
-			PageSize:  20,
-			PageToken: aip.EncodeOffsetPageToken(1000),
-		})
-		require.NoError(t, err)
-		assert.Contains(t, plan.SQL, "LIMIT 20 OFFSET 1000")
-		assert.Empty(t, plan.SeekClause)
-
-		actualRows, err := queryItemRows(ctx, harness, plan.SQL, plan.Parameters)
+		actualSQL := buildListSQL("id, created_at", "aip_items", plan)
+		assert.Contains(t, actualSQL, "LIMIT 20 OFFSET 1000")
+		actualRows, err := queryItemRows(ctx, harness, actualSQL, plan.Parameters)
 		require.NoError(t, err)
 		assert.Equal(t, expectedRows, actualRows)
 	})

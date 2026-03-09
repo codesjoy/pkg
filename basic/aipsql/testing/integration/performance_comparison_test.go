@@ -19,7 +19,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"testing"
 	"time"
 
@@ -213,7 +212,6 @@ func TestIntegrationPerformanceComparison(t *testing.T) {
 				cursorRows, err := queryItemRows(ctx, harness, cursorSQL, whereParams)
 				require.NoError(t, err)
 				require.Len(t, cursorRows, 1)
-				cursor := cursorRows[0]
 
 				offsetSQL := fmt.Sprintf(
 					"SELECT id FROM aip_items WHERE %s ORDER BY created_at DESC, id LIMIT 20 OFFSET 1000",
@@ -223,37 +221,36 @@ func TestIntegrationPerformanceComparison(t *testing.T) {
 				require.NoError(t, err)
 				require.NotEmpty(t, offsetIDs)
 
-				planner, err := aip.NewQueryPlanner(aip.QueryPlannerOptions{
+				planner, err := aip.NewQueryPlanner(aip.TableSpec{
+					Table: table,
+					DefaultOrder: []aip.OrderBy{
+						{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
+					},
+					TieBreakerFieldPath: aip.NewFieldPath("id"),
+				}, aip.QueryPlannerOptions{
 					Dialect:         tc.dialect,
 					StrictMode:      true,
 					DefaultPageSize: 20,
 					MaxPageSize:     100,
 				})
 				require.NoError(t, err)
-				require.NoError(t, planner.RegisterTableSpec(aip.TableSpec{
-					Name:         "seek_perf",
-					Table:        table,
-					FromClause:   "aip_items",
-					SelectClause: "id, created_at",
-					DefaultOrder: []aip.OrderBy{
-						{FieldPath: aip.NewFieldPath("created_at"), Descending: true},
-					},
-					TieBreakerFieldPath: aip.NewFieldPath("id"),
-				}))
 
-				pageToken, err := aip.EncodeSeekPageToken(aip.SeekPageToken{
-					SortValues:      []string{cursor.CreatedAt},
-					TieBreakerValue: strconv.FormatInt(cursor.ID, 10),
+				cursorPlan, err := planner.PlanList(ctx, aip.QueryRequest{
+					Filter:   `status="active"`,
+					PageSize: 1,
 				})
 				require.NoError(t, err)
+				cursorToken, err := cursorPlan.NextPageToken(cursorRows)
+				require.NoError(t, err)
 
-				seekPlan, err := planner.PlanList(ctx, "seek_perf", aip.QueryRequest{
+				seekPlan, err := planner.PlanList(ctx, aip.QueryRequest{
 					Filter:    `status="active"`,
 					PageSize:  20,
-					PageToken: pageToken,
+					PageToken: cursorToken,
 				})
 				require.NoError(t, err)
-				seekRows, err := queryItemRows(ctx, harness, seekPlan.SQL, seekPlan.Parameters)
+				seekSQL := buildListSQL("id, created_at", "aip_items", seekPlan)
+				seekRows, err := queryItemRows(ctx, harness, seekSQL, seekPlan.Parameters)
 				require.NoError(t, err)
 
 				seekIDs := make([]int64, 0, len(seekRows))
@@ -271,7 +268,7 @@ func TestIntegrationPerformanceComparison(t *testing.T) {
 				)
 				require.NoError(t, err)
 				seekStats, err := measureDurationStats(defaultPerfMeasurementConfig, func() error {
-					_, runErr := queryItemRows(ctx, harness, seekPlan.SQL, seekPlan.Parameters)
+					_, runErr := queryItemRows(ctx, harness, seekSQL, seekPlan.Parameters)
 					return runErr
 				})
 				require.NoError(t, err)

@@ -173,20 +173,15 @@ request := aipsql.QueryRequest{
     Filter:   "status=\"active\"",
     PageSize: 20,
 }
-plan, _ := planner.PlanList(ctx, "orders", request)
+plan, _ := planner.PlanList(ctx, request)
 
-// Get last row values
-lastRow := getLastRow(rows)
-
-// Create next page token
-nextPageToken, _ := aipsql.EncodeSeekPageToken(aipsql.SeekPageToken{
-    SortValues:      []string{lastRow.CreatedAt},
-    TieBreakerValue: strconv.FormatInt(lastRow.ID, 10),
-})
+// Execute the current page, then derive the next token from the actual rows.
+rows := fetchRows(plan)
+nextPageToken, _ := plan.NextPageToken(rows)
 
 // Second page
 request.PageToken = nextPageToken
-plan, _ = planner.PlanList(ctx, "orders", request)
+plan, _ = planner.PlanList(ctx, request)
 ```
 
 **Performance**: Consistent ~5ms vs OFFSET (degrades to 5000ms at page 10000)
@@ -288,23 +283,19 @@ CREATE INDEX idx_labels ON resources USING GIN(labels);
 High-level API for complete query generation:
 
 ```go
-planner, _ := aipsql.NewQueryPlanner(aipsql.QueryPlannerOptions{
+planner, _ := aipsql.NewQueryPlanner(aipsql.TableSpec{
+    Table:               ordersTable,
+    DefaultOrder:        []aipsql.OrderBy{{FieldPath: aipsql.NewFieldPath("created_at"), Descending: true}},
+    TieBreakerFieldPath: aipsql.NewFieldPath("id"),
+}, aipsql.QueryPlannerOptions{
     Dialect:                          aipsql.SQLDialectPostgres,
     EnableCompositeIndexOptimization: true,
     DefaultPageSize:                  20,
     MaxPageSize:                      100,
 })
 
-// Register table
-planner.RegisterTableSpec(aipsql.TableSpec{
-    Name:                "orders",
-    Table:               ordersTable,
-    DefaultOrder:        []aipsql.OrderBy{{FieldPath: aipsql.NewFieldPath("created_at"), Descending: true}},
-    TieBreakerFieldPath: aipsql.NewFieldPath("id"),
-})
-
 // Plan query
-plan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:    "status=\"active\"",
     OrderBy:   "name ASC",
     PageSize:  20,
@@ -312,17 +303,21 @@ plan, _ := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
 })
 
 // Execute
-query := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d",
-    plan.SelectClause, plan.FromClause, plan.WhereClause, plan.OrderByClause, plan.Limit)
+query := fmt.Sprintf(
+    "SELECT id, name, created_at FROM orders WHERE %s ORDER BY %s LIMIT %d",
+    plan.WhereClause,
+    plan.OrderByClause,
+    plan.Limit,
+)
 rows, _ := db.Query(query, aipsql.ParamValues(plan.Parameters)...)
 ```
 
-### QueryPlanner Parts + Offset
+### QueryPlanner Fragments + Offset
 
-Use `PlanListParts` when you want reusable fragments instead of a stitched SQL string:
+Use `PlanList` when you want final clauses and will stitch the base query yourself:
 
 ```go
-parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
+plan, _ := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:         `status="active"`,
     PageSize:       20,
     PaginationMode: aipsql.PaginationModeOffset,
@@ -330,13 +325,11 @@ parts, _ := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
 })
 
 query := fmt.Sprintf(
-    "SELECT %s FROM %s WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
-    parts.SelectClause,
-    parts.FromClause,
-    parts.WhereClause,
-    parts.OrderByClause,
-    parts.Limit,
-    parts.Offset,
+    "SELECT id, created_at FROM orders WHERE %s ORDER BY %s LIMIT %d OFFSET %d",
+    plan.WhereClause,
+    plan.OrderByClause,
+    plan.Limit,
+    plan.Offset,
 )
 _ = query
 ```

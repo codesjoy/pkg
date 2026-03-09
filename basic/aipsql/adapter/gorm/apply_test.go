@@ -91,26 +91,6 @@ func TestApplyPlan(t *testing.T) {
 	assert.Equal(t, int64(1), rows[1].ID)
 }
 
-func TestApplyParts(t *testing.T) {
-	db := setupOrderDB(t)
-
-	parts := &aip.QueryParts{
-		WhereClause:   "(status = @p_0)",
-		OrderByClause: "created_at DESC, id DESC",
-		Limit:         1,
-		Offset:        1,
-		Parameters: []aip.QueryParameter{
-			{Name: "p_0", Value: "active"},
-		},
-	}
-
-	var rows []orderRecord
-	err := ApplyParts(db.Model(&orderRecord{}), parts).Find(&rows).Error
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, int64(3), rows[0].ID)
-}
-
 func TestApplyWhereEmptyClauseNoop(t *testing.T) {
 	db := setupOrderDB(t).Model(&orderRecord{})
 	assert.Same(t, db, ApplyWhere(db, "", nil))
@@ -119,11 +99,6 @@ func TestApplyWhereEmptyClauseNoop(t *testing.T) {
 func TestApplyPlanNilNoop(t *testing.T) {
 	db := setupOrderDB(t).Model(&orderRecord{})
 	assert.Same(t, db, ApplyPlan(db, nil))
-}
-
-func TestApplyPartsNilNoop(t *testing.T) {
-	db := setupOrderDB(t).Model(&orderRecord{})
-	assert.Same(t, db, ApplyParts(db, nil))
 }
 
 func setupOrderDB(t *testing.T) *gorm.DB {

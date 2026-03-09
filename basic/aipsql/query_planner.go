@@ -17,9 +17,12 @@ package aipsql
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -65,21 +68,10 @@ type QueryPlannerOptions struct {
 	MaxPageSize int
 }
 
-// TableSpec describes code-registered metadata for a queryable table.
+// TableSpec describes the queryable table metadata used by QueryPlanner.
 type TableSpec struct {
-	// Name is the registry key used by PlanList.
-	Name string
-
 	// Table contains AIP field/column metadata.
 	Table *Table
-
-	// FromClause is appended after FROM in generated SQL.
-	// It must be a trusted constant.
-	FromClause string
-
-	// SelectClause is appended after SELECT in generated SQL.
-	// Default: "*".
-	SelectClause string
 
 	// DefaultOrder is merged with request order_by using MergeWithDefaultOrder.
 	DefaultOrder []OrderBy
@@ -128,9 +120,6 @@ type QueryRequest struct {
 
 	// EnableCompositeIndexOptimization overrides planner default condition reordering.
 	EnableCompositeIndexOptimization *bool
-
-	// EnableDebug includes rewrite/index decisions in QueryPlan.Debug.
-	EnableDebug bool
 }
 
 // SeekPageToken is the cursor payload used for seek pagination.
@@ -139,80 +128,23 @@ type SeekPageToken struct {
 	TieBreakerValue string   `json:"tie_breaker_value"`
 }
 
-// SeekTokenDescriptor describes how to produce/consume seek tokens for a plan.
-type SeekTokenDescriptor struct {
-	// SortOrder matches the values order in SeekPageToken.SortValues.
-	SortOrder []OrderBy
-
-	// TieBreakerFieldPath matches SeekPageToken.TieBreakerValue.
-	TieBreakerFieldPath FieldPath
-}
-
-// PlanDebugInfo carries optional planner decisions for debugging.
-type PlanDebugInfo struct {
-	Dialect                    SQLDialect
-	StrictMode                 bool
-	CompositeIndexOptimization bool
-	AppliedRewrites            []string
-	RequestedOrder             []OrderBy
-	EffectiveOrder             []OrderBy
-	OrderByCompositeIndex      string
-	FilterCompositeIndex       string
-	FilterCompositeReordered   bool
-	SeekPaginationEnabled      bool
-	ParameterPrefix            string
-}
-
-// QueryParts contains reusable query fragments for one planned list query.
-type QueryParts struct {
-	TableName string
-
-	SelectClause     string
-	FromClause       string
-	FilterClause     string
-	PaginationClause string
-	WhereClause      string
-	OrderByClause    string
-
-	Parameters []QueryParameter
-	Limit      int
-	Offset     int
-
-	PaginationMode PaginationMode
-
-	TokenDescriptor SeekTokenDescriptor
-	Debug           *PlanDebugInfo
-}
-
-// QueryPlan is the planned SQL shape for one list query.
+// QueryPlan contains the final executable clauses for one planned list query.
 type QueryPlan struct {
-	TableName string
-
-	SQL string
-
-	SelectClause     string
-	FromClause       string
-	FilterClause     string
-	PaginationClause string
-	SeekClause       string
-	WhereClause      string
-	OrderByClause    string
+	WhereClause   string
+	OrderByClause string
 
 	Parameters []QueryParameter
 	Limit      int
 	Offset     int
 
-	PaginationMode PaginationMode
-
-	TokenDescriptor SeekTokenDescriptor
-	Debug           *PlanDebugInfo
+	paginationMode      PaginationMode
+	table               *Table
+	sortOrder           []OrderBy
+	tieBreakerFieldPath FieldPath
 }
 
 type registeredTableSpec struct {
-	name         string
 	table        *Table
-	fromClause   string
-	selectClause string
 	defaultOrder []OrderBy
 	tieBreaker   FieldPath
 	pagination   PaginationMode
@@ -231,13 +163,12 @@ type resolvedPlannerOptions struct {
 
 // QueryPlanner provides one text-direct list planning API for services.
 type QueryPlanner struct {
-	mu      sync.RWMutex
-	tables  map[string]registeredTableSpec
+	spec    registeredTableSpec
 	options resolvedPlannerOptions
 }
 
-// NewQueryPlanner builds a planner with validated defaults.
-func NewQueryPlanner(options QueryPlannerOptions) (*QueryPlanner, error) {
+// NewQueryPlanner builds a planner for one validated table specification.
+func NewQueryPlanner(spec TableSpec, options QueryPlannerOptions) (*QueryPlanner, error) {
 	dialect, err := normalizeSQLDialect(options.Dialect)
 	if err != nil {
 		return nil, err
@@ -271,8 +202,7 @@ func NewQueryPlanner(options QueryPlannerOptions) (*QueryPlanner, error) {
 		)
 	}
 
-	return &QueryPlanner{
-		tables: make(map[string]registeredTableSpec),
+	planner := &QueryPlanner{
 		options: resolvedPlannerOptions{
 			dialect:                          dialect,
 			strictMode:                       options.StrictMode,
@@ -281,90 +211,29 @@ func NewQueryPlanner(options QueryPlannerOptions) (*QueryPlanner, error) {
 			defaultPageSize:                  defaultPageSize,
 			maxPageSize:                      maxPageSize,
 		},
-	}, nil
-}
-
-// RegisterTableSpec registers one table metadata definition.
-func (p *QueryPlanner) RegisterTableSpec(spec TableSpec) error {
-	registered, err := p.normalizeTableSpec(spec)
-	if err != nil {
-		return err
 	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if _, ok := p.tables[registered.name]; ok {
-		return fmt.Errorf("table %q is already registered", registered.name)
-	}
-	p.tables[registered.name] = registered
-	return nil
-}
-
-// RegisterTableSpecs registers multiple table metadata definitions.
-func (p *QueryPlanner) RegisterTableSpecs(specs ...TableSpec) error {
-	for _, spec := range specs {
-		if err := p.RegisterTableSpec(spec); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// PlanListParts generates reusable query fragments from filter/order_by EBNF text.
-func (p *QueryPlanner) PlanListParts(
-	ctx context.Context,
-	tableName string,
-	req QueryRequest,
-) (*QueryParts, error) {
-	return p.planListParts(ctx, tableName, req)
-}
-
-// PlanList generates index-friendly SQL from filter/order_by EBNF text.
-func (p *QueryPlanner) PlanList(
-	ctx context.Context,
-	tableName string,
-	req QueryRequest,
-) (*QueryPlan, error) {
-	parts, err := p.planListParts(ctx, tableName, req)
+	registered, err := planner.normalizeTableSpec(spec)
 	if err != nil {
 		return nil, err
 	}
-
-	plan := &QueryPlan{
-		TableName:        parts.TableName,
-		SQL:              buildSQL(parts.SelectClause, parts.FromClause, parts.WhereClause, parts.OrderByClause, parts.Limit, parts.Offset),
-		SelectClause:     parts.SelectClause,
-		FromClause:       parts.FromClause,
-		FilterClause:     parts.FilterClause,
-		PaginationClause: parts.PaginationClause,
-		WhereClause:      parts.WhereClause,
-		OrderByClause:    parts.OrderByClause,
-		Parameters:       parts.Parameters,
-		Limit:            parts.Limit,
-		Offset:           parts.Offset,
-		PaginationMode:   parts.PaginationMode,
-		TokenDescriptor:  parts.TokenDescriptor,
-		Debug:            parts.Debug,
-	}
-	if parts.PaginationMode == PaginationModeSeek {
-		plan.SeekClause = parts.PaginationClause
-	}
-	return plan, nil
+	planner.spec = registered
+	return planner, nil
 }
 
-func (p *QueryPlanner) planListParts(
+// PlanList generates final WHERE/ORDER/LIMIT/OFFSET clauses from filter/order_by EBNF text.
+func (p *QueryPlanner) PlanList(ctx context.Context, req QueryRequest) (*QueryPlan, error) {
+	return p.planList(ctx, req)
+}
+
+func (p *QueryPlanner) planList(
 	ctx context.Context,
-	tableName string,
 	req QueryRequest,
-) (*QueryParts, error) {
+) (*QueryPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	registered, err := p.lookupTableSpec(tableName)
-	if err != nil {
-		return nil, err
-	}
+	registered := p.spec
 
 	dialect, strictMode, enableComposite, parameterPrefix, err := p.resolveRequestOptions(req)
 	if err != nil {
@@ -407,14 +276,6 @@ func (p *QueryPlanner) planListParts(
 		return nil, err
 	}
 
-	tokenDescriptor := SeekTokenDescriptor{}
-	if paginationMode == PaginationModeSeek {
-		tokenDescriptor = SeekTokenDescriptor{
-			SortOrder:           copyOrderByList(effectiveOrder),
-			TieBreakerFieldPath: registered.tieBreaker,
-		}
-	}
-
 	orderForSQL := append(
 		copyOrderByList(effectiveOrder),
 		OrderBy{FieldPath: registered.tieBreaker},
@@ -426,7 +287,7 @@ func (p *QueryPlanner) planListParts(
 
 	limit := p.resolvePageSize(registered, req.PageSize)
 
-	paginationClause, paginationParams, offset, seekEnabled, err := p.planPagination(
+	paginationClause, paginationParams, offset, err := p.planPagination(
 		registered,
 		effectiveOrder,
 		req.PageToken,
@@ -440,36 +301,309 @@ func (p *QueryPlanner) planListParts(
 
 	whereClause := combineWhereClauses(filterClause, paginationClause)
 
-	parts := &QueryParts{
-		TableName:        registered.name,
-		SelectClause:     registered.selectClause,
-		FromClause:       registered.fromClause,
-		FilterClause:     filterClause,
-		PaginationClause: paginationClause,
-		WhereClause:      whereClause,
-		OrderByClause:    orderByClause,
-		Parameters:       mergePlanParams(filterParams, paginationParams),
-		Limit:            limit,
-		Offset:           offset,
-		PaginationMode:   paginationMode,
-		TokenDescriptor:  tokenDescriptor,
+	plan := &QueryPlan{
+		WhereClause:         whereClause,
+		OrderByClause:       orderByClause,
+		Parameters:          mergePlanParams(filterParams, paginationParams),
+		Limit:               limit,
+		Offset:              offset,
+		paginationMode:      paginationMode,
+		table:               registered.table,
+		tieBreakerFieldPath: registered.tieBreaker,
+	}
+	if paginationMode == PaginationModeSeek {
+		plan.sortOrder = copyOrderByList(effectiveOrder)
 	}
 
-	if req.EnableDebug {
-		parts.Debug = p.buildDebugInfo(
-			registered,
-			filterAST,
-			requestedOrder,
-			effectiveOrder,
-			dialect,
-			strictMode,
-			enableComposite,
-			seekEnabled,
-			parameterPrefix,
-		)
+	return plan, nil
+}
+
+// NextPageToken returns the next page token after the caller has executed the
+// current plan and collected the current page rows.
+func (p *QueryPlan) NextPageToken(rows any) (string, error) {
+	if p == nil {
+		return "", fmt.Errorf("query plan is required")
 	}
 
-	return parts, nil
+	rowsValue := reflect.ValueOf(rows)
+	if !rowsValue.IsValid() {
+		return "", fmt.Errorf("rows must be a slice or array")
+	}
+	if rowsValue.Kind() != reflect.Slice && rowsValue.Kind() != reflect.Array {
+		return "", fmt.Errorf("rows must be a slice or array")
+	}
+
+	rowCount := rowsValue.Len()
+	if rowCount == 0 {
+		return "", nil
+	}
+	if p.Limit > 0 && rowCount < p.Limit {
+		return "", nil
+	}
+
+	switch p.paginationMode {
+	case PaginationModeOffset:
+		return EncodeOffsetPageToken(p.Offset + rowCount), nil
+	case "", PaginationModeSeek:
+		return p.nextSeekPageToken(rowsValue.Index(rowCount - 1))
+	default:
+		return "", fmt.Errorf("unsupported pagination mode %q", p.paginationMode)
+	}
+}
+
+func (p *QueryPlan) nextSeekPageToken(lastRow reflect.Value) (string, error) {
+	if p.tieBreakerFieldPath.String() == "" {
+		return "", fmt.Errorf("seek pagination metadata is unavailable")
+	}
+
+	structValue, err := dereferenceRowValue(lastRow)
+	if err != nil {
+		return "", err
+	}
+
+	sortValues := make([]string, 0, len(p.sortOrder))
+	for _, entry := range p.sortOrder {
+		value, err := p.seekTokenValue(structValue, entry.FieldPath)
+		if err != nil {
+			return "", err
+		}
+		sortValues = append(sortValues, value)
+	}
+
+	tieBreakerValue, err := p.seekTokenValue(structValue, p.tieBreakerFieldPath)
+	if err != nil {
+		return "", err
+	}
+
+	return EncodeSeekPageToken(SeekPageToken{
+		SortValues:      sortValues,
+		TieBreakerValue: tieBreakerValue,
+	})
+}
+
+func (p *QueryPlan) seekTokenValue(row reflect.Value, fieldPath FieldPath) (string, error) {
+	value, err := p.resolveFieldPathValue(row, fieldPath)
+	if err != nil {
+		return "", err
+	}
+	text, err := stringifySeekTokenValue(value)
+	if err != nil {
+		return "", fmt.Errorf("field %q: %w", fieldPath.String(), err)
+	}
+	return text, nil
+}
+
+func (p *QueryPlan) resolveFieldPathValue(row reflect.Value, fieldPath FieldPath) (reflect.Value, error) {
+	if len(fieldPath.segments) == 0 {
+		return reflect.Value{}, fmt.Errorf("field path is required")
+	}
+
+	current := row
+	leafDatabaseName := p.databaseColumnName(fieldPath)
+	for i, segment := range fieldPath.segments {
+		last := i == len(fieldPath.segments)-1
+
+		structValue, err := dereferenceRowValue(current)
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("field %q: %w", fieldPath.String(), err)
+		}
+
+		gormCandidates := []string{segment}
+		if last && leafDatabaseName != "" && leafDatabaseName != segment {
+			gormCandidates = append([]string{leafDatabaseName}, gormCandidates...)
+		}
+
+		current, err = selectStructField(structValue, segment, gormCandidates)
+		if err != nil {
+			return reflect.Value{}, fmt.Errorf("field %q: %w", fieldPath.String(), err)
+		}
+	}
+
+	return current, nil
+}
+
+func (p *QueryPlan) databaseColumnName(fieldPath FieldPath) string {
+	if p.table == nil {
+		return ""
+	}
+	column, err := p.table.SortableColumnByFieldPath(fieldPath)
+	if err != nil || column == nil {
+		return ""
+	}
+	return column.databaseName
+}
+
+func dereferenceRowValue(value reflect.Value) (reflect.Value, error) {
+	current := value
+	for current.Kind() == reflect.Pointer {
+		if current.IsNil() {
+			return reflect.Value{}, fmt.Errorf("row element must not be nil")
+		}
+		current = current.Elem()
+	}
+	if current.Kind() != reflect.Struct {
+		return reflect.Value{}, fmt.Errorf("row elements must be structs or pointers to structs")
+	}
+	return current, nil
+}
+
+func selectStructField(
+	structValue reflect.Value,
+	segment string,
+	gormCandidates []string,
+) (reflect.Value, error) {
+	structType := structValue.Type()
+
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		if matchesCandidate(parseGORMColumnName(field.Tag.Get("gorm")), gormCandidates) {
+			return structValue.Field(i), nil
+		}
+	}
+
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		if jsonName := parseJSONFieldName(field.Tag.Get("json")); jsonName == segment {
+			return structValue.Field(i), nil
+		}
+	}
+
+	goFieldName := fieldPathSegmentToGoName(segment)
+	for i := 0; i < structType.NumField(); i++ {
+		field := structType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		if field.Name == goFieldName {
+			return structValue.Field(i), nil
+		}
+	}
+
+	return reflect.Value{}, fmt.Errorf("no matching field for segment %q", segment)
+}
+
+func matchesCandidate(name string, candidates []string) bool {
+	if name == "" {
+		return false
+	}
+	for _, candidate := range candidates {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+func parseGORMColumnName(tag string) string {
+	for _, part := range strings.Split(tag, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(part, ":")
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(key), "column") {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func parseJSONFieldName(tag string) string {
+	if tag == "" {
+		return ""
+	}
+	name := strings.TrimSpace(strings.Split(tag, ",")[0])
+	if name == "-" {
+		return ""
+	}
+	return name
+}
+
+func fieldPathSegmentToGoName(segment string) string {
+	parts := strings.FieldsFunc(segment, func(r rune) bool {
+		return r == '_' || r == '-'
+	})
+	if len(parts) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		upper := strings.ToUpper(part)
+		if isCommonInitialism(upper) {
+			b.WriteString(upper)
+			continue
+		}
+
+		first, size := utf8.DecodeRuneInString(part)
+		if first == utf8.RuneError && size == 0 {
+			continue
+		}
+		b.WriteRune(unicode.ToUpper(first))
+		b.WriteString(part[size:])
+	}
+	return b.String()
+}
+
+func isCommonInitialism(value string) bool {
+	switch value {
+	case "ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID",
+		"IP", "JSON", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP",
+		"UI", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML":
+		return true
+	default:
+		return false
+	}
+}
+
+func stringifySeekTokenValue(value reflect.Value) (string, error) {
+	current := value
+	for current.Kind() == reflect.Pointer {
+		if current.IsNil() {
+			return "", fmt.Errorf("value must not be nil")
+		}
+		current = current.Elem()
+	}
+
+	switch current.Kind() {
+	case reflect.String:
+		return current.String(), nil
+	case reflect.Bool:
+		return strconv.FormatBool(current.Bool()), nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return strconv.FormatInt(current.Int(), 10), nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return strconv.FormatUint(current.Uint(), 10), nil
+	case reflect.Float32:
+		return strconv.FormatFloat(current.Float(), 'g', -1, 32), nil
+	case reflect.Float64:
+		return strconv.FormatFloat(current.Float(), 'g', -1, 64), nil
+	case reflect.Slice:
+		if current.Type().Elem().Kind() == reflect.Uint8 {
+			return string(current.Bytes()), nil
+		}
+	}
+
+	if current.CanInterface() {
+		if timeValue, ok := current.Interface().(time.Time); ok {
+			return timeValue.Format(time.RFC3339Nano), nil
+		}
+		return fmt.Sprint(current.Interface()), nil
+	}
+
+	return "", fmt.Errorf("unsupported value kind %s", current.Kind())
 }
 
 func validateRequestedOrder(requestedOrder []OrderBy, tieBreaker FieldPath) error {
@@ -491,22 +625,22 @@ func (p *QueryPlanner) planPagination(
 	parameterPrefix string,
 	dialect SQLDialect,
 	mode PaginationMode,
-) (string, []QueryParameter, int, bool, error) {
+) (string, []QueryParameter, int, error) {
 	switch mode {
 	case PaginationModeSeek:
-		clause, params, seekEnabled, err := p.planSeekClause(
+		clause, params, err := p.planSeekClause(
 			registered,
 			effectiveOrder,
 			pageToken,
 			parameterPrefix,
 			dialect,
 		)
-		return clause, params, 0, seekEnabled, err
+		return clause, params, 0, err
 	case PaginationModeOffset:
 		offset, err := planOffset(pageToken)
-		return "", nil, offset, false, err
+		return "", nil, offset, err
 	default:
-		return "", nil, 0, false, fmt.Errorf("unsupported pagination mode %q", mode)
+		return "", nil, 0, fmt.Errorf("unsupported pagination mode %q", mode)
 	}
 }
 
@@ -516,17 +650,17 @@ func (p *QueryPlanner) planSeekClause(
 	pageToken string,
 	parameterPrefix string,
 	dialect SQLDialect,
-) (string, []QueryParameter, bool, error) {
+) (string, []QueryParameter, error) {
 	if strings.TrimSpace(pageToken) == "" {
-		return "", nil, false, nil
+		return "", nil, nil
 	}
 
 	seekToken, err := DecodeSeekPageToken(pageToken)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, err
 	}
 	if len(seekToken.SortValues) != len(effectiveOrder) {
-		return "", nil, false, fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"page token sort value count %d does not match planned order field count %d",
 			len(seekToken.SortValues),
 			len(effectiveOrder),
@@ -542,9 +676,9 @@ func (p *QueryPlanner) planSeekClause(
 			seekParamPrefix,
 		)
 		if err != nil {
-			return "", nil, false, err
+			return "", nil, err
 		}
-		return seekClause, seekParams, true, nil
+		return seekClause, seekParams, nil
 	}
 
 	seekClause, seekParams, err := registered.table.BuildSeekPaginationClause(
@@ -556,9 +690,9 @@ func (p *QueryPlanner) planSeekClause(
 		dialect,
 	)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, err
 	}
-	return seekClause, seekParams, true, nil
+	return seekClause, seekParams, nil
 }
 
 func planOffset(pageToken string) (int, error) {
@@ -575,69 +709,29 @@ func mergePlanParams(filterParams, seekParams []QueryParameter) []QueryParameter
 	return merged
 }
 
-func (p *QueryPlanner) lookupTableSpec(tableName string) (registeredTableSpec, error) {
-	name := strings.TrimSpace(tableName)
-	if name == "" {
-		return registeredTableSpec{}, fmt.Errorf("table name is required")
-	}
-
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	registered, ok := p.tables[name]
-	if !ok {
-		return registeredTableSpec{}, fmt.Errorf("table %q is not registered", name)
-	}
-	return registered, nil
-}
-
 func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, error) {
-	name := strings.TrimSpace(spec.Name)
-	if name == "" {
-		return registeredTableSpec{}, fmt.Errorf("table name is required")
-	}
 	if spec.Table == nil {
-		return registeredTableSpec{}, fmt.Errorf("table %q: table metadata is required", name)
+		return registeredTableSpec{}, fmt.Errorf("table metadata is required")
 	}
 	if spec.TieBreakerFieldPath.String() == "" {
-		return registeredTableSpec{}, fmt.Errorf(
-			"table %q: tie breaker field path is required",
-			name,
-		)
+		return registeredTableSpec{}, fmt.Errorf("tie breaker field path is required")
 	}
 
 	if _, err := spec.Table.SortableColumnByFieldPath(spec.TieBreakerFieldPath); err != nil {
-		return registeredTableSpec{}, fmt.Errorf(
-			"table %q: invalid tie breaker field: %w",
-			name,
-			err,
-		)
+		return registeredTableSpec{}, fmt.Errorf("invalid tie breaker field: %w", err)
 	}
 
 	defaultOrder := copyOrderByList(spec.DefaultOrder)
 	for _, entry := range defaultOrder {
 		if entry.FieldPath.Equals(spec.TieBreakerFieldPath) {
 			return registeredTableSpec{}, fmt.Errorf(
-				"table %q: default order must not include tie breaker field %q",
-				name,
+				"default order must not include tie breaker field %q",
 				spec.TieBreakerFieldPath.String(),
 			)
 		}
 		if _, err := spec.Table.SortableColumnByFieldPath(entry.FieldPath); err != nil {
-			return registeredTableSpec{}, fmt.Errorf(
-				"table %q: invalid default order: %w",
-				name,
-				err,
-			)
+			return registeredTableSpec{}, fmt.Errorf("invalid default order: %w", err)
 		}
-	}
-
-	fromClause := strings.TrimSpace(spec.FromClause)
-	if fromClause == "" {
-		fromClause = name
-	}
-	selectClause := strings.TrimSpace(spec.SelectClause)
-	if selectClause == "" {
-		selectClause = "*"
 	}
 
 	defaultLimit := spec.DefaultPageSize
@@ -650,8 +744,7 @@ func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, 
 	}
 	if maxLimit < defaultLimit {
 		return registeredTableSpec{}, fmt.Errorf(
-			"table %q: max page size %d cannot be smaller than default page size %d",
-			name,
+			"max page size %d cannot be smaller than default page size %d",
 			maxLimit,
 			defaultLimit,
 		)
@@ -659,14 +752,11 @@ func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, 
 
 	paginationMode, err := normalizePaginationMode(spec.PaginationMode)
 	if err != nil {
-		return registeredTableSpec{}, fmt.Errorf("table %q: %w", name, err)
+		return registeredTableSpec{}, err
 	}
 
 	return registeredTableSpec{
-		name:         name,
 		table:        spec.Table,
-		fromClause:   fromClause,
-		selectClause: selectClause,
 		defaultOrder: defaultOrder,
 		tieBreaker:   spec.TieBreakerFieldPath,
 		pagination:   paginationMode,
@@ -755,91 +845,6 @@ func resolvePaginationMode(spec registeredTableSpec, req QueryRequest) (Paginati
 		return normalizePaginationMode(spec.pagination)
 	}
 	return PaginationModeSeek, nil
-}
-
-func (p *QueryPlanner) buildDebugInfo(
-	spec registeredTableSpec,
-	filterAST *Filter,
-	requestedOrder []OrderBy,
-	effectiveOrder []OrderBy,
-	dialect SQLDialect,
-	strictMode bool,
-	enableComposite bool,
-	seekEnabled bool,
-	parameterPrefix string,
-) *PlanDebugInfo {
-	rewrites := make([]string, 0, 4)
-	if len(spec.defaultOrder) > 0 {
-		rewrites = append(rewrites, "merge_default_order")
-	}
-	if len(effectiveOrder) == 0 {
-		rewrites = append(rewrites, "order_by_tie_breaker_only")
-	}
-	rewrites = append(rewrites, "append_tie_breaker")
-	if seekEnabled {
-		rewrites = append(rewrites, "seek_pagination")
-	}
-
-	orderByIndexName := ""
-	if fields, err := orderByFieldsFor(spec.table, effectiveOrder); err == nil {
-		if matched := findMatchingOrderByIndex(fields, spec.table.CompositeIndexes); matched != nil {
-			orderByIndexName = matched.Name
-		}
-	}
-
-	filterIndexName := ""
-	filterReordered := false
-	if enableComposite {
-		if name, reordered := analyzeFilterCompositeIndex(spec.table, filterAST, dialect, strictMode); name != "" {
-			filterIndexName = name
-			filterReordered = reordered
-		}
-	}
-
-	return &PlanDebugInfo{
-		Dialect:                    dialect,
-		StrictMode:                 strictMode,
-		CompositeIndexOptimization: enableComposite,
-		AppliedRewrites:            rewrites,
-		RequestedOrder:             copyOrderByList(requestedOrder),
-		EffectiveOrder:             copyOrderByList(effectiveOrder),
-		OrderByCompositeIndex:      orderByIndexName,
-		FilterCompositeIndex:       filterIndexName,
-		FilterCompositeReordered:   filterReordered,
-		SeekPaginationEnabled:      seekEnabled,
-		ParameterPrefix:            parameterPrefix,
-	}
-}
-
-func buildSQL(
-	selectClause string,
-	fromClause string,
-	whereClause string,
-	orderByClause string,
-	limit int,
-	offset int,
-) string {
-	var b strings.Builder
-	b.Grow(len(selectClause) + len(fromClause) + len(whereClause) + len(orderByClause) + 64)
-	b.WriteString("SELECT ")
-	b.WriteString(selectClause)
-	b.WriteString(" FROM ")
-	b.WriteString(fromClause)
-	if whereClause != "" {
-		b.WriteString(" WHERE ")
-		b.WriteString(whereClause)
-	}
-	if orderByClause != "" {
-		b.WriteString(" ORDER BY ")
-		b.WriteString(orderByClause)
-	}
-	b.WriteString(" LIMIT ")
-	b.WriteString(strconv.Itoa(limit))
-	if offset > 0 {
-		b.WriteString(" OFFSET ")
-		b.WriteString(strconv.Itoa(offset))
-	}
-	return b.String()
 }
 
 func combineWhereClauses(filterClause, seekClause string) string {
@@ -933,80 +938,4 @@ func sortableFieldPathByDatabaseColumn(table *Table, databaseColumn string) (Fie
 		}
 	}
 	return FieldPath{}, false
-}
-
-func orderByFieldsFor(table *Table, order []OrderBy) ([]OrderByField, error) {
-	result := make([]OrderByField, 0, len(order))
-	for _, entry := range order {
-		column, err := table.SortableColumnByFieldPath(entry.FieldPath)
-		if err != nil {
-			return nil, err
-		}
-		direction := "ASC"
-		if entry.Descending {
-			direction = "DESC"
-		}
-		result = append(result, OrderByField{Column: column, Direction: direction})
-	}
-	return result, nil
-}
-
-func analyzeFilterCompositeIndex(
-	table *Table,
-	filter *Filter,
-	dialect SQLDialect,
-	strictMode bool,
-) (string, bool) {
-	if filter == nil || filter.Expression == nil || len(table.CompositeIndexes) == 0 {
-		return "", false
-	}
-
-	w := &whereClause{
-		table:                            table,
-		dialect:                          dialect,
-		strictMode:                       strictMode,
-		fallbackMode:                     MatchModeContains,
-		optimizeMatch:                    true,
-		enableCompositeIndexOptimization: true,
-	}
-
-	factors := flattenExpressionFactors(filter.Expression)
-	if len(factors) < 2 {
-		return "", false
-	}
-
-	conditions, factorConditionIndexes, err := w.extractConditionsFromFactors(factors)
-	if err != nil || len(conditions) == 0 {
-		return "", false
-	}
-
-	bestIndex := findBestCompositeIndex(conditions, table.CompositeIndexes)
-	if bestIndex == nil {
-		return "", false
-	}
-
-	reorderedConditions := reorderConditions(conditions, bestIndex)
-	if sameConditionOrder(conditions, reorderedConditions) {
-		return bestIndex.Name, false
-	}
-
-	reorderedFactors := w.reorderFactors(
-		factors,
-		conditions,
-		factorConditionIndexes,
-		reorderedConditions,
-	)
-	return bestIndex.Name, !sameFactorPointers(factors, reorderedFactors)
-}
-
-func sameFactorPointers(a, b []*Factor) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

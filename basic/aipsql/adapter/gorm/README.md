@@ -34,7 +34,7 @@ err = aipsqlgorm.ApplyWhere(
 ### Apply `QueryPlan` output to `*gorm.DB`
 
 ```go
-plan, err := planner.PlanList(ctx, "orders", aipsql.QueryRequest{
+plan, err := planner.PlanList(ctx, aipsql.QueryRequest{
     Filter:   `status="active"`,
     OrderBy:  "created_at DESC",
     PageSize: 20,
@@ -47,31 +47,12 @@ var orders []Order
 err = aipsqlgorm.ApplyPlan(db.Model(&Order{}), plan).Find(&orders).Error
 ```
 
-### Apply `QueryParts` output to `*gorm.DB`
-
-```go
-parts, err := planner.PlanListParts(ctx, "orders", aipsql.QueryRequest{
-    Filter:         `status="active"`,
-    PageSize:       20,
-    PaginationMode: aipsql.PaginationModeOffset,
-    PageToken:      aipsql.EncodeOffsetPageToken(40),
-})
-if err != nil {
-    return err
-}
-
-var orders []Order
-err = aipsqlgorm.ApplyParts(db.Model(&Order{}), parts).Find(&orders).Error
-```
-
 ## API
 
 - `NamedArgs(params []aipsql.QueryParameter) []any`
   - Converts `aipsql` named parameters into `sql.NamedArg` values for GORM.
 - `ApplyWhere(db *gorm.DB, whereSQL string, params []aipsql.QueryParameter) *gorm.DB`
   - Applies one `WHERE` fragment plus named args to a query chain.
-- `ApplyParts(db *gorm.DB, parts *aipsql.QueryParts) *gorm.DB`
-  - Applies `WhereClause`, `OrderByClause`, `Limit`, and `Offset` from reusable query parts.
 - `ApplyPlan(db *gorm.DB, plan *aipsql.QueryPlan) *gorm.DB`
   - Applies `WhereClause`, `OrderByClause`, `Limit`, and `Offset` from a plan.
 
@@ -79,10 +60,8 @@ err = aipsqlgorm.ApplyParts(db.Model(&Order{}), parts).Find(&orders).Error
 
 - Uses named parameter binding (`@p_0`, `@p_1`, ...).
 - `ApplyWhere` returns `db` unchanged when `db == nil` or `whereSQL` is empty.
-- `ApplyParts` returns `db` unchanged when `db == nil` or `parts == nil`.
 - `ApplyPlan` returns `db` unchanged when `db == nil` or `plan == nil`.
-- `ApplyParts` does not execute or stitch SQL; it only applies individual clauses.
-- `ApplyPlan` does not execute or stitch `plan.SQL`; it only applies individual clauses.
+- `ApplyPlan` does not stitch a full SQL statement; it only applies individual clauses.
 
 ## Verify
 
