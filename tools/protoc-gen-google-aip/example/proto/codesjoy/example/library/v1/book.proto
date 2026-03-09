@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package codesjoy.example.library.v1;
+
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/api/resource.proto";
+
+option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1";
+
+option (google.api.resource_definition) = {
+  type: "library.googleapis.com/Archive"
+  pattern: "archives/{archive}"
+  plural: "archives"
+  singular: "archive"
+};
+
+message Book {
+  option (google.api.resource) = {
+    type: "library.googleapis.com/Book"
+    pattern: "publishers/{publisher}/books/{book}"
+    pattern: "archives/{archive}/books/{book}"
+    plural: "books"
+    singular: "book"
+  };
+
+  string name = 1;
+  string title = 2;
+}
+
+message GetBookRequest {
+  string name = 1 [
+    (google.api.resource_reference).type = "library.googleapis.com/Book",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  string view = 2;
+}
+
+message ListBooksRequest {
+  string parent = 1 [
+    (google.api.resource_reference).child_type = "library.googleapis.com/Book",
+    (google.api.field_behavior) = REQUIRED
+  ];
+  int32 page_size = 2 [(google.api.field_behavior) = OPTIONAL];
+}
+
+message ListBooksResponse {
+  repeated Book books = 1;
+}
+
+service LibraryService {
+  rpc GetBook(GetBookRequest) returns (Book) {
+    option (google.api.method_signature) = "name, view";
+  }
+
+  rpc ListBooks(ListBooksRequest) returns (ListBooksResponse) {
+    option (google.api.method_signature) = "parent";
+  }
+}

@@ -27,6 +27,7 @@ The repository is organized by responsibility:
 
 | Tool | Purpose | Docs | Typical use |
 | --- | --- | --- | --- |
+| `tools/protoc-gen-google-aip` | Protoc plugin for generating Google AIP helpers for resources, field behavior, and method signatures | [tools/protoc-gen-google-aip/README.md](./tools/protoc-gen-google-aip/README.md) | Generate resource-name parsing/formatting and annotation metadata accessors |
 | `tools/protoc-gen-codesjoy-reason` | Protoc plugin for generating enum reason helpers (`Reason`/`Domain`/`Code`) | [tools/protoc-gen-codesjoy-reason/README.md](./tools/protoc-gen-codesjoy-reason/README.md) | Generate reason helper methods for proto enums |
 | `tools/codesjoy-modelgen` | Introspect MySQL/PostgreSQL schema and generate GORM models + `aipsql.Table` builders | [tools/codesjoy-modelgen/README.md](./tools/codesjoy-modelgen/README.md) | Bootstrap model layer and AIP filter schema from existing tables |
 
@@ -49,9 +50,10 @@ go get github.com/codesjoy/pkg/utils
 
 ### For tool users
 
-Install the reason plugin:
+Install the tools you need:
 
 ```bash
+go install github.com/codesjoy/pkg/tools/protoc-gen-google-aip@latest
 go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason@latest
 go install github.com/codesjoy/pkg/tools/codesjoy-modelgen@latest
 ```

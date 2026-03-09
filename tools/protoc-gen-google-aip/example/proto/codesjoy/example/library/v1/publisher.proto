@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package codesjoy.example.library.v1;
+
+import "google/api/resource.proto";
+
+option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1";
+
+message Publisher {
+  option (google.api.resource) = {
+    type: "library.googleapis.com/Publisher"
+    pattern: "publishers/{publisher}"
+    plural: "publishers"
+    singular: "publisher"
+  };
+
+  string name = 1;
+  string display_name = 2;
+}
