@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	annotationspb "google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
@@ -27,9 +28,8 @@ import (
 )
 
 const (
-	runtimePackage     = protogen.GoImportPath("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/runtime/googleaip")
-	annotationsPackage = protogen.GoImportPath("google.golang.org/genproto/googleapis/api/annotations")
-	fmtPackage         = protogen.GoImportPath("fmt")
+	fmtPackage     = protogen.GoImportPath("fmt")
+	stringsPackage = protogen.GoImportPath("strings")
 )
 
 type descriptorResource struct {
@@ -48,25 +48,9 @@ type messageResource struct {
 	parentDescriptors []descriptorResource
 }
 
-type resourceReference struct {
-	messageFullName string
-	fieldName       string
-	resourceType    string
-	childType       string
-}
-
-type messageMetadata struct {
-	goName         string
-	fullName       string
-	resourceRefs   map[string]resourceReference
-	fieldBehaviors map[string][]annotationspb.FieldBehavior
-	requiredFields []string
-}
-
-type serviceMetadata struct {
-	goName           string
-	fullName         string
-	methodSignatures map[string][][]string
+type parsedNameField struct {
+	variable string
+	goName   string
 }
 
 type registeredResource struct {
@@ -81,9 +65,6 @@ type resourceRegistry struct {
 
 type fileAnnotations struct {
 	messageResources []messageResource
-
-	messages []messageMetadata
-	services []serviceMetadata
 }
 
 func generateFiles(gen *protogen.Plugin, features featureSet) error {
@@ -137,22 +118,8 @@ func collectFileAnnotations(
 		}
 	}
 
-	if features.methodSignature {
-		for _, service := range file.Services {
-			if err := collectServiceAnnotations(service, &annotations); err != nil {
-				return fileAnnotations{}, fmt.Errorf("service %s: %w", service.Desc.FullName(), err)
-			}
-		}
-	}
-
 	sort.Slice(annotations.messageResources, func(i, j int) bool {
 		return annotations.messageResources[i].fullName < annotations.messageResources[j].fullName
-	})
-	sort.Slice(annotations.messages, func(i, j int) bool {
-		return annotations.messages[i].fullName < annotations.messages[j].fullName
-	})
-	sort.Slice(annotations.services, func(i, j int) bool {
-		return annotations.services[i].fullName < annotations.services[j].fullName
 	})
 	return annotations, nil
 }
@@ -167,12 +134,6 @@ func collectMessageAnnotations(
 		return nil
 	}
 
-	messageFullName := string(message.Desc.FullName())
-	messageAnnotations := messageMetadata{
-		goName:   message.GoIdent.GoName,
-		fullName: messageFullName,
-	}
-
 	if features.resources {
 		resource, err := messageResourceDescriptor(message)
 		if err != nil {
@@ -182,53 +143,6 @@ func collectMessageAnnotations(
 			resource.parentDescriptors = resourceParentDescriptors(resource.descriptorResource, registry)
 			annotations.messageResources = append(annotations.messageResources, *resource)
 		}
-
-		for _, field := range message.Fields {
-			ref, err := resourceReferenceDescriptor(field)
-			if err != nil {
-				return fmt.Errorf("field %s: %w", field.Desc.FullName(), err)
-			}
-			if ref == nil {
-				continue
-			}
-			if messageAnnotations.resourceRefs == nil {
-				messageAnnotations.resourceRefs = make(map[string]resourceReference)
-			}
-			messageAnnotations.resourceRefs[ref.fieldName] = *ref
-		}
-	}
-
-	if features.fieldBehavior {
-		for _, field := range message.Fields {
-			behaviors, err := fieldBehaviorDescriptors(field)
-			if err != nil {
-				return fmt.Errorf("field %s: %w", field.Desc.FullName(), err)
-			}
-			if len(behaviors) == 0 {
-				continue
-			}
-
-			if messageAnnotations.fieldBehaviors == nil {
-				messageAnnotations.fieldBehaviors = make(map[string][]annotationspb.FieldBehavior)
-			}
-			messageAnnotations.fieldBehaviors[string(field.Desc.Name())] = append(
-				[]annotationspb.FieldBehavior(nil),
-				behaviors...,
-			)
-
-			if containsRequiredFieldBehavior(behaviors) {
-				messageAnnotations.requiredFields = appendUnique(
-					messageAnnotations.requiredFields,
-					string(field.Desc.Name()),
-				)
-			}
-		}
-	}
-
-	if len(messageAnnotations.resourceRefs) > 0 ||
-		len(messageAnnotations.fieldBehaviors) > 0 ||
-		len(messageAnnotations.requiredFields) > 0 {
-		annotations.messages = append(annotations.messages, messageAnnotations)
 	}
 
 	for _, nested := range message.Messages {
@@ -236,30 +150,6 @@ func collectMessageAnnotations(
 			return err
 		}
 	}
-	return nil
-}
-
-func collectServiceAnnotations(service *protogen.Service, annotations *fileAnnotations) error {
-	methods := make(map[string][][]string)
-	for _, method := range service.Methods {
-		signatures, err := methodSignatureDescriptors(method)
-		if err != nil {
-			return fmt.Errorf("method %s: %w", method.Desc.FullName(), err)
-		}
-		if len(signatures) == 0 {
-			continue
-		}
-		methods[string(method.Desc.Name())] = signatures
-	}
-
-	if len(methods) == 0 {
-		return nil
-	}
-	annotations.services = append(annotations.services, serviceMetadata{
-		goName:           service.GoName,
-		fullName:         string(service.Desc.FullName()),
-		methodSignatures: methods,
-	})
 	return nil
 }
 
@@ -407,27 +297,6 @@ func fileResourceDefinitions(file *protogen.File) ([]descriptorResource, error) 
 	return out, nil
 }
 
-func resourceReferenceDescriptor(field *protogen.Field) (*resourceReference, error) {
-	if !proto.HasExtension(field.Desc.Options(), annotationspb.E_ResourceReference) {
-		return nil, nil
-	}
-
-	reference, err := asResourceReference(proto.GetExtension(field.Desc.Options(), annotationspb.E_ResourceReference))
-	if err != nil {
-		return nil, err
-	}
-	if reference == nil {
-		return nil, nil
-	}
-
-	return &resourceReference{
-		messageFullName: string(field.Parent.Desc.FullName()),
-		fieldName:       string(field.Desc.Name()),
-		resourceType:    reference.GetType(),
-		childType:       reference.GetChildType(),
-	}, nil
-}
-
 func resourceParentDescriptors(
 	resource descriptorResource,
 	registry resourceRegistry,
@@ -441,13 +310,17 @@ func resourceParentDescriptors(
 		}
 
 		parentResource, ok := registry.byPattern[parentPattern]
-		if !ok {
-			return nil
-		}
 		if _, ok := seenPatterns[parentPattern]; ok {
 			continue
 		}
 		seenPatterns[parentPattern] = struct{}{}
+
+		if !ok {
+			descriptors = append(descriptors, descriptorResource{
+				patterns: []string{parentPattern},
+			})
+			continue
+		}
 
 		descriptor := parentResource.descriptor
 		descriptors = append(descriptors, descriptorResource{
@@ -462,73 +335,6 @@ func resourceParentDescriptors(
 		return nil
 	}
 	return descriptors
-}
-
-func fieldBehaviorDescriptors(field *protogen.Field) ([]annotationspb.FieldBehavior, error) {
-	if !proto.HasExtension(field.Desc.Options(), annotationspb.E_FieldBehavior) {
-		return nil, nil
-	}
-
-	raw := proto.GetExtension(field.Desc.Options(), annotationspb.E_FieldBehavior)
-	switch typed := raw.(type) {
-	case []annotationspb.FieldBehavior:
-		return append([]annotationspb.FieldBehavior(nil), typed...), nil
-	case *[]annotationspb.FieldBehavior:
-		if typed == nil {
-			return nil, nil
-		}
-		return append([]annotationspb.FieldBehavior(nil), (*typed)...), nil
-	case []int32:
-		out := make([]annotationspb.FieldBehavior, 0, len(typed))
-		for _, item := range typed {
-			out = append(out, annotationspb.FieldBehavior(item))
-		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("unexpected field_behavior extension type %T", raw)
-	}
-}
-
-func methodSignatureDescriptors(method *protogen.Method) ([][]string, error) {
-	if !proto.HasExtension(method.Desc.Options(), annotationspb.E_MethodSignature) {
-		return nil, nil
-	}
-
-	raw := proto.GetExtension(method.Desc.Options(), annotationspb.E_MethodSignature)
-	var values []string
-	switch typed := raw.(type) {
-	case []string:
-		values = append(values, typed...)
-	case *[]string:
-		if typed != nil {
-			values = append(values, (*typed)...)
-		}
-	default:
-		return nil, fmt.Errorf("unexpected method_signature extension type %T", raw)
-	}
-
-	out := make([][]string, 0, len(values))
-	for _, value := range values {
-		parts := splitMethodSignature(value)
-		if len(parts) == 0 {
-			continue
-		}
-		out = append(out, parts)
-	}
-	return out, nil
-}
-
-func splitMethodSignature(value string) []string {
-	parts := strings.Split(value, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		out = append(out, part)
-	}
-	return out
 }
 
 func normalizeResourceDescriptor(descriptor annotationspb.ResourceDescriptor) descriptorResource {
@@ -643,24 +449,6 @@ func isVariablePatternSegment(segment string) bool {
 	return strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")
 }
 
-func containsRequiredFieldBehavior(values []annotationspb.FieldBehavior) bool {
-	for _, value := range values {
-		if value == annotationspb.FieldBehavior_REQUIRED {
-			return true
-		}
-	}
-	return false
-}
-
-func appendUnique(values []string, item string) []string {
-	for _, existing := range values {
-		if existing == item {
-			return values
-		}
-	}
-	return append(values, item)
-}
-
 func asResourceDescriptor(value any) (*annotationspb.ResourceDescriptor, error) {
 	switch typed := value.(type) {
 	case *annotationspb.ResourceDescriptor:
@@ -694,43 +482,23 @@ func asResourceDescriptorList(value any) ([]*annotationspb.ResourceDescriptor, e
 	}
 }
 
-func asResourceReference(value any) (*annotationspb.ResourceReference, error) {
-	switch typed := value.(type) {
-	case *annotationspb.ResourceReference:
-		return typed, nil
-	case annotationspb.ResourceReference:
-		reference := typed
-		return &reference, nil
-	default:
-		return nil, fmt.Errorf("unexpected resource_reference extension type %T", value)
-	}
-}
-
 func (annotations fileAnnotations) hasContent() bool {
-	return len(annotations.messageResources) > 0 ||
-		len(annotations.messages) > 0 ||
-		len(annotations.services) > 0
+	return len(annotations.messageResources) > 0
 }
 
 func generateFileContent(g *protogen.GeneratedFile, annotations fileAnnotations) {
 	if len(annotations.messageResources) > 0 {
 		generateResourcePatternConstants(g, annotations.messageResources)
-		generateResourceDescriptors(g, annotations.messageResources)
+		generateParsedNameTypes(g, annotations.messageResources)
+		generateParsedParentTypes(g, annotations.messageResources)
 		generateMessageResourceMethods(g, annotations.messageResources)
-	}
-
-	if len(annotations.messages) > 0 {
-		generateMessageMetadataMethods(g, annotations.messages)
-	}
-
-	if len(annotations.services) > 0 {
-		generateServiceMetadataFunctions(g, annotations.services)
 	}
 }
 
 func generateResourcePatternConstants(g *protogen.GeneratedFile, resources []messageResource) {
 	for _, resource := range resources {
 		if len(resource.patterns) == 1 {
+			g.P("// ", messageResourcePatternConstName(resource, 0), " is a supported resource name pattern for ", resource.goName, ".")
 			g.P("const ", messageResourcePatternConstName(resource, 0), " = ", strconv.Quote(resource.patterns[0]))
 			g.P()
 			continue
@@ -738,6 +506,7 @@ func generateResourcePatternConstants(g *protogen.GeneratedFile, resources []mes
 
 		g.P("const (")
 		for i, pattern := range resource.patterns {
+			g.P("\t// ", messageResourcePatternConstName(resource, i), " is a supported resource name pattern for ", resource.goName, ".")
 			g.P("\t", messageResourcePatternConstName(resource, i), " = ", strconv.Quote(pattern))
 		}
 		g.P(")")
@@ -745,64 +514,140 @@ func generateResourcePatternConstants(g *protogen.GeneratedFile, resources []mes
 	}
 }
 
-func generateResourceDescriptors(g *protogen.GeneratedFile, resources []messageResource) {
+func generateParsedNameTypes(g *protogen.GeneratedFile, resources []messageResource) {
 	for _, resource := range resources {
-		g.P("var ", messageResourceVarName(resource), " = ", runtime(g, "ResourceDescriptor"), "{")
-		writeResourceDescriptorFields(g, resource)
-		g.P("}")
-		g.P()
-
-		if len(resource.parentDescriptors) == 0 {
-			continue
-		}
-
-		g.P("var ", messageResourceParentDescriptorsVarName(resource), " = []", runtime(g, "ResourceDescriptor"), "{")
-		for _, descriptor := range resource.parentDescriptors {
-			g.P("{")
-			writeDescriptorFields(g, descriptor)
-			g.P("},")
+		g.P(
+			"// ", messageResourceParsedNameTypeName(resource),
+			" contains the typed components of a parsed ",
+			resource.goName,
+			" resource name.",
+		)
+		g.P("type ", messageResourceParsedNameTypeName(resource), " struct {")
+		g.P("\tDescriptorType string")
+		g.P("\tPattern string")
+		for _, field := range messageResourceParsedFields(resource.patterns) {
+			g.P("\t", field.goName, " string")
 		}
 		g.P("}")
 		g.P()
 	}
-	g.P()
+}
+
+func generateParsedParentTypes(g *protogen.GeneratedFile, resources []messageResource) {
+	for _, resource := range resources {
+		if len(resource.parentDescriptors) == 0 {
+			continue
+		}
+
+		g.P(
+			"// ", messageResourceParsedParentTypeName(resource),
+			" contains the typed components of a parsed parent for ",
+			resource.goName,
+			".",
+		)
+		g.P("type ", messageResourceParsedParentTypeName(resource), " struct {")
+		g.P("\tDescriptorType string")
+		g.P("\tPattern string")
+		for _, field := range messageResourceParsedParentFields(resource) {
+			g.P("\t", field.goName, " string")
+		}
+		g.P("}")
+		g.P()
+	}
 }
 
 func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messageResource) {
 	for _, resource := range resources {
-		varName := messageResourceVarName(resource)
 		fieldExpr := "x." + resource.nameFieldGoName
 		nilReceiverError := strconv.Quote("nil *" + resource.goName + " receiver")
+		parseFuncName := messageResourceParseNameFuncName(resource)
+		validateFuncName := messageResourceValidateNameFuncName(resource)
+		parsedTypeName := messageResourceParsedNameTypeName(resource)
+		parsedFields := messageResourceParsedFields(resource.patterns)
 
 		g.P(
-			"func (x *", resource.goName, ") ParseName() (",
-			runtime(g, "ResourceMatch"),
+			"// ", parseFuncName, " parses a ", resource.goName,
+			" resource name into typed fields.",
+		)
+		g.P(
+			"func ", parseFuncName, "(name string) (",
+			parsedTypeName,
 			", error) {",
 		)
-		g.P("\tif x == nil {")
-		g.P("\t\treturn ", runtime(g, "ResourceMatch"), "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
-		g.P("\t}")
-		g.P("\treturn ", varName, ".Parse(", fieldExpr, ")")
+		g.P("\tparts := ", stdstrings(g, "Split"), `(name, "/")`)
+		for i, pattern := range resource.patterns {
+			g.P("\tif ", generatedPatternMatchCondition("parts", pattern), " {")
+			g.P("\t\treturn ", parsedTypeName, "{")
+			g.P("\t\t\tDescriptorType: ", strconv.Quote(resource.resourceType), ",")
+			g.P("\t\t\tPattern: ", messageResourcePatternConstName(resource, i), ",")
+			indexes := patternVariableIndexes(pattern)
+			for _, field := range parsedFields {
+				if index, ok := indexes[field.variable]; ok {
+					g.P("\t\t\t", field.goName, ": parts[", strconv.Itoa(index), "],")
+				}
+			}
+			g.P("\t\t}, nil")
+			g.P("\t}")
+		}
+		g.P(
+			"\treturn ", parsedTypeName, "{}, ",
+			stdfmt(g, "Errorf"),
+			`("resource name %q does not match type %q", name, `,
+			strconv.Quote(resource.resourceType),
+			")",
+		)
 		g.P("}")
 		g.P()
 
+		g.P("// ", validateFuncName, " reports whether name is a valid ", resource.goName, " resource name.")
+		g.P("func ", validateFuncName, "(name string) error {")
+		g.P("\t_, err := ", parseFuncName, "(name)")
+		g.P("\treturn err")
+		g.P("}")
+		g.P()
+
+		g.P("// ParseName parses the resource name stored on ", resource.goName, ".")
+		g.P(
+			"func (x *", resource.goName, ") ParseName() (",
+			parsedTypeName,
+			", error) {",
+		)
+		g.P("\tif x == nil {")
+		g.P("\t\treturn ", parsedTypeName, "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+		g.P("\t}")
+		g.P("\treturn ", parseFuncName, "(", fieldExpr, ")")
+		g.P("}")
+		g.P()
+
+		g.P("// ValidateName reports whether the resource name stored on ", resource.goName, " is valid.")
 		g.P("func (x *", resource.goName, ") ValidateName() error {")
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
 		g.P("\t}")
-		g.P("\treturn ", varName, ".Validate(", fieldExpr, ")")
+		g.P("\treturn ", validateFuncName, "(", fieldExpr, ")")
 		g.P("}")
 		g.P()
 
+		g.P("// FillNameWithPattern formats a supported resource name pattern and writes it back to ", resource.nameFieldGoName, ".")
 		g.P(
 			"func (x *", resource.goName, ") FillNameWithPattern(pattern string, values map[string]string) error {",
 		)
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
 		g.P("\t}")
-		g.P("\tformatted, err := ", varName, ".FormatWithPattern(pattern, values)")
-		g.P("\tif err != nil {")
-		g.P("\t\treturn err")
+		g.P("\tvar formatted string")
+		g.P("\tswitch pattern {")
+		for i, pattern := range resource.patterns {
+			g.P("\tcase ", messageResourcePatternConstName(resource, i), ":")
+			writeGeneratedFormatCase(g, pattern)
+		}
+		g.P("\tdefault:")
+		g.P(
+			"\t\treturn ", stdfmt(g, "Errorf"),
+			`("pattern %q is not registered for type %q", pattern, `,
+			strconv.Quote(resource.resourceType),
+			")",
+		)
 		g.P("\t}")
 		g.P("\t", fieldExpr, " = formatted")
 		g.P("\treturn nil")
@@ -810,6 +655,7 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P()
 
 		if len(resource.patterns) == 1 {
+			g.P("// FillName formats the only supported resource name pattern and writes it back to ", resource.nameFieldGoName, ".")
 			g.P("func (x *", resource.goName, ") FillName(values map[string]string) error {")
 			g.P("\treturn x.FillNameWithPattern(", messageResourcePatternConstName(resource, 0), ", values)")
 			g.P("}")
@@ -820,153 +666,145 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 			continue
 		}
 
-		descriptorsVarName := messageResourceParentDescriptorsVarName(resource)
+		parentParseFuncName := messageResourceParseParentFuncName(resource)
+		parentValidateFuncName := messageResourceValidateParentFuncName(resource)
+		parentParsedTypeName := messageResourceParsedParentTypeName(resource)
+		parentParsedFields := messageResourceParsedParentFields(resource)
 		parseParentError := strconv.Quote("parent %q does not match any inferred parent resource for type " + resource.resourceType)
 
 		g.P(
-			"func (x *", resource.goName, ") ParseParent(parent string) (",
-			runtime(g, "ResourceMatch"),
+			"// ", parentParseFuncName,
+			" parses a parent resource name accepted by ",
+			resource.goName,
+			" into typed fields.",
+		)
+		g.P(
+			"func ", parentParseFuncName, "(parent string) (",
+			parentParsedTypeName,
 			", error) {",
 		)
-		g.P("\tif x == nil {")
-		g.P("\t\treturn ", runtime(g, "ResourceMatch"), "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
-		g.P("\t}")
-		g.P("\tfor _, descriptor := range ", descriptorsVarName, " {")
-		g.P("\t\tmatch, err := descriptor.Parse(parent)")
-		g.P("\t\tif err == nil {")
-		g.P("\t\t\treturn match, nil")
-		g.P("\t\t}")
-		g.P("\t}")
-		g.P("\treturn ", runtime(g, "ResourceMatch"), "{}, ", stdfmt(g, "Errorf"), "(", parseParentError, ", parent)")
+		g.P("\tparts := ", stdstrings(g, "Split"), `(parent, "/")`)
+		for _, descriptor := range resource.parentDescriptors {
+			pattern := descriptor.patterns[0]
+			g.P("\tif ", generatedPatternMatchCondition("parts", pattern), " {")
+			g.P("\t\treturn ", parentParsedTypeName, "{")
+			g.P("\t\t\tDescriptorType: ", strconv.Quote(descriptor.resourceType), ",")
+			g.P("\t\t\tPattern: ", strconv.Quote(pattern), ",")
+			indexes := patternVariableIndexes(pattern)
+			for _, field := range parentParsedFields {
+				if index, ok := indexes[field.variable]; ok {
+					g.P("\t\t\t", field.goName, ": parts[", strconv.Itoa(index), "],")
+				}
+			}
+			g.P("\t\t}, nil")
+			g.P("\t}")
+		}
+		g.P(
+			"\treturn ", parentParsedTypeName, "{}, ",
+			stdfmt(g, "Errorf"),
+			"(", parseParentError, ", parent)",
+		)
 		g.P("}")
 		g.P()
 
-		g.P("func (x *", resource.goName, ") ValidateParent(parent string) error {")
-		g.P("\t_, err := x.ParseParent(parent)")
+		g.P("// ", parentValidateFuncName, " reports whether parent is a valid parent resource name for ", resource.goName, ".")
+		g.P("func ", parentValidateFuncName, "(parent string) error {")
+		g.P("\t_, err := ", parentParseFuncName, "(parent)")
 		g.P("\treturn err")
 		g.P("}")
 		g.P()
-	}
-}
 
-func generateMessageMetadataMethods(g *protogen.GeneratedFile, messages []messageMetadata) {
-	for _, message := range messages {
-		if len(message.resourceRefs) > 0 {
-			resourceVarName := messageResourceReferenceVarName(message)
-			g.P("var ", resourceVarName, " = map[string]", runtime(g, "ResourceReferenceMetadata"), "{")
-			for _, fieldName := range sortedNestedKeysSingle(message.resourceRefs) {
-				ref := message.resourceRefs[fieldName]
-				g.P(strconv.Quote(fieldName), ": ", runtime(g, "ResourceReferenceMetadata"), "{")
-				g.P("Type: ", strconv.Quote(ref.resourceType), ",")
-				g.P("ChildType: ", strconv.Quote(ref.childType), ",")
-				g.P("MessageFullName: ", strconv.Quote(ref.messageFullName), ",")
-				g.P("FieldName: ", strconv.Quote(ref.fieldName), ",")
-				g.P("},")
-			}
-			g.P("}")
-			g.P()
-
-			g.P(
-				"func (", message.goName, ") GoogleAIPResourceReference(fieldName string) (",
-				runtime(g, "ResourceReferenceMetadata"),
-				", bool) {",
-			)
-			g.P("\treference, ok := ", resourceVarName, "[fieldName]")
-			g.P("\tif !ok {")
-			g.P("\t\treturn ", runtime(g, "ResourceReferenceMetadata"), "{}, false")
-			g.P("\t}")
-			g.P("\treturn reference, true")
-			g.P("}")
-			g.P()
-		}
-
-		if len(message.fieldBehaviors) > 0 {
-			fieldBehaviorVarName := messageFieldBehaviorVarName(message)
-			g.P("var ", fieldBehaviorVarName, " = map[string][]", ann(g, "FieldBehavior"), "{")
-			for _, fieldName := range sortedNestedKeysSingle(message.fieldBehaviors) {
-				g.P(strconv.Quote(fieldName), ": {")
-				for _, behavior := range message.fieldBehaviors[fieldName] {
-					g.P(ann(g, "FieldBehavior"), "(", strconv.Itoa(int(behavior)), "),")
-				}
-				g.P("},")
-			}
-			g.P("}")
-			g.P()
-		}
-
-		if len(message.fieldBehaviors) > 0 || len(message.requiredFields) > 0 {
-			g.P("func (", message.goName, ") GoogleAIPFieldBehaviors(fieldName string) []", ann(g, "FieldBehavior"), " {")
-			if len(message.fieldBehaviors) == 0 {
-				g.P("\treturn nil")
-			} else {
-				g.P("\tbehaviors, ok := ", messageFieldBehaviorVarName(message), "[fieldName]")
-				g.P("\tif !ok {")
-				g.P("\t\treturn nil")
-				g.P("\t}")
-				g.P("\treturn append([]", ann(g, "FieldBehavior"), "(nil), behaviors...)")
-			}
-			g.P("}")
-			g.P()
-
-			if len(message.requiredFields) > 0 {
-				requiredFieldsVarName := messageRequiredFieldsVarName(message)
-				g.P("var ", requiredFieldsVarName, " = []string{")
-				for _, fieldName := range message.requiredFields {
-					g.P(strconv.Quote(fieldName), ",")
-				}
-				g.P("}")
-				g.P()
-
-				g.P("func (", message.goName, ") GoogleAIPRequiredFields() []string {")
-				g.P("\treturn append([]string(nil), ", requiredFieldsVarName, "...)")
-				g.P("}")
-				g.P()
-				continue
-			}
-
-			g.P("func (", message.goName, ") GoogleAIPRequiredFields() []string {")
-			g.P("\treturn nil")
-			g.P("}")
-			g.P()
-		}
-	}
-}
-
-func generateServiceMetadataFunctions(g *protogen.GeneratedFile, services []serviceMetadata) {
-	for _, service := range services {
-		methodSignaturesVarName := serviceMethodSignatureVarName(service)
-		g.P("var ", methodSignaturesVarName, " = map[string][][]string{")
-		for _, methodName := range sortedNestedKeysSingle(service.methodSignatures) {
-			g.P(strconv.Quote(methodName), ": {")
-			for _, signature := range service.methodSignatures[methodName] {
-				g.P("{")
-				for _, fieldName := range signature {
-					g.P(strconv.Quote(fieldName), ",")
-				}
-				g.P("},")
-			}
-			g.P("},")
-		}
+		g.P("// ParseParent parses a parent resource name accepted by ", resource.goName, ".")
+		g.P(
+			"func (x *", resource.goName, ") ParseParent(parent string) (",
+			parentParsedTypeName,
+			", error) {",
+		)
+		g.P("\tif x == nil {")
+		g.P("\t\treturn ", parentParsedTypeName, "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+		g.P("\t}")
+		g.P("\treturn ", parentParseFuncName, "(parent)")
 		g.P("}")
 		g.P()
 
-		g.P("func ", service.goName, "GoogleAIPMethodSignatures(methodName string) [][]string {")
-		g.P("\tsignatures, ok := ", methodSignaturesVarName, "[methodName]")
-		g.P("\tif !ok {")
-		g.P("\t\treturn nil")
+		g.P("// ValidateParent reports whether parent is a valid parent resource name for ", resource.goName, ".")
+		g.P("func (x *", resource.goName, ") ValidateParent(parent string) error {")
+		g.P("\tif x == nil {")
+		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
 		g.P("\t}")
-		g.P("\tout := make([][]string, 0, len(signatures))")
-		g.P("\tfor _, signature := range signatures {")
-		g.P("\t\tout = append(out, append([]string(nil), signature...))")
-		g.P("\t}")
-		g.P("\treturn out")
+		g.P("\treturn ", parentValidateFuncName, "(parent)")
 		g.P("}")
 		g.P()
 	}
 }
 
-func messageResourceVarName(resource messageResource) string {
-	return "googleAIPResource" + resource.goName + "Descriptor"
+func generatedPatternMatchCondition(partsExpr string, pattern string) string {
+	segments := strings.Split(pattern, "/")
+	conditions := []string{
+		fmt.Sprintf("len(%s) == %d", partsExpr, len(segments)),
+	}
+	for i, segment := range segments {
+		partExpr := fmt.Sprintf("%s[%d]", partsExpr, i)
+		if isVariablePatternSegment(segment) {
+			conditions = append(conditions, partExpr+` != ""`)
+			continue
+		}
+		conditions = append(conditions, partExpr+" == "+strconv.Quote(segment))
+	}
+	return strings.Join(conditions, " && ")
+}
+
+func patternVariableIndexes(pattern string) map[string]int {
+	segments := strings.Split(pattern, "/")
+	indexes := make(map[string]int, len(segments))
+	for i, segment := range segments {
+		if !isVariablePatternSegment(segment) {
+			continue
+		}
+		indexes[strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")] = i
+	}
+	return indexes
+}
+
+func writeGeneratedFormatCase(g *protogen.GeneratedFile, pattern string) {
+	segments := strings.Split(pattern, "/")
+	formattedParts := make([]string, 0, len(segments))
+	for i, segment := range segments {
+		if !isVariablePatternSegment(segment) {
+			formattedParts = append(formattedParts, strconv.Quote(segment))
+			continue
+		}
+
+		variable := strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")
+		localName := "value" + strconv.Itoa(i)
+		g.P(`		`, localName, `, ok := values["`, variable, `"]`)
+		g.P("\t\tif !ok {")
+		g.P(
+			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			`("missing value for variable %q in pattern %q", `,
+			strconv.Quote(variable),
+			", pattern)",
+		)
+		g.P("\t\t}")
+		g.P("\t\tif ", localName, ` == "" {`)
+		g.P(
+			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			`("value for variable %q in pattern %q must not be empty", `,
+			strconv.Quote(variable),
+			", pattern)",
+		)
+		g.P("\t\t}")
+		g.P("\t\tif ", stdstrings(g, "Contains"), "(", localName, `, "/") {`)
+		g.P(
+			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			`("value for variable %q in pattern %q must not contain '/'", `,
+			strconv.Quote(variable),
+			", pattern)",
+		)
+		g.P("\t\t}")
+		formattedParts = append(formattedParts, localName)
+	}
+	g.P("\t\tformatted = ", strings.Join(formattedParts, ` + "/" + `))
 }
 
 func messageResourcePatternConstName(resource messageResource, index int) string {
@@ -977,67 +815,123 @@ func messageResourcePatternConstName(resource messageResource, index int) string
 	return base + strconv.Itoa(index+1)
 }
 
-func messageResourceReferenceVarName(message messageMetadata) string {
-	return "googleAIP" + message.goName + "ResourceReferences"
+func messageResourceParseNameFuncName(resource messageResource) string {
+	return "Parse" + resource.goName + "Name"
 }
 
-func messageResourceParentDescriptorsVarName(resource messageResource) string {
-	return "googleAIPResource" + resource.goName + "ParentDescriptors"
+func messageResourceValidateNameFuncName(resource messageResource) string {
+	return "Validate" + resource.goName + "Name"
 }
 
-func messageFieldBehaviorVarName(message messageMetadata) string {
-	return "googleAIP" + message.goName + "FieldBehaviors"
+func messageResourceParsedNameTypeName(resource messageResource) string {
+	return "Parsed" + resource.goName + "Name"
 }
 
-func messageRequiredFieldsVarName(message messageMetadata) string {
-	return "googleAIP" + message.goName + "RequiredFields"
+func messageResourceParseParentFuncName(resource messageResource) string {
+	return "Parse" + resource.goName + "Parent"
 }
 
-func serviceMethodSignatureVarName(service serviceMetadata) string {
-	return "googleAIP" + service.goName + "MethodSignatures"
+func messageResourceValidateParentFuncName(resource messageResource) string {
+	return "Validate" + resource.goName + "Parent"
 }
 
-func writeResourceDescriptorFields(g *protogen.GeneratedFile, resource messageResource) {
-	g.P("Type: ", strconv.Quote(resource.resourceType), ",")
-	g.P("Plural: ", strconv.Quote(resource.plural), ",")
-	g.P("Singular: ", strconv.Quote(resource.singular), ",")
-	g.P("NameField: ", strconv.Quote(resource.nameField), ",")
-	g.P("Patterns: []", runtime(g, "ResourcePattern"), "{")
-	for i := range resource.patterns {
-		g.P(runtime(g, "MustCompilePattern"), "(", messageResourcePatternConstName(resource, i), "),")
+func messageResourceParsedParentTypeName(resource messageResource) string {
+	return "Parsed" + resource.goName + "Parent"
+}
+
+func messageResourceParsedParentFields(resource messageResource) []parsedNameField {
+	patterns := make([]string, 0, len(resource.parentDescriptors))
+	for _, descriptor := range resource.parentDescriptors {
+		patterns = append(patterns, descriptor.patterns[0])
 	}
-	g.P("},")
+	return messageResourceParsedFields(patterns)
 }
 
-func writeDescriptorFields(g *protogen.GeneratedFile, descriptor descriptorResource) {
-	g.P("Type: ", strconv.Quote(descriptor.resourceType), ",")
-	g.P("Plural: ", strconv.Quote(descriptor.plural), ",")
-	g.P("Singular: ", strconv.Quote(descriptor.singular), ",")
-	g.P("NameField: ", strconv.Quote(descriptor.nameField), ",")
-	g.P("Patterns: []", runtime(g, "ResourcePattern"), "{")
-	for _, pattern := range descriptor.patterns {
-		g.P(runtime(g, "MustCompilePattern"), "(", strconv.Quote(pattern), "),")
+func messageResourceParsedFields(patterns []string) []parsedNameField {
+	fields := make([]parsedNameField, 0, len(patterns))
+	seenVariables := make(map[string]struct{}, len(patterns))
+	usedGoNames := map[string]struct{}{
+		"DescriptorType": {},
+		"Pattern":        {},
 	}
-	g.P("},")
-}
 
-func sortedNestedKeysSingle[T any](values map[string]T) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
+	for _, pattern := range patterns {
+		for _, variable := range patternVariables(pattern) {
+			if _, ok := seenVariables[variable]; ok {
+				continue
+			}
+			seenVariables[variable] = struct{}{}
+
+			goName := exportedPatternVariableGoName(variable)
+			if goName == "" {
+				goName = "Value"
+			}
+			base := goName
+			if _, ok := usedGoNames[goName]; ok {
+				goName = base + "Value"
+				for i := 2; ; i++ {
+					if _, ok := usedGoNames[goName]; !ok {
+						break
+					}
+					goName = base + "Value" + strconv.Itoa(i)
+				}
+			}
+			usedGoNames[goName] = struct{}{}
+
+			fields = append(fields, parsedNameField{
+				variable: variable,
+				goName:   goName,
+			})
+		}
 	}
-	sort.Strings(keys)
-	return keys
+
+	return fields
 }
 
-func runtime(g *protogen.GeneratedFile, name string) string {
-	return g.QualifiedGoIdent(runtimePackage.Ident(name))
+func patternVariables(pattern string) []string {
+	segments := strings.Split(pattern, "/")
+	variables := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if !isVariablePatternSegment(segment) {
+			continue
+		}
+		variables = append(variables, strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+	}
+	return variables
 }
 
-func ann(g *protogen.GeneratedFile, name string) string {
-	return g.QualifiedGoIdent(annotationsPackage.Ident(name))
+func exportedPatternVariableGoName(variable string) string {
+	parts := strings.FieldsFunc(variable, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	if len(parts) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		runes := []rune(part)
+		builder.WriteRune(unicode.ToUpper(runes[0]))
+		builder.WriteString(string(runes[1:]))
+	}
+
+	name := builder.String()
+	if name == "" {
+		return ""
+	}
+	if unicode.IsDigit([]rune(name)[0]) {
+		return "X" + name
+	}
+	return name
 }
 
 func stdfmt(g *protogen.GeneratedFile, name string) string {
 	return g.QualifiedGoIdent(fmtPackage.Ident(name))
+}
+
+func stdstrings(g *protogen.GeneratedFile, name string) string {
+	return g.QualifiedGoIdent(stringsPackage.Ident(name))
 }

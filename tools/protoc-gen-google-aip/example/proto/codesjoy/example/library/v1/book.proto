@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package codesjoy.example.library.v1;
 
-import "google/api/client.proto";
-import "google/api/field_behavior.proto";
 import "google/api/resource.proto";
 
 option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1";
@@ -29,19 +27,13 @@ message Book {
 }
 
 message GetBookRequest {
-  string name = 1 [
-    (google.api.resource_reference).type = "library.googleapis.com/Book",
-    (google.api.field_behavior) = REQUIRED
-  ];
+  string name = 1;
   string view = 2;
 }
 
 message ListBooksRequest {
-  string parent = 1 [
-    (google.api.resource_reference).child_type = "library.googleapis.com/Book",
-    (google.api.field_behavior) = REQUIRED
-  ];
-  int32 page_size = 2 [(google.api.field_behavior) = OPTIONAL];
+  string parent = 1;
+  int32 page_size = 2;
 }
 
 message ListBooksResponse {
@@ -49,11 +41,7 @@ message ListBooksResponse {
 }
 
 service LibraryService {
-  rpc GetBook(GetBookRequest) returns (Book) {
-    option (google.api.method_signature) = "name, view";
-  }
+  rpc GetBook(GetBookRequest) returns (Book) {}
 
-  rpc ListBooks(ListBooksRequest) returns (ListBooksResponse) {
-    option (google.api.method_signature) = "parent";
-  }
+  rpc ListBooks(ListBooksRequest) returns (ListBooksResponse) {}
 }

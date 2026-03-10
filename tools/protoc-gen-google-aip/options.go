@@ -20,16 +20,14 @@ import (
 	"strings"
 )
 
-const defaultFeatures = "resources,field_behavior,method_signature"
+const defaultFeatures = "resources"
 
 type config struct {
 	features string
 }
 
 type featureSet struct {
-	resources       bool
-	fieldBehavior   bool
-	methodSignature bool
+	resources bool
 }
 
 func parseConfig(fs *flag.FlagSet) (config, error) {
@@ -38,7 +36,7 @@ func parseConfig(fs *flag.FlagSet) (config, error) {
 		&cfg.features,
 		"features",
 		defaultFeatures,
-		"comma-separated features: resources,field_behavior,method_signature",
+		"comma-separated features: resources",
 	)
 	return cfg, nil
 }
@@ -56,10 +54,6 @@ func parseFeatureSet(raw string) (featureSet, error) {
 			continue
 		case "resources":
 			out.resources = true
-		case "field_behavior":
-			out.fieldBehavior = true
-		case "method_signature":
-			out.methodSignature = true
 		default:
 			return featureSet{}, fmt.Errorf("unknown feature %q", token)
 		}

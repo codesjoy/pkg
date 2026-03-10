@@ -226,24 +226,22 @@ var File_codesjoy_example_library_v1_book_proto protoreflect.FileDescriptor
 
 const file_codesjoy_example_library_v1_book_proto_rawDesc = "" +
 	"\n" +
-	"&codesjoy/example/library/v1/book.proto\x12\x1bcodesjoy.example.library.v1\x1a\x17google/api/client.proto\x1a\x1fgoogle/api/field_behavior.proto\x1a\x19google/api/resource.proto\"\xa5\x01\n" +
+	"&codesjoy/example/library/v1/book.proto\x12\x1bcodesjoy.example.library.v1\x1a\x19google/api/resource.proto\"\xa5\x01\n" +
 	"\x04Book\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title:s\xeaAp\n" +
-	"\x1blibrary.googleapis.com/Book\x12#publishers/{publisher}/books/{book}\x12\x1farchives/{archive}/books/{book}*\x05books2\x04book\"]\n" +
-	"\x0eGetBookRequest\x127\n" +
-	"\x04name\x18\x01 \x01(\tB#\xe0A\x02\xfaA\x1d\n" +
-	"\x1blibrary.googleapis.com/BookR\x04name\x12\x12\n" +
-	"\x04view\x18\x02 \x01(\tR\x04view\"q\n" +
-	"\x10ListBooksRequest\x12;\n" +
-	"\x06parent\x18\x01 \x01(\tB#\xe0A\x02\xfaA\x1d\x12\x1blibrary.googleapis.com/BookR\x06parent\x12 \n" +
-	"\tpage_size\x18\x02 \x01(\x05B\x03\xe0A\x01R\bpageSize\"L\n" +
+	"\x1blibrary.googleapis.com/Book\x12#publishers/{publisher}/books/{book}\x12\x1farchives/{archive}/books/{book}*\x05books2\x04book\"8\n" +
+	"\x0eGetBookRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04view\x18\x02 \x01(\tR\x04view\"G\n" +
+	"\x10ListBooksRequest\x12\x16\n" +
+	"\x06parent\x18\x01 \x01(\tR\x06parent\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\"L\n" +
 	"\x11ListBooksResponse\x127\n" +
-	"\x05books\x18\x01 \x03(\v2!.codesjoy.example.library.v1.BookR\x05books2\xf1\x01\n" +
-	"\x0eLibraryService\x12h\n" +
-	"\aGetBook\x12+.codesjoy.example.library.v1.GetBookRequest\x1a!.codesjoy.example.library.v1.Book\"\r\xdaA\n" +
-	"name, view\x12u\n" +
-	"\tListBooks\x12-.codesjoy.example.library.v1.ListBooksRequest\x1a..codesjoy.example.library.v1.ListBooksResponse\"\t\xdaA\x06parentB\xb6\x01\xeaAG\n" +
+	"\x05books\x18\x01 \x03(\v2!.codesjoy.example.library.v1.BookR\x05books2\xdb\x01\n" +
+	"\x0eLibraryService\x12[\n" +
+	"\aGetBook\x12+.codesjoy.example.library.v1.GetBookRequest\x1a!.codesjoy.example.library.v1.Book\"\x00\x12l\n" +
+	"\tListBooks\x12-.codesjoy.example.library.v1.ListBooksRequest\x1a..codesjoy.example.library.v1.ListBooksResponse\"\x00B\xb6\x01\xeaAG\n" +
 	"\x1elibrary.googleapis.com/Archive\x12\x12archives/{archive}*\barchives2\aarchiveZjgithub.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1b\x06proto3"
 
 var (

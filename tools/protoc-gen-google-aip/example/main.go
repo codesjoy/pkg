@@ -15,31 +15,31 @@ func main() {
 		"publisher": "pub-1",
 		"book":      "book-1",
 	})
-	bookMatch, _ := book.ParseName()
+	request := libraryv1.GetBookRequest{Name: book.GetName()}
+	bookParsed, _ := libraryv1.ParseBookName(request.GetName())
+	bookNameValid := libraryv1.ValidateBookName(request.GetName()) == nil
 	listRequest := &libraryv1.ListBooksRequest{Parent: "publishers/pub-1"}
-	publisherParentMatch, _ := book.ParseParent(listRequest.Parent)
-	publisherParentValid := book.ValidateParent(listRequest.Parent) == nil
+	publisherParentParsed, _ := libraryv1.ParseBookParent(listRequest.Parent)
+	publisherParentValid := libraryv1.ValidateBookParent(listRequest.Parent) == nil
 	createParent := "archives/arc-1"
-	archiveParentMatch, _ := book.ParseParent(createParent)
-	archiveParentValid := book.ValidateParent(createParent) == nil
-	request := libraryv1.GetBookRequest{}
-	ref, _ := request.GoogleAIPResourceReference("name")
-	required := request.GoogleAIPRequiredFields()
-	signatures := libraryv1.LibraryServiceGoogleAIPMethodSignatures("GetBook")
+	archiveParentParsed, _ := libraryv1.ParseBookParent(createParent)
+	archiveParentValid := libraryv1.ValidateBookParent(createParent) == nil
 
 	fmt.Printf(
-		"publisher=%s pattern=%s parent_pub_type=%s parent_pub_vars=%v parent_pub_valid=%t parent_archive_type=%s parent_archive_vars=%v parent_archive_valid=%t ref_type=%s required=%v signatures=%v book_vars=%v\n",
+		"publisher=%s pattern=%s name_valid=%t book_publisher=%s book_id=%s book_archive=%q parent_pub_type=%s parent_pub_publisher=%s parent_pub_archive=%q parent_pub_valid=%t parent_archive_type=%s parent_archive_publisher=%q parent_archive_archive=%s parent_archive_valid=%t\n",
 		publisher.GetName(),
-		bookMatch.Pattern,
-		publisherParentMatch.DescriptorType,
-		publisherParentMatch.Values,
+		bookParsed.Pattern,
+		bookNameValid,
+		bookParsed.Publisher,
+		bookParsed.Book,
+		bookParsed.Archive,
+		publisherParentParsed.DescriptorType,
+		publisherParentParsed.Publisher,
+		publisherParentParsed.Archive,
 		publisherParentValid,
-		archiveParentMatch.DescriptorType,
-		archiveParentMatch.Values,
+		archiveParentParsed.DescriptorType,
+		archiveParentParsed.Publisher,
+		archiveParentParsed.Archive,
 		archiveParentValid,
-		ref.Type,
-		required,
-		signatures,
-		bookMatch.Values,
 	)
 }

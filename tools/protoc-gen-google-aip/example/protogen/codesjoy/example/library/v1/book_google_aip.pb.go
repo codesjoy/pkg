@@ -5,194 +5,173 @@ package libraryv1
 
 import (
 	fmt "fmt"
-	googleaip "github.com/codesjoy/pkg/tools/protoc-gen-google-aip/runtime/googleaip"
-	annotations "google.golang.org/genproto/googleapis/api/annotations"
+	strings "strings"
 )
 
 const (
+	// BookNamePattern1 is a supported resource name pattern for Book.
 	BookNamePattern1 = "publishers/{publisher}/books/{book}"
+	// BookNamePattern2 is a supported resource name pattern for Book.
 	BookNamePattern2 = "archives/{archive}/books/{book}"
 )
 
-var googleAIPResourceBookDescriptor = googleaip.ResourceDescriptor{
-	Type:      "library.googleapis.com/Book",
-	Plural:    "books",
-	Singular:  "book",
-	NameField: "name",
-	Patterns: []googleaip.ResourcePattern{
-		googleaip.MustCompilePattern(BookNamePattern1),
-		googleaip.MustCompilePattern(BookNamePattern2),
-	},
+// ParsedBookName contains the typed components of a parsed Book resource name.
+type ParsedBookName struct {
+	DescriptorType string
+	Pattern        string
+	Publisher      string
+	Book           string
+	Archive        string
 }
 
-var googleAIPResourceBookParentDescriptors = []googleaip.ResourceDescriptor{
-	{
-		Type:      "library.googleapis.com/Publisher",
-		Plural:    "publishers",
-		Singular:  "publisher",
-		NameField: "name",
-		Patterns: []googleaip.ResourcePattern{
-			googleaip.MustCompilePattern("publishers/{publisher}"),
-		},
-	},
-	{
-		Type:      "library.googleapis.com/Archive",
-		Plural:    "archives",
-		Singular:  "archive",
-		NameField: "name",
-		Patterns: []googleaip.ResourcePattern{
-			googleaip.MustCompilePattern("archives/{archive}"),
-		},
-	},
+// ParsedBookParent contains the typed components of a parsed parent for Book.
+type ParsedBookParent struct {
+	DescriptorType string
+	Pattern        string
+	Publisher      string
+	Archive        string
 }
 
-func (x *Book) ParseName() (googleaip.ResourceMatch, error) {
-	if x == nil {
-		return googleaip.ResourceMatch{}, fmt.Errorf("nil *Book receiver")
+// ParseBookName parses a Book resource name into typed fields.
+func ParseBookName(name string) (ParsedBookName, error) {
+	parts := strings.Split(name, "/")
+	if len(parts) == 4 && parts[0] == "publishers" && parts[1] != "" && parts[2] == "books" && parts[3] != "" {
+		return ParsedBookName{
+			DescriptorType: "library.googleapis.com/Book",
+			Pattern:        BookNamePattern1,
+			Publisher:      parts[1],
+			Book:           parts[3],
+		}, nil
 	}
-	return googleAIPResourceBookDescriptor.Parse(x.Name)
+	if len(parts) == 4 && parts[0] == "archives" && parts[1] != "" && parts[2] == "books" && parts[3] != "" {
+		return ParsedBookName{
+			DescriptorType: "library.googleapis.com/Book",
+			Pattern:        BookNamePattern2,
+			Book:           parts[3],
+			Archive:        parts[1],
+		}, nil
+	}
+	return ParsedBookName{}, fmt.Errorf("resource name %q does not match type %q", name, "library.googleapis.com/Book")
 }
 
+// ValidateBookName reports whether name is a valid Book resource name.
+func ValidateBookName(name string) error {
+	_, err := ParseBookName(name)
+	return err
+}
+
+// ParseName parses the resource name stored on Book.
+func (x *Book) ParseName() (ParsedBookName, error) {
+	if x == nil {
+		return ParsedBookName{}, fmt.Errorf("nil *Book receiver")
+	}
+	return ParseBookName(x.Name)
+}
+
+// ValidateName reports whether the resource name stored on Book is valid.
 func (x *Book) ValidateName() error {
 	if x == nil {
 		return fmt.Errorf("nil *Book receiver")
 	}
-	return googleAIPResourceBookDescriptor.Validate(x.Name)
+	return ValidateBookName(x.Name)
 }
 
+// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
 func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error {
 	if x == nil {
 		return fmt.Errorf("nil *Book receiver")
 	}
-	formatted, err := googleAIPResourceBookDescriptor.FormatWithPattern(pattern, values)
-	if err != nil {
-		return err
+	var formatted string
+	switch pattern {
+	case BookNamePattern1:
+		value1, ok := values["publisher"]
+		if !ok {
+			return fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
+		}
+		if value1 == "" {
+			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+		}
+		value3, ok := values["book"]
+		if !ok {
+			return fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
+		}
+		if value3 == "" {
+			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+		}
+		if strings.Contains(value3, "/") {
+			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+		}
+		formatted = "publishers" + "/" + value1 + "/" + "books" + "/" + value3
+	case BookNamePattern2:
+		value1, ok := values["archive"]
+		if !ok {
+			return fmt.Errorf("missing value for variable %q in pattern %q", "archive", pattern)
+		}
+		if value1 == "" {
+			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "archive", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "archive", pattern)
+		}
+		value3, ok := values["book"]
+		if !ok {
+			return fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
+		}
+		if value3 == "" {
+			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+		}
+		if strings.Contains(value3, "/") {
+			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+		}
+		formatted = "archives" + "/" + value1 + "/" + "books" + "/" + value3
+	default:
+		return fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Book")
 	}
 	x.Name = formatted
 	return nil
 }
 
-func (x *Book) ParseParent(parent string) (googleaip.ResourceMatch, error) {
-	if x == nil {
-		return googleaip.ResourceMatch{}, fmt.Errorf("nil *Book receiver")
+// ParseBookParent parses a parent resource name accepted by Book into typed fields.
+func ParseBookParent(parent string) (ParsedBookParent, error) {
+	parts := strings.Split(parent, "/")
+	if len(parts) == 2 && parts[0] == "publishers" && parts[1] != "" {
+		return ParsedBookParent{
+			DescriptorType: "library.googleapis.com/Publisher",
+			Pattern:        "publishers/{publisher}",
+			Publisher:      parts[1],
+		}, nil
 	}
-	for _, descriptor := range googleAIPResourceBookParentDescriptors {
-		match, err := descriptor.Parse(parent)
-		if err == nil {
-			return match, nil
-		}
+	if len(parts) == 2 && parts[0] == "archives" && parts[1] != "" {
+		return ParsedBookParent{
+			DescriptorType: "library.googleapis.com/Archive",
+			Pattern:        "archives/{archive}",
+			Archive:        parts[1],
+		}, nil
 	}
-	return googleaip.ResourceMatch{}, fmt.Errorf("parent %q does not match any inferred parent resource for type library.googleapis.com/Book", parent)
+	return ParsedBookParent{}, fmt.Errorf("parent %q does not match any inferred parent resource for type library.googleapis.com/Book", parent)
 }
 
-func (x *Book) ValidateParent(parent string) error {
-	_, err := x.ParseParent(parent)
+// ValidateBookParent reports whether parent is a valid parent resource name for Book.
+func ValidateBookParent(parent string) error {
+	_, err := ParseBookParent(parent)
 	return err
 }
 
-var googleAIPGetBookRequestResourceReferences = map[string]googleaip.ResourceReferenceMetadata{
-	"name": googleaip.ResourceReferenceMetadata{
-		Type:            "library.googleapis.com/Book",
-		ChildType:       "",
-		MessageFullName: "codesjoy.example.library.v1.GetBookRequest",
-		FieldName:       "name",
-	},
-}
-
-func (GetBookRequest) GoogleAIPResourceReference(fieldName string) (googleaip.ResourceReferenceMetadata, bool) {
-	reference, ok := googleAIPGetBookRequestResourceReferences[fieldName]
-	if !ok {
-		return googleaip.ResourceReferenceMetadata{}, false
+// ParseParent parses a parent resource name accepted by Book.
+func (x *Book) ParseParent(parent string) (ParsedBookParent, error) {
+	if x == nil {
+		return ParsedBookParent{}, fmt.Errorf("nil *Book receiver")
 	}
-	return reference, true
+	return ParseBookParent(parent)
 }
 
-var googleAIPGetBookRequestFieldBehaviors = map[string][]annotations.FieldBehavior{
-	"name": {
-		annotations.FieldBehavior(2),
-	},
-}
-
-func (GetBookRequest) GoogleAIPFieldBehaviors(fieldName string) []annotations.FieldBehavior {
-	behaviors, ok := googleAIPGetBookRequestFieldBehaviors[fieldName]
-	if !ok {
-		return nil
+// ValidateParent reports whether parent is a valid parent resource name for Book.
+func (x *Book) ValidateParent(parent string) error {
+	if x == nil {
+		return fmt.Errorf("nil *Book receiver")
 	}
-	return append([]annotations.FieldBehavior(nil), behaviors...)
-}
-
-var googleAIPGetBookRequestRequiredFields = []string{
-	"name",
-}
-
-func (GetBookRequest) GoogleAIPRequiredFields() []string {
-	return append([]string(nil), googleAIPGetBookRequestRequiredFields...)
-}
-
-var googleAIPListBooksRequestResourceReferences = map[string]googleaip.ResourceReferenceMetadata{
-	"parent": googleaip.ResourceReferenceMetadata{
-		Type:            "",
-		ChildType:       "library.googleapis.com/Book",
-		MessageFullName: "codesjoy.example.library.v1.ListBooksRequest",
-		FieldName:       "parent",
-	},
-}
-
-func (ListBooksRequest) GoogleAIPResourceReference(fieldName string) (googleaip.ResourceReferenceMetadata, bool) {
-	reference, ok := googleAIPListBooksRequestResourceReferences[fieldName]
-	if !ok {
-		return googleaip.ResourceReferenceMetadata{}, false
-	}
-	return reference, true
-}
-
-var googleAIPListBooksRequestFieldBehaviors = map[string][]annotations.FieldBehavior{
-	"page_size": {
-		annotations.FieldBehavior(1),
-	},
-	"parent": {
-		annotations.FieldBehavior(2),
-	},
-}
-
-func (ListBooksRequest) GoogleAIPFieldBehaviors(fieldName string) []annotations.FieldBehavior {
-	behaviors, ok := googleAIPListBooksRequestFieldBehaviors[fieldName]
-	if !ok {
-		return nil
-	}
-	return append([]annotations.FieldBehavior(nil), behaviors...)
-}
-
-var googleAIPListBooksRequestRequiredFields = []string{
-	"parent",
-}
-
-func (ListBooksRequest) GoogleAIPRequiredFields() []string {
-	return append([]string(nil), googleAIPListBooksRequestRequiredFields...)
-}
-
-var googleAIPLibraryServiceMethodSignatures = map[string][][]string{
-	"GetBook": {
-		{
-			"name",
-			"view",
-		},
-	},
-	"ListBooks": {
-		{
-			"parent",
-		},
-	},
-}
-
-func LibraryServiceGoogleAIPMethodSignatures(methodName string) [][]string {
-	signatures, ok := googleAIPLibraryServiceMethodSignatures[methodName]
-	if !ok {
-		return nil
-	}
-	out := make([][]string, 0, len(signatures))
-	for _, signature := range signatures {
-		out = append(out, append([]string(nil), signature...))
-	}
-	return out
+	return ValidateBookParent(parent)
 }

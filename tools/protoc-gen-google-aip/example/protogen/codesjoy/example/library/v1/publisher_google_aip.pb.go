@@ -5,47 +5,81 @@ package libraryv1
 
 import (
 	fmt "fmt"
-	googleaip "github.com/codesjoy/pkg/tools/protoc-gen-google-aip/runtime/googleaip"
+	strings "strings"
 )
 
+// PublisherNamePattern is a supported resource name pattern for Publisher.
 const PublisherNamePattern = "publishers/{publisher}"
 
-var googleAIPResourcePublisherDescriptor = googleaip.ResourceDescriptor{
-	Type:      "library.googleapis.com/Publisher",
-	Plural:    "publishers",
-	Singular:  "publisher",
-	NameField: "name",
-	Patterns: []googleaip.ResourcePattern{
-		googleaip.MustCompilePattern(PublisherNamePattern),
-	},
+// ParsedPublisherName contains the typed components of a parsed Publisher resource name.
+type ParsedPublisherName struct {
+	DescriptorType string
+	Pattern        string
+	Publisher      string
 }
 
-func (x *Publisher) ParseName() (googleaip.ResourceMatch, error) {
-	if x == nil {
-		return googleaip.ResourceMatch{}, fmt.Errorf("nil *Publisher receiver")
+// ParsePublisherName parses a Publisher resource name into typed fields.
+func ParsePublisherName(name string) (ParsedPublisherName, error) {
+	parts := strings.Split(name, "/")
+	if len(parts) == 2 && parts[0] == "publishers" && parts[1] != "" {
+		return ParsedPublisherName{
+			DescriptorType: "library.googleapis.com/Publisher",
+			Pattern:        PublisherNamePattern,
+			Publisher:      parts[1],
+		}, nil
 	}
-	return googleAIPResourcePublisherDescriptor.Parse(x.Name)
+	return ParsedPublisherName{}, fmt.Errorf("resource name %q does not match type %q", name, "library.googleapis.com/Publisher")
 }
 
+// ValidatePublisherName reports whether name is a valid Publisher resource name.
+func ValidatePublisherName(name string) error {
+	_, err := ParsePublisherName(name)
+	return err
+}
+
+// ParseName parses the resource name stored on Publisher.
+func (x *Publisher) ParseName() (ParsedPublisherName, error) {
+	if x == nil {
+		return ParsedPublisherName{}, fmt.Errorf("nil *Publisher receiver")
+	}
+	return ParsePublisherName(x.Name)
+}
+
+// ValidateName reports whether the resource name stored on Publisher is valid.
 func (x *Publisher) ValidateName() error {
 	if x == nil {
 		return fmt.Errorf("nil *Publisher receiver")
 	}
-	return googleAIPResourcePublisherDescriptor.Validate(x.Name)
+	return ValidatePublisherName(x.Name)
 }
 
+// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
 func (x *Publisher) FillNameWithPattern(pattern string, values map[string]string) error {
 	if x == nil {
 		return fmt.Errorf("nil *Publisher receiver")
 	}
-	formatted, err := googleAIPResourcePublisherDescriptor.FormatWithPattern(pattern, values)
-	if err != nil {
-		return err
+	var formatted string
+	switch pattern {
+	case PublisherNamePattern:
+		value1, ok := values["publisher"]
+		if !ok {
+			return fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
+		}
+		if value1 == "" {
+			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+		}
+		formatted = "publishers" + "/" + value1
+	default:
+		return fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Publisher")
 	}
 	x.Name = formatted
 	return nil
 }
 
+// FillName formats the only supported resource name pattern and writes it back to Name.
 func (x *Publisher) FillName(values map[string]string) error {
 	return x.FillNameWithPattern(PublisherNamePattern, values)
 }
