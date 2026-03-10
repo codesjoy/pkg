@@ -363,7 +363,10 @@ func requireDoneOpen(t *testing.T, done <-chan struct{}) {
 	}
 }
 
-func newMiniLocker(t *testing.T, cfg Config) (*Locker, redis.UniversalClient, *miniredis.Miniredis) {
+func newMiniLocker(
+	t *testing.T,
+	cfg Config,
+) (*Locker, redis.UniversalClient, *miniredis.Miniredis) {
 	t.Helper()
 
 	mr := miniredis.RunT(t)

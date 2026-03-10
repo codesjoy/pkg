@@ -329,7 +329,11 @@ type stubObserver struct {
 
 func (s *stubObserver) ObserveFloat64(metric.Float64Observable, float64, ...metric.ObserveOption) {}
 
-func (s *stubObserver) ObserveInt64(_ metric.Int64Observable, value int64, opts ...metric.ObserveOption) {
+func (s *stubObserver) ObserveInt64(
+	_ metric.Int64Observable,
+	value int64,
+	opts ...metric.ObserveOption,
+) {
 	s.values = append(s.values, value)
 	s.optCounts = append(s.optCounts, len(opts))
 }

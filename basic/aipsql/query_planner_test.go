@@ -611,7 +611,8 @@ func mustDecodeNextSeekToken(t *testing.T, plan *QueryPlan, rows any) SeekPageTo
 
 	paddedRows := rows
 	rowsValue := reflect.ValueOf(rows)
-	if plan != nil && plan.Limit > 0 && rowsValue.IsValid() && rowsValue.Kind() == reflect.Slice && rowsValue.Len() < plan.Limit {
+	if plan != nil && plan.Limit > 0 && rowsValue.IsValid() && rowsValue.Kind() == reflect.Slice &&
+		rowsValue.Len() < plan.Limit {
 		padded := reflect.MakeSlice(rowsValue.Type(), plan.Limit, plan.Limit)
 		reflect.Copy(padded.Slice(plan.Limit-rowsValue.Len(), plan.Limit), rowsValue)
 		paddedRows = padded.Interface()

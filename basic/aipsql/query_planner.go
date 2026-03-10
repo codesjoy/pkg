@@ -393,7 +393,10 @@ func (p *QueryPlan) seekTokenValue(row reflect.Value, fieldPath FieldPath) (stri
 	return text, nil
 }
 
-func (p *QueryPlan) resolveFieldPathValue(row reflect.Value, fieldPath FieldPath) (reflect.Value, error) {
+func (p *QueryPlan) resolveFieldPathValue(
+	row reflect.Value,
+	fieldPath FieldPath,
+) (reflect.Value, error) {
 	if len(fieldPath.segments) == 0 {
 		return reflect.Value{}, fmt.Errorf("field path is required")
 	}
@@ -584,7 +587,12 @@ func stringifySeekTokenValue(value reflect.Value) (string, error) {
 		return strconv.FormatBool(current.Bool()), nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return strconv.FormatInt(current.Int(), 10), nil
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr:
 		return strconv.FormatUint(current.Uint(), 10), nil
 	case reflect.Float32:
 		return strconv.FormatFloat(current.Float(), 'g', -1, 32), nil

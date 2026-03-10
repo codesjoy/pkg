@@ -205,10 +205,13 @@ func TestGroupConsumerBuildConsumeChain(t *testing.T) {
 
 		consumer := &GroupConsumer{cfg: cfg}
 		require.Len(t, consumer.handlersForTopic("orders"), 3)
-		chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
-			marks = append(marks, "business")
-			return nil
-		})
+		chain := consumer.buildConsumeChain(
+			"orders",
+			func(context.Context, *consume.MessageContext) error {
+				marks = append(marks, "business")
+				return nil
+			},
+		)
 
 		require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
 		require.Equal(t, []string{"global", "topic", "business"}, marks)
@@ -233,10 +236,13 @@ func TestGroupConsumerBuildConsumeChain(t *testing.T) {
 
 		consumer := &GroupConsumer{cfg: cfg}
 		require.Len(t, consumer.handlersForTopic("orders"), 2)
-		chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
-			marks = append(marks, "business")
-			return nil
-		})
+		chain := consumer.buildConsumeChain(
+			"orders",
+			func(context.Context, *consume.MessageContext) error {
+				marks = append(marks, "business")
+				return nil
+			},
+		)
 
 		require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
 		require.Equal(t, []string{"topic", "business"}, marks)
@@ -390,8 +396,10 @@ func partitionKeyForTest(topic string, partition int32) string {
 }
 
 func consumeMarkerHandler(label string, marks *[]string) consume.Handler {
-	return consume.Func(func(ctx context.Context, msg *consume.MessageContext, next consume.Next) error {
-		*marks = append(*marks, label)
-		return next(ctx, msg)
-	})
+	return consume.Func(
+		func(ctx context.Context, msg *consume.MessageContext, next consume.Next) error {
+			*marks = append(*marks, label)
+			return next(ctx, msg)
+		},
+	)
 }

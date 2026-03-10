@@ -95,8 +95,14 @@ func TestRedlockQuorumFailureCleansUp(t *testing.T) {
 	_, clients := newMiniRedisClients(t, 3)
 	locker := newRedlockLocker(t, clients, nil)
 
-	require.NoError(t, clients[0].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err())
-	require.NoError(t, clients[1].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err())
+	require.NoError(
+		t,
+		clients[0].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err(),
+	)
+	require.NoError(
+		t,
+		clients[1].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err(),
+	)
 
 	_, err := locker.TryAcquire(ctx, "job", 300*time.Millisecond)
 	require.ErrorIs(t, err, ErrNotObtained)
@@ -173,8 +179,14 @@ func TestRedlockAutoRenewLosesQuorum(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, clients[0].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err())
-	require.NoError(t, clients[1].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err())
+	require.NoError(
+		t,
+		clients[0].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err(),
+	)
+	require.NoError(
+		t,
+		clients[1].Set(ctx, locker.prefixedKey("job"), "other-owner", time.Second).Err(),
+	)
 
 	require.Eventually(t, func() bool {
 		select {

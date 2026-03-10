@@ -141,10 +141,13 @@ func TestPartitionConsumerBuildConsumeChain(t *testing.T) {
 	consumer := &PartitionConsumer{cfg: cfg}
 	require.Len(t, consumer.handlersForTopic("orders"), 2)
 
-	chain := consumer.buildConsumeChain("orders", func(context.Context, *consume.MessageContext) error {
-		marks = append(marks, "business")
-		return nil
-	})
+	chain := consumer.buildConsumeChain(
+		"orders",
+		func(context.Context, *consume.MessageContext) error {
+			marks = append(marks, "business")
+			return nil
+		},
+	)
 
 	require.NoError(t, chain(context.Background(), &consume.MessageContext{}))
 	require.Equal(t, []string{"global", "business"}, marks)

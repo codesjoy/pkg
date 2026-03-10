@@ -44,10 +44,13 @@ func newRedlockStrategy(primary redis.UniversalClient, cfg RedlockConfig) *redlo
 
 func (s *redlockStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
 	startedAt := time.Now()
-	successCount := s.countSuccesses(ctx, func(opCtx context.Context, client redis.UniversalClient) bool {
-		ok, err := client.SetNX(opCtx, lease.fullKey, lease.token, lease.ttl).Result()
-		return err == nil && ok
-	})
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			ok, err := client.SetNX(opCtx, lease.fullKey, lease.token, lease.ttl).Result()
+			return err == nil && ok
+		},
+	)
 	elapsed := time.Since(startedAt)
 	validity := lease.ttl - elapsed - s.clockDrift
 
@@ -63,10 +66,14 @@ func (s *redlockStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
 }
 
 func (s *redlockStrategy) release(ctx context.Context, lease *Lease) error {
-	successCount := s.countSuccesses(ctx, func(opCtx context.Context, client redis.UniversalClient) bool {
-		deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).Int64()
-		return err == nil && deleted == 1
-	})
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).
+				Int64()
+			return err == nil && deleted == 1
+		},
+	)
 	if successCount < s.quorum {
 		return ErrLockNotHeld
 	}
@@ -74,16 +81,19 @@ func (s *redlockStrategy) release(ctx context.Context, lease *Lease) error {
 }
 
 func (s *redlockStrategy) refresh(ctx context.Context, lease *Lease) error {
-	successCount := s.countSuccesses(ctx, func(opCtx context.Context, client redis.UniversalClient) bool {
-		extended, err := refreshScript.Run(
-			opCtx,
-			client,
-			[]string{lease.fullKey},
-			lease.token,
-			lease.ttl.Milliseconds(),
-		).Int64()
-		return err == nil && extended == 1
-	})
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			extended, err := refreshScript.Run(
+				opCtx,
+				client,
+				[]string{lease.fullKey},
+				lease.token,
+				lease.ttl.Milliseconds(),
+			).Int64()
+			return err == nil && extended == 1
+		},
+	)
 	if successCount < s.quorum {
 		return ErrLockNotHeld
 	}
@@ -91,10 +101,14 @@ func (s *redlockStrategy) refresh(ctx context.Context, lease *Lease) error {
 }
 
 func (s *redlockStrategy) cleanupAcquire(lease *Lease) {
-	s.countSuccesses(context.Background(), func(opCtx context.Context, client redis.UniversalClient) bool {
-		deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).Int64()
-		return err == nil && deleted == 1
-	})
+	s.countSuccesses(
+		context.Background(),
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).
+				Int64()
+			return err == nil && deleted == 1
+		},
+	)
 }
 
 func (s *redlockStrategy) countSuccesses(

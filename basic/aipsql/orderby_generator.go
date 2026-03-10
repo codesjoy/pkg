@@ -80,7 +80,10 @@ func (t *Table) orderByClause(order []OrderBy, dialect SQLDialect) (string, erro
 	return result.String(), nil
 }
 
-func (t *Table) buildOrderByFieldClause(order OrderBy, seenColumns map[string]struct{}) (string, error) {
+func (t *Table) buildOrderByFieldClause(
+	order OrderBy,
+	seenColumns map[string]struct{},
+) (string, error) {
 	column, err := t.SortableColumnByFieldPath(order.FieldPath)
 	if err != nil {
 		return "", err

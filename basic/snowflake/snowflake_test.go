@@ -655,7 +655,11 @@ func TestSnowflake_EndTurnBackAction(t *testing.T) {
 
 	t.Run("ignores worker info errors", func(t *testing.T) {
 		sf := &Snowflake{
-			worker:           &mockWorker{workerID: 1, workerIDBitLength: 6, getInfoErr: errors.New("boom")},
+			worker: &mockWorker{
+				workerID:          1,
+				workerIDBitLength: 6,
+				getInfoErr:        errors.New("boom"),
+			},
 			turnBackTimeTick: 8,
 			turnBackIndex:    3,
 			minBackTimeTick:  4,
@@ -695,7 +699,11 @@ func TestSnowflake_CalcTurnBackID(t *testing.T) {
 
 	got := sf.calcTurnBackID(9)
 
-	assert.Equal(t, (int64(9)<<sf.timestampShift)+(sf.workerID<<sf.seqBitLength)+sf.turnBackIndex, got)
+	assert.Equal(
+		t,
+		(int64(9)<<sf.timestampShift)+(sf.workerID<<sf.seqBitLength)+sf.turnBackIndex,
+		got,
+	)
 	assert.Equal(t, int64(8), sf.turnBackTimeTick)
 }
 
