@@ -61,6 +61,8 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.NotContains(t, publisherContent, "func GoogleAIPFieldBehaviors(messageFullName, fieldName string)")
 	assert.NotContains(t, publisherContent, "func GoogleAIPRequiredFields(messageFullName string)")
 	assert.NotContains(t, publisherContent, "func GoogleAIPMethodSignatures(serviceFullName, methodName string)")
+	assert.NotContains(t, publisherContent, "func (x *Publisher) ParseParent(parent string)")
+	assert.NotContains(t, publisherContent, "func (x *Publisher) ValidateParent(parent string)")
 	assert.NotContains(t, publisherContent, "func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error")
 	assert.Contains(t, publisherContent, `"name": googleaip.ResourceReferenceMetadata{`)
 
@@ -72,11 +74,16 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.Contains(t, bookContent, "googleaip.MustCompilePattern(BookNamePattern2)")
 	assert.NotContains(t, bookContent, `googleaip.MustCompilePattern("publishers/{publisher}/books/{book}")`)
 	assert.Contains(t, bookContent, "func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error")
+	assert.Contains(t, bookContent, "var googleAIPResourceBookParentDescriptors = []googleaip.ResourceDescriptor{")
+	assert.Contains(t, bookContent, "func (x *Book) ParseParent(parent string) (googleaip.ResourceMatch, error)")
+	assert.Contains(t, bookContent, "func (x *Book) ValidateParent(parent string) error")
+	assert.Contains(t, bookContent, "match, err := descriptor.Parse(parent)")
 	assert.NotContains(t, bookContent, "func (x *Book) FillName(values map[string]string) error")
 	assert.Contains(t, bookContent, "nil *Book receiver")
+	assert.NotContains(t, bookContent, "func (x *ListBooksRequest) ParseParent()")
 	assert.NotContains(t, bookContent, "func (GetBookRequest) GoogleAIPResourceReference(fieldName string)")
 	assert.NotContains(t, bookContent, "func LibraryServiceGoogleAIPMethodSignatures(methodName string) [][]string")
-	assert.NotContains(t, bookContent, "library.googleapis.com/Archive")
+	assert.Contains(t, bookContent, "library.googleapis.com/Archive")
 }
 
 func TestGenerateFilesHonorsFeatureFiltering(t *testing.T) {
@@ -182,6 +189,87 @@ func TestGenerateFilesErrorsWhenNameFieldIsNotString(t *testing.T) {
 	assert.Contains(t, err.Error(), "must target a singular string field")
 }
 
+func TestGenerateFilesGeneratesResourceParentHelpersWithoutRequestField(t *testing.T) {
+	gen, err := newTestPluginWithFiles(
+		[]string{"publisher.proto", "book.proto"},
+		[]*descriptorpb.FileDescriptorProto{
+			newPublisherFile(),
+			newBookFile(),
+		},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, generateFiles(gen, featureSet{resources: true}))
+
+	content := generatedFileContent(gen, "book_google_aip.pb.go")
+	require.NotEmpty(t, content)
+	assert.Contains(t, content, "var googleAIPResourceBookParentDescriptors = []googleaip.ResourceDescriptor{")
+	assert.Contains(t, content, `"library.googleapis.com/Publisher"`)
+	assert.Contains(t, content, `googleaip.MustCompilePattern("publishers/{publisher}")`)
+	assert.Contains(t, content, `"library.googleapis.com/Archive"`)
+	assert.Contains(t, content, `googleaip.MustCompilePattern("archives/{archive}")`)
+	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (googleaip.ResourceMatch, error)")
+	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
+	assert.Contains(t, content, "nil *Book receiver")
+	assert.Contains(t, content, "match, err := descriptor.Parse(parent)")
+	assert.Contains(t, content, "_, err := x.ParseParent(parent)")
+	assert.NotContains(t, content, "func (x *Book) FillParent(")
+	assert.NotContains(t, content, "func (x *Book) ParentID()")
+}
+
+func TestGenerateFilesGeneratesResourceParentHelpersForExampleLayout(t *testing.T) {
+	gen, err := newTestPluginWithFiles(
+		[]string{"publisher.proto", "book.proto"},
+		[]*descriptorpb.FileDescriptorProto{
+			newExamplePublisherOnlyFile(),
+			newExampleBookLayoutFile(),
+		},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, generateFiles(gen, featureSet{
+		resources:       true,
+		fieldBehavior:   true,
+		methodSignature: true,
+	}))
+
+	content := generatedFileContent(gen, "book_google_aip.pb.go")
+	require.NotEmpty(t, content)
+	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (googleaip.ResourceMatch, error)")
+	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
+	assert.NotContains(t, content, "func (x *ListBooksRequest) ParseParent()")
+}
+
+func TestGenerateFilesSkipsResourceParentHelpersWhenParentDescriptorIsMissing(t *testing.T) {
+	gen, err := newTestPluginWithFiles(
+		[]string{"orphan_book.proto"},
+		[]*descriptorpb.FileDescriptorProto{newOrphanBookFile()},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, generateFiles(gen, featureSet{resources: true}))
+
+	content := generatedFileContent(gen, "orphan_book_google_aip.pb.go")
+	require.NotEmpty(t, content)
+	assert.NotContains(t, content, "func (x *Book) ParseParent(parent string)")
+	assert.NotContains(t, content, "func (x *Book) ValidateParent(parent string)")
+}
+
+func TestGenerateFilesSkipsResourceParentHelpersWhenChildPatternCannotDeriveParent(t *testing.T) {
+	gen, err := newTestPluginWithFiles(
+		[]string{"broken_parent_pattern.proto"},
+		[]*descriptorpb.FileDescriptorProto{newBrokenParentPatternFile()},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, generateFiles(gen, featureSet{resources: true}))
+
+	content := generatedFileContent(gen, "broken_parent_pattern_google_aip.pb.go")
+	require.NotEmpty(t, content)
+	assert.NotContains(t, content, "func (x *WeirdChild) ParseParent(parent string)")
+	assert.NotContains(t, content, "func (x *WeirdChild) ValidateParent(parent string)")
+}
+
 func newTestPluginWithFiles(
 	filesToGenerate []string,
 	files []*descriptorpb.FileDescriptorProto,
@@ -273,6 +361,23 @@ func newBookFile() *descriptorpb.FileDescriptorProto {
 		},
 	})
 	return file
+}
+
+func newOrphanBookFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("orphan_book.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage(
+				"Book",
+				"library.googleapis.com/Book",
+				[]string{"publishers/{publisher}/books/{book}"},
+			),
+		},
+	}
 }
 
 func newFileDefinitionsOnlyFile() *descriptorpb.FileDescriptorProto {
@@ -443,6 +548,202 @@ func newGetBookRequestMessage() *descriptorpb.DescriptorProto {
 			annotationspb.FieldBehavior_REQUIRED,
 			annotationspb.FieldBehavior_IDENTIFIER,
 		},
+	)
+	return message
+}
+
+func newListBooksFile() *descriptorpb.FileDescriptorProto {
+	file := &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("list_books.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage(
+				"Book",
+				"library.googleapis.com/Book",
+				[]string{
+					"publishers/{publisher}/books/{book}",
+					"archives/{archive}/books/{book}",
+				},
+			),
+			newParentReferenceMessage("ListBooksRequest", "parent", stringField("parent", 1), "library.googleapis.com/Book"),
+		},
+	}
+
+	proto.SetExtension(file.Options, annotationspb.E_ResourceDefinition, []*annotationspb.ResourceDescriptor{
+		{
+			Type:     "library.googleapis.com/Archive",
+			Pattern:  []string{"archives/{archive}"},
+			Plural:   "archives",
+			Singular: "archive",
+		},
+	})
+	return file
+}
+
+func newExternalParentFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("external_parent.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newParentReferenceMessage("ExternalParentRequest", "parent", stringField("parent", 1), "external.googleapis.com/Book"),
+		},
+	}
+}
+
+func newExamplePublisherOnlyFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("publisher.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage("Publisher", "library.googleapis.com/Publisher", []string{"publishers/{publisher}"}),
+		},
+	}
+}
+
+func newExampleBookLayoutFile() *descriptorpb.FileDescriptorProto {
+	file := newListBooksFile()
+	file.Name = proto.String("book.proto")
+	file.MessageType = []*descriptorpb.DescriptorProto{
+		newResourceMessage(
+			"Book",
+			"library.googleapis.com/Book",
+			[]string{
+				"publishers/{publisher}/books/{book}",
+				"archives/{archive}/books/{book}",
+			},
+		),
+		newGetBookRequestMessage(),
+		newListBooksRequestMessage(),
+		{
+			Name: proto.String("ListBooksResponse"),
+			Field: []*descriptorpb.FieldDescriptorProto{
+				{
+					Name:     proto.String("books"),
+					Number:   proto.Int32(1),
+					Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+					Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+					TypeName: proto.String(".codesjoy.example.library.v1.Book"),
+				},
+			},
+			Options: &descriptorpb.MessageOptions{},
+		},
+	}
+	file.Service = []*descriptorpb.ServiceDescriptorProto{
+		{
+			Name: proto.String("LibraryService"),
+			Method: []*descriptorpb.MethodDescriptorProto{
+				{
+					Name:       proto.String("GetBook"),
+					InputType:  proto.String(".codesjoy.example.library.v1.GetBookRequest"),
+					OutputType: proto.String(".codesjoy.example.library.v1.Book"),
+					Options:    &descriptorpb.MethodOptions{},
+				},
+				{
+					Name:       proto.String("ListBooks"),
+					InputType:  proto.String(".codesjoy.example.library.v1.ListBooksRequest"),
+					OutputType: proto.String(".codesjoy.example.library.v1.ListBooksResponse"),
+					Options:    &descriptorpb.MethodOptions{},
+				},
+			},
+		},
+	}
+	proto.SetExtension(file.Service[0].Method[0].Options, annotationspb.E_MethodSignature, []string{"name, view"})
+	proto.SetExtension(file.Service[0].Method[1].Options, annotationspb.E_MethodSignature, []string{"parent"})
+	return file
+}
+
+func newNonStringParentFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("broken_parent.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage("Book", "library.googleapis.com/Book", []string{"publishers/{publisher}/books/{book}"}),
+			newParentReferenceMessage("BrokenParentRequest", "parent", int32Field("parent", 1), "library.googleapis.com/Book"),
+		},
+	}
+}
+
+func newContainerReferenceFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("container.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage("Book", "library.googleapis.com/Book", []string{"publishers/{publisher}/books/{book}"}),
+			newParentReferenceMessage("ContainerRequest", "container", stringField("container", 1), "library.googleapis.com/Book"),
+		},
+	}
+}
+
+func newBrokenParentPatternFile() *descriptorpb.FileDescriptorProto {
+	return &descriptorpb.FileDescriptorProto{
+		Name:    proto.String("broken_parent_pattern.proto"),
+		Package: proto.String("codesjoy.example.library.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			newResourceMessage("WeirdChild", "library.googleapis.com/WeirdChild", []string{"publishers/{publisher}/{child}"}),
+			newParentReferenceMessage("ListWeirdChildrenRequest", "parent", stringField("parent", 1), "library.googleapis.com/WeirdChild"),
+		},
+	}
+}
+
+func newParentReferenceMessage(
+	name string,
+	fieldName string,
+	field *descriptorpb.FieldDescriptorProto,
+	childType string,
+) *descriptorpb.DescriptorProto {
+	field.Name = proto.String(fieldName)
+	field.Options = &descriptorpb.FieldOptions{}
+
+	message := &descriptorpb.DescriptorProto{
+		Name:    proto.String(name),
+		Field:   []*descriptorpb.FieldDescriptorProto{field},
+		Options: &descriptorpb.MessageOptions{},
+	}
+
+	proto.SetExtension(
+		message.Field[0].Options,
+		annotationspb.E_ResourceReference,
+		&annotationspb.ResourceReference{ChildType: childType},
+	)
+	return message
+}
+
+func newListBooksRequestMessage() *descriptorpb.DescriptorProto {
+	message := newParentReferenceMessage("ListBooksRequest", "parent", stringField("parent", 1), "library.googleapis.com/Book")
+	message.Field = append(message.Field, &descriptorpb.FieldDescriptorProto{
+		Name:    proto.String("page_size"),
+		Number:  proto.Int32(2),
+		Label:   descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+		Type:    descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+		Options: &descriptorpb.FieldOptions{},
+	})
+	proto.SetExtension(
+		message.Field[0].Options,
+		annotationspb.E_FieldBehavior,
+		[]annotationspb.FieldBehavior{annotationspb.FieldBehavior_REQUIRED},
+	)
+	proto.SetExtension(
+		message.Field[1].Options,
+		annotationspb.E_FieldBehavior,
+		[]annotationspb.FieldBehavior{annotationspb.FieldBehavior_OPTIONAL},
 	)
 	return message
 }

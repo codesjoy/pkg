@@ -42,9 +42,10 @@ type descriptorResource struct {
 
 type messageResource struct {
 	descriptorResource
-	goName          string
-	fullName        string
-	nameFieldGoName string
+	goName            string
+	fullName          string
+	nameFieldGoName   string
+	parentDescriptors []descriptorResource
 }
 
 type resourceReference struct {
@@ -68,6 +69,16 @@ type serviceMetadata struct {
 	methodSignatures map[string][][]string
 }
 
+type registeredResource struct {
+	descriptor descriptorResource
+	owner      string
+}
+
+type resourceRegistry struct {
+	byType    map[string]registeredResource
+	byPattern map[string]registeredResource
+}
+
 type fileAnnotations struct {
 	messageResources []messageResource
 
@@ -76,13 +87,17 @@ type fileAnnotations struct {
 }
 
 func generateFiles(gen *protogen.Plugin, features featureSet) error {
-	seenResourceTypes := make(map[string]string)
+	registry, err := buildResourceRegistry(gen.Files, features)
+	if err != nil {
+		return err
+	}
+
 	for _, file := range gen.Files {
 		if !file.Generate {
 			continue
 		}
 
-		collected, err := collectFileAnnotations(file, features, seenResourceTypes)
+		collected, err := collectFileAnnotations(file, features, registry)
 		if err != nil {
 			return err
 		}
@@ -112,30 +127,12 @@ func generateHeader(g *protogen.GeneratedFile, file *protogen.File) {
 func collectFileAnnotations(
 	file *protogen.File,
 	features featureSet,
-	seenResourceTypes map[string]string,
+	registry resourceRegistry,
 ) (fileAnnotations, error) {
 	annotations := fileAnnotations{}
 
-	if features.resources {
-		fileResources, err := fileResourceDefinitions(file)
-		if err != nil {
-			return fileAnnotations{}, fmt.Errorf("file %s: %w", file.Desc.Path(), err)
-		}
-		for _, resource := range fileResources {
-			if owner, ok := seenResourceTypes[resource.resourceType]; ok {
-				return fileAnnotations{}, fmt.Errorf(
-					"duplicate resource type %q declared by %s and file %s",
-					resource.resourceType,
-					owner,
-					file.Desc.Path(),
-				)
-			}
-			seenResourceTypes[resource.resourceType] = file.Desc.Path()
-		}
-	}
-
 	for _, message := range file.Messages {
-		if err := collectMessageAnnotations(message, &annotations, features, seenResourceTypes); err != nil {
+		if err := collectMessageAnnotations(message, &annotations, features, registry); err != nil {
 			return fileAnnotations{}, fmt.Errorf("file %s: %w", file.Desc.Path(), err)
 		}
 	}
@@ -164,7 +161,7 @@ func collectMessageAnnotations(
 	message *protogen.Message,
 	annotations *fileAnnotations,
 	features featureSet,
-	seenResourceTypes map[string]string,
+	registry resourceRegistry,
 ) error {
 	if message.Desc.IsMapEntry() {
 		return nil
@@ -182,15 +179,7 @@ func collectMessageAnnotations(
 			return fmt.Errorf("message %s: %w", message.Desc.FullName(), err)
 		}
 		if resource != nil {
-			if owner, ok := seenResourceTypes[resource.resourceType]; ok {
-				return fmt.Errorf(
-					"duplicate resource type %q declared by %s and message %s",
-					resource.resourceType,
-					owner,
-					message.Desc.FullName(),
-				)
-			}
-			seenResourceTypes[resource.resourceType] = messageFullName
+			resource.parentDescriptors = resourceParentDescriptors(resource.descriptorResource, registry)
 			annotations.messageResources = append(annotations.messageResources, *resource)
 		}
 
@@ -243,7 +232,7 @@ func collectMessageAnnotations(
 	}
 
 	for _, nested := range message.Messages {
-		if err := collectMessageAnnotations(nested, annotations, features, seenResourceTypes); err != nil {
+		if err := collectMessageAnnotations(nested, annotations, features, registry); err != nil {
 			return err
 		}
 	}
@@ -271,6 +260,95 @@ func collectServiceAnnotations(service *protogen.Service, annotations *fileAnnot
 		fullName:         string(service.Desc.FullName()),
 		methodSignatures: methods,
 	})
+	return nil
+}
+
+func buildResourceRegistry(files []*protogen.File, features featureSet) (resourceRegistry, error) {
+	registry := resourceRegistry{
+		byType:    make(map[string]registeredResource),
+		byPattern: make(map[string]registeredResource),
+	}
+	if !features.resources {
+		return registry, nil
+	}
+
+	for _, file := range files {
+		if err := registerFileResources(file, &registry); err != nil {
+			return resourceRegistry{}, err
+		}
+	}
+	return registry, nil
+}
+
+func registerFileResources(file *protogen.File, registry *resourceRegistry) error {
+	fileResources, err := fileResourceDefinitions(file)
+	if err != nil {
+		return fmt.Errorf("file %s: %w", file.Desc.Path(), err)
+	}
+	for _, resource := range fileResources {
+		if err := registry.add(resource, "file "+file.Desc.Path()); err != nil {
+			return err
+		}
+	}
+
+	for _, message := range file.Messages {
+		if err := registerMessageResources(message, registry); err != nil {
+			return fmt.Errorf("file %s: %w", file.Desc.Path(), err)
+		}
+	}
+	return nil
+}
+
+func registerMessageResources(message *protogen.Message, registry *resourceRegistry) error {
+	if message.Desc.IsMapEntry() {
+		return nil
+	}
+
+	resource, err := messageResourceDescriptor(message)
+	if err != nil {
+		return fmt.Errorf("message %s: %w", message.Desc.FullName(), err)
+	}
+	if resource != nil {
+		if err := registry.add(resource.descriptorResource, string(message.Desc.FullName())); err != nil {
+			return err
+		}
+	}
+
+	for _, nested := range message.Messages {
+		if err := registerMessageResources(nested, registry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (registry *resourceRegistry) add(resource descriptorResource, owner string) error {
+	if existing, ok := registry.byType[resource.resourceType]; ok {
+		return fmt.Errorf(
+			"duplicate resource type %q declared by %s and %s",
+			resource.resourceType,
+			existing.owner,
+			owner,
+		)
+	}
+
+	entry := registeredResource{
+		descriptor: resource,
+		owner:      owner,
+	}
+	registry.byType[resource.resourceType] = entry
+
+	for _, pattern := range resource.patterns {
+		if existing, ok := registry.byPattern[pattern]; ok && existing.descriptor.resourceType != resource.resourceType {
+			return fmt.Errorf(
+				"duplicate resource pattern %q declared by %s and %s",
+				pattern,
+				existing.owner,
+				owner,
+			)
+		}
+		registry.byPattern[pattern] = entry
+	}
 	return nil
 }
 
@@ -348,6 +426,42 @@ func resourceReferenceDescriptor(field *protogen.Field) (*resourceReference, err
 		resourceType:    reference.GetType(),
 		childType:       reference.GetChildType(),
 	}, nil
+}
+
+func resourceParentDescriptors(
+	resource descriptorResource,
+	registry resourceRegistry,
+) []descriptorResource {
+	descriptors := make([]descriptorResource, 0, len(resource.patterns))
+	seenPatterns := make(map[string]struct{}, len(resource.patterns))
+	for _, childPattern := range resource.patterns {
+		parentPattern, err := parentPatternFromChildPattern(childPattern)
+		if err != nil {
+			return nil
+		}
+
+		parentResource, ok := registry.byPattern[parentPattern]
+		if !ok {
+			return nil
+		}
+		if _, ok := seenPatterns[parentPattern]; ok {
+			continue
+		}
+		seenPatterns[parentPattern] = struct{}{}
+
+		descriptor := parentResource.descriptor
+		descriptors = append(descriptors, descriptorResource{
+			resourceType: descriptor.resourceType,
+			patterns:     []string{parentPattern},
+			plural:       descriptor.plural,
+			singular:     descriptor.singular,
+			nameField:    descriptor.nameField,
+		})
+	}
+	if len(descriptors) == 0 {
+		return nil
+	}
+	return descriptors
 }
 
 func fieldBehaviorDescriptors(field *protogen.Field) ([]annotationspb.FieldBehavior, error) {
@@ -503,6 +617,32 @@ func validatePatternSyntax(pattern string) error {
 	return nil
 }
 
+func parentPatternFromChildPattern(pattern string) (string, error) {
+	segments := strings.Split(pattern, "/")
+	if len(segments) < 2 {
+		return "", fmt.Errorf("must contain at least 2 path segments")
+	}
+
+	lastSegment := segments[len(segments)-1]
+	collectionSegment := segments[len(segments)-2]
+	if !isVariablePatternSegment(lastSegment) {
+		return "", fmt.Errorf("must end with a variable segment")
+	}
+	if isVariablePatternSegment(collectionSegment) {
+		return "", fmt.Errorf("must have a literal collection segment before the final variable")
+	}
+
+	parentPattern := strings.Join(segments[:len(segments)-2], "/")
+	if parentPattern == "" {
+		return "", fmt.Errorf("derived parent pattern must not be empty")
+	}
+	return parentPattern, nil
+}
+
+func isVariablePatternSegment(segment string) bool {
+	return strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}")
+}
+
 func containsRequiredFieldBehavior(values []annotationspb.FieldBehavior) bool {
 	for _, value := range values {
 		if value == annotationspb.FieldBehavior_REQUIRED {
@@ -611,6 +751,19 @@ func generateResourceDescriptors(g *protogen.GeneratedFile, resources []messageR
 		writeResourceDescriptorFields(g, resource)
 		g.P("}")
 		g.P()
+
+		if len(resource.parentDescriptors) == 0 {
+			continue
+		}
+
+		g.P("var ", messageResourceParentDescriptorsVarName(resource), " = []", runtime(g, "ResourceDescriptor"), "{")
+		for _, descriptor := range resource.parentDescriptors {
+			g.P("{")
+			writeDescriptorFields(g, descriptor)
+			g.P("},")
+		}
+		g.P("}")
+		g.P()
 	}
 	g.P()
 }
@@ -662,6 +815,37 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 			g.P("}")
 			g.P()
 		}
+
+		if len(resource.parentDescriptors) == 0 {
+			continue
+		}
+
+		descriptorsVarName := messageResourceParentDescriptorsVarName(resource)
+		parseParentError := strconv.Quote("parent %q does not match any inferred parent resource for type " + resource.resourceType)
+
+		g.P(
+			"func (x *", resource.goName, ") ParseParent(parent string) (",
+			runtime(g, "ResourceMatch"),
+			", error) {",
+		)
+		g.P("\tif x == nil {")
+		g.P("\t\treturn ", runtime(g, "ResourceMatch"), "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+		g.P("\t}")
+		g.P("\tfor _, descriptor := range ", descriptorsVarName, " {")
+		g.P("\t\tmatch, err := descriptor.Parse(parent)")
+		g.P("\t\tif err == nil {")
+		g.P("\t\t\treturn match, nil")
+		g.P("\t\t}")
+		g.P("\t}")
+		g.P("\treturn ", runtime(g, "ResourceMatch"), "{}, ", stdfmt(g, "Errorf"), "(", parseParentError, ", parent)")
+		g.P("}")
+		g.P()
+
+		g.P("func (x *", resource.goName, ") ValidateParent(parent string) error {")
+		g.P("\t_, err := x.ParseParent(parent)")
+		g.P("\treturn err")
+		g.P("}")
+		g.P()
 	}
 }
 
@@ -797,6 +981,10 @@ func messageResourceReferenceVarName(message messageMetadata) string {
 	return "googleAIP" + message.goName + "ResourceReferences"
 }
 
+func messageResourceParentDescriptorsVarName(resource messageResource) string {
+	return "googleAIPResource" + resource.goName + "ParentDescriptors"
+}
+
 func messageFieldBehaviorVarName(message messageMetadata) string {
 	return "googleAIP" + message.goName + "FieldBehaviors"
 }
@@ -817,6 +1005,18 @@ func writeResourceDescriptorFields(g *protogen.GeneratedFile, resource messageRe
 	g.P("Patterns: []", runtime(g, "ResourcePattern"), "{")
 	for i := range resource.patterns {
 		g.P(runtime(g, "MustCompilePattern"), "(", messageResourcePatternConstName(resource, i), "),")
+	}
+	g.P("},")
+}
+
+func writeDescriptorFields(g *protogen.GeneratedFile, descriptor descriptorResource) {
+	g.P("Type: ", strconv.Quote(descriptor.resourceType), ",")
+	g.P("Plural: ", strconv.Quote(descriptor.plural), ",")
+	g.P("Singular: ", strconv.Quote(descriptor.singular), ",")
+	g.P("NameField: ", strconv.Quote(descriptor.nameField), ",")
+	g.P("Patterns: []", runtime(g, "ResourcePattern"), "{")
+	for _, pattern := range descriptor.patterns {
+		g.P(runtime(g, "MustCompilePattern"), "(", strconv.Quote(pattern), "),")
 	}
 	g.P("},")
 }

@@ -67,6 +67,8 @@ For resource-annotated messages it adds methods onto the generated message type:
 - `<Message>NamePattern1..N` for multi-pattern resources
 - `(*<Message>).ParseName()`
 - `(*<Message>).ValidateName()`
+- `(*<Message>).ParseParent(parent string)` when the resource patterns imply one or more registered parent resources
+- `(*<Message>).ValidateParent(parent string)` when the resource patterns imply one or more registered parent resources
 - `(*<Message>).FillNameWithPattern(pattern string, values map[string]string)`
 - `(*<Message>).FillName(values map[string]string)` when the resource has exactly one pattern
 

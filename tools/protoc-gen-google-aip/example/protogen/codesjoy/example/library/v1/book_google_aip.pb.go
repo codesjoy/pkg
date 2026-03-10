@@ -25,6 +25,27 @@ var googleAIPResourceBookDescriptor = googleaip.ResourceDescriptor{
 	},
 }
 
+var googleAIPResourceBookParentDescriptors = []googleaip.ResourceDescriptor{
+	{
+		Type:      "library.googleapis.com/Publisher",
+		Plural:    "publishers",
+		Singular:  "publisher",
+		NameField: "name",
+		Patterns: []googleaip.ResourcePattern{
+			googleaip.MustCompilePattern("publishers/{publisher}"),
+		},
+	},
+	{
+		Type:      "library.googleapis.com/Archive",
+		Plural:    "archives",
+		Singular:  "archive",
+		NameField: "name",
+		Patterns: []googleaip.ResourcePattern{
+			googleaip.MustCompilePattern("archives/{archive}"),
+		},
+	},
+}
+
 func (x *Book) ParseName() (googleaip.ResourceMatch, error) {
 	if x == nil {
 		return googleaip.ResourceMatch{}, fmt.Errorf("nil *Book receiver")
@@ -49,6 +70,24 @@ func (x *Book) FillNameWithPattern(pattern string, values map[string]string) err
 	}
 	x.Name = formatted
 	return nil
+}
+
+func (x *Book) ParseParent(parent string) (googleaip.ResourceMatch, error) {
+	if x == nil {
+		return googleaip.ResourceMatch{}, fmt.Errorf("nil *Book receiver")
+	}
+	for _, descriptor := range googleAIPResourceBookParentDescriptors {
+		match, err := descriptor.Parse(parent)
+		if err == nil {
+			return match, nil
+		}
+	}
+	return googleaip.ResourceMatch{}, fmt.Errorf("parent %q does not match any inferred parent resource for type library.googleapis.com/Book", parent)
+}
+
+func (x *Book) ValidateParent(parent string) error {
+	_, err := x.ParseParent(parent)
+	return err
 }
 
 var googleAIPGetBookRequestResourceReferences = map[string]googleaip.ResourceReferenceMetadata{

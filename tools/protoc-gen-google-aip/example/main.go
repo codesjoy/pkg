@@ -16,15 +16,27 @@ func main() {
 		"book":      "book-1",
 	})
 	bookMatch, _ := book.ParseName()
+	listRequest := &libraryv1.ListBooksRequest{Parent: "publishers/pub-1"}
+	publisherParentMatch, _ := book.ParseParent(listRequest.Parent)
+	publisherParentValid := book.ValidateParent(listRequest.Parent) == nil
+	createParent := "archives/arc-1"
+	archiveParentMatch, _ := book.ParseParent(createParent)
+	archiveParentValid := book.ValidateParent(createParent) == nil
 	request := libraryv1.GetBookRequest{}
 	ref, _ := request.GoogleAIPResourceReference("name")
 	required := request.GoogleAIPRequiredFields()
 	signatures := libraryv1.LibraryServiceGoogleAIPMethodSignatures("GetBook")
 
 	fmt.Printf(
-		"publisher=%s pattern=%s ref_type=%s required=%v signatures=%v book_vars=%v\n",
+		"publisher=%s pattern=%s parent_pub_type=%s parent_pub_vars=%v parent_pub_valid=%t parent_archive_type=%s parent_archive_vars=%v parent_archive_valid=%t ref_type=%s required=%v signatures=%v book_vars=%v\n",
 		publisher.GetName(),
 		bookMatch.Pattern,
+		publisherParentMatch.DescriptorType,
+		publisherParentMatch.Values,
+		publisherParentValid,
+		archiveParentMatch.DescriptorType,
+		archiveParentMatch.Values,
+		archiveParentValid,
 		ref.Type,
 		required,
 		signatures,

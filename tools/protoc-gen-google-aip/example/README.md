@@ -4,7 +4,9 @@ This module shows how to annotate resources, request fields, and RPC methods and
 generate Go helpers with `protoc-gen-google-aip`.
 
 The demo uses generated pattern constants such as `BookNamePattern1` together
-with `FillNameWithPattern(...)`.
+with `FillNameWithPattern(...)`, and shows parsing and validating a request
+`parent` by calling `Book.ParseParent(req.Parent)` and
+`Book.ValidateParent(req.Parent)`.
 
 ## Structure
 
@@ -53,5 +55,5 @@ go run .
 Expected output resembles:
 
 ```text
-publisher=publishers/pub-1 pattern=publishers/{publisher}/books/{book} ref_type=library.googleapis.com/Book required=[name] signatures=[[name view]] book_vars=map[book:book-1 publisher:pub-1]
+publisher=publishers/pub-1 pattern=publishers/{publisher}/books/{book} parent_pub_type=library.googleapis.com/Publisher parent_pub_vars=map[publisher:pub-1] parent_pub_valid=true parent_archive_type=library.googleapis.com/Archive parent_archive_vars=map[archive:arc-1] parent_archive_valid=true ref_type=library.googleapis.com/Book required=[name] signatures=[[name view]] book_vars=map[book:book-1 publisher:pub-1]
 ```
