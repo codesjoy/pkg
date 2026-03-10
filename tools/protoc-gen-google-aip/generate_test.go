@@ -48,71 +48,171 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 
 	publisherContent := generatedFileContent(gen, "publisher_google_aip.pb.go")
 	require.NotEmpty(t, publisherContent)
-	assert.Contains(t, publisherContent, "// PublisherNamePattern is a supported resource name pattern for Publisher.")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// PublisherNamePattern is a supported resource name pattern for Publisher.",
+	)
 	assert.Contains(t, publisherContent, `const PublisherNamePattern = "publishers/{publisher}"`)
-	assert.Contains(t, publisherContent, "// ParsedPublisherName contains the typed components of a parsed Publisher resource name.")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// ParsedPublisherName contains the typed components of a parsed Publisher resource name.",
+	)
 	assert.Contains(t, publisherContent, "type ParsedPublisherName struct {")
 	assert.Regexp(t, `Publisher\s+string`, publisherContent)
-	assert.Contains(t, publisherContent, "// ParsePublisherName parses a Publisher resource name into typed fields.")
-	assert.Contains(t, publisherContent, "func ParsePublisherName(name string) (ParsedPublisherName, error)")
-	assert.Contains(t, publisherContent, "// ValidatePublisherName reports whether name is a valid Publisher resource name.")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// ParsePublisherName parses a Publisher resource name into typed fields.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func ParsePublisherName(name string) (ParsedPublisherName, error)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// ValidatePublisherName reports whether name is a valid Publisher resource name.",
+	)
 	assert.Contains(t, publisherContent, "func ValidatePublisherName(name string) error")
-	assert.Contains(t, publisherContent, "// ParseName parses the resource name stored on Publisher.")
-	assert.Contains(t, publisherContent, "func (x *Publisher) ParseName() (ParsedPublisherName, error)")
-	assert.Contains(t, publisherContent, "// ValidateName reports whether the resource name stored on Publisher is valid.")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// ParseName parses the resource name stored on Publisher.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func (x *Publisher) ParseName() (ParsedPublisherName, error)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// ValidateName reports whether the resource name stored on Publisher is valid.",
+	)
 	assert.Contains(t, publisherContent, "func (x *Publisher) ValidateName() error")
 	assert.Contains(t, publisherContent, `parts := strings.Split(name, "/")`)
 	assert.Contains(t, publisherContent, "return ParsePublisherName(x.Name)")
 	assert.Contains(t, publisherContent, "return ValidatePublisherName(x.Name)")
 	assert.Regexp(t, `Publisher:\s+parts\[1\],`, publisherContent)
-	assert.Contains(t, publisherContent, "// FillName formats the only supported resource name pattern and writes it back to Name.")
-	assert.Contains(t, publisherContent, "func (x *Publisher) FillName(values map[string]string) error")
-	assert.Contains(t, publisherContent, "return x.FillNameWithPattern(PublisherNamePattern, values)")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// FillName formats the only supported resource name pattern and writes it back to Name.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func (x *Publisher) FillName(values map[string]string) error",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"return x.FillNameWithPattern(PublisherNamePattern, values)",
+	)
 	assert.Contains(t, publisherContent, "switch pattern {")
 	assert.NotContains(t, publisherContent, "func FormatPublisherName(")
 	assert.NotContains(t, publisherContent, "func FormatPublisherNameWithPattern(")
 	assert.NotContains(t, publisherContent, "googleaip.")
 	assert.NotContains(t, publisherContent, "func (x *Publisher) ParseParent(parent string)")
 	assert.NotContains(t, publisherContent, "func (x *Publisher) ValidateParent(parent string)")
-	assert.NotContains(t, publisherContent, "func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error")
+	assert.NotContains(
+		t,
+		publisherContent,
+		"func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error",
+	)
 	assert.NotContains(t, publisherContent, "GoogleAIPResourceReference(")
 	assert.NotContains(t, publisherContent, "runtime/googleaip")
 
 	bookContent := generatedFileContent(gen, "book_google_aip.pb.go")
 	require.NotEmpty(t, bookContent)
-	assert.Contains(t, bookContent, "// BookNamePattern1 is a supported resource name pattern for Book.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// BookNamePattern1 is a supported resource name pattern for Book.",
+	)
 	assert.Contains(t, bookContent, `BookNamePattern1 = "publishers/{publisher}/books/{book}"`)
-	assert.Contains(t, bookContent, "// BookNamePattern2 is a supported resource name pattern for Book.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// BookNamePattern2 is a supported resource name pattern for Book.",
+	)
 	assert.Contains(t, bookContent, `BookNamePattern2 = "archives/{archive}/books/{book}"`)
-	assert.Contains(t, bookContent, "// ParsedBookName contains the typed components of a parsed Book resource name.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ParsedBookName contains the typed components of a parsed Book resource name.",
+	)
 	assert.Contains(t, bookContent, "type ParsedBookName struct {")
 	assert.Regexp(t, `DescriptorType\s+string`, bookContent)
 	assert.Regexp(t, `Pattern\s+string`, bookContent)
 	assert.Regexp(t, `Publisher\s+string`, bookContent)
 	assert.Regexp(t, `Book\s+string`, bookContent)
 	assert.Regexp(t, `Archive\s+string`, bookContent)
-	assert.Contains(t, bookContent, "// ParseBookName parses a Book resource name into typed fields.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ParseBookName parses a Book resource name into typed fields.",
+	)
 	assert.Contains(t, bookContent, "func ParseBookName(name string) (ParsedBookName, error)")
-	assert.Contains(t, bookContent, "// ValidateBookName reports whether name is a valid Book resource name.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ValidateBookName reports whether name is a valid Book resource name.",
+	)
 	assert.Contains(t, bookContent, "func ValidateBookName(name string) error")
 	assert.Contains(t, bookContent, `parts := strings.Split(name, "/")`)
-	assert.Contains(t, bookContent, "// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.")
-	assert.Contains(t, bookContent, "func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error")
+	assert.Contains(
+		t,
+		bookContent,
+		"// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error",
+	)
 	assert.Contains(t, bookContent, "return ParseBookName(x.Name)")
 	assert.Contains(t, bookContent, "return ValidateBookName(x.Name)")
 	assert.Regexp(t, `Publisher:\s+parts\[1\],`, bookContent)
 	assert.Regexp(t, `Book:\s+parts\[3\],`, bookContent)
 	assert.Regexp(t, `Archive:\s+parts\[1\],`, bookContent)
-	assert.Contains(t, bookContent, "// ParsedBookParent contains the typed components of a parsed parent for Book.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ParsedBookParent contains the typed components of a parsed parent for Book.",
+	)
 	assert.Contains(t, bookContent, "type ParsedBookParent struct {")
-	assert.Contains(t, bookContent, "// ParseBookParent parses a parent resource name accepted by Book into typed fields.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ParseBookParent parses a parent resource name accepted by Book into typed fields.",
+	)
 	assert.Contains(t, bookContent, "func ParseBookParent(parent string) (ParsedBookParent, error)")
-	assert.Contains(t, bookContent, "// ValidateBookParent reports whether parent is a valid parent resource name for Book.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ValidateBookParent reports whether parent is a valid parent resource name for Book.",
+	)
 	assert.Contains(t, bookContent, "func ValidateBookParent(parent string) error")
 	assert.Contains(t, bookContent, "switch pattern {")
-	assert.Contains(t, bookContent, "// ParseParent parses a parent resource name accepted by Book.")
-	assert.Contains(t, bookContent, "func (x *Book) ParseParent(parent string) (ParsedBookParent, error)")
-	assert.Contains(t, bookContent, "// ValidateParent reports whether parent is a valid parent resource name for Book.")
+	assert.Contains(
+		t,
+		bookContent,
+		"// ParseParent parses a parent resource name accepted by Book.",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"func (x *Book) ParseParent(parent string) (ParsedBookParent, error)",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"// ValidateParent reports whether parent is a valid parent resource name for Book.",
+	)
 	assert.Contains(t, bookContent, "func (x *Book) ValidateParent(parent string) error")
 	assert.Contains(t, bookContent, `parts := strings.Split(parent, "/")`)
 	assert.Regexp(t, `Publisher:\s+parts\[1\],`, bookContent)
@@ -264,7 +364,11 @@ func TestGenerateFilesGeneratesResourceParentHelpersWithoutRequestField(t *testi
 	assert.Contains(t, content, `"library.googleapis.com/Archive"`)
 	assert.Contains(t, content, "func ParseBookParent(parent string) (ParsedBookParent, error)")
 	assert.Contains(t, content, "func ValidateBookParent(parent string) error")
-	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (ParsedBookParent, error)")
+	assert.Contains(
+		t,
+		content,
+		"func (x *Book) ParseParent(parent string) (ParsedBookParent, error)",
+	)
 	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
 	assert.Contains(t, content, "nil *Book receiver")
 	assert.Regexp(t, `Publisher:\s+parts\[1\],`, content)
@@ -290,7 +394,11 @@ func TestGenerateFilesGeneratesResourceParentHelpersForExampleLayout(t *testing.
 	content := generatedFileContent(gen, "book_google_aip.pb.go")
 	require.NotEmpty(t, content)
 	assert.Contains(t, content, "func ParseBookParent(parent string) (ParsedBookParent, error)")
-	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (ParsedBookParent, error)")
+	assert.Contains(
+		t,
+		content,
+		"func (x *Book) ParseParent(parent string) (ParsedBookParent, error)",
+	)
 	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
 	assert.NotContains(t, content, "func (x *ListBooksRequest) ParseParent()")
 }
@@ -310,7 +418,11 @@ func TestGenerateFilesGeneratesResourceParentHelpersWhenParentDescriptorIsMissin
 	assert.Regexp(t, `Pattern:\s+"publishers/\{publisher\}"`, content)
 	assert.Regexp(t, `Publisher:\s+parts\[1\],`, content)
 	assert.Contains(t, content, "func ParseBookParent(parent string) (ParsedBookParent, error)")
-	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (ParsedBookParent, error)")
+	assert.Contains(
+		t,
+		content,
+		"func (x *Book) ParseParent(parent string) (ParsedBookParent, error)",
+	)
 	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
 }
 
@@ -333,7 +445,11 @@ func TestGenerateFilesGeneratesMixedResolvedAndUnresolvedResourceParents(t *test
 	assert.Regexp(t, `DescriptorType:\s+""`, content)
 	assert.Regexp(t, `Pattern:\s+"folders/\{folder\}"`, content)
 	assert.Contains(t, content, "func ParseBookParent(parent string) (ParsedBookParent, error)")
-	assert.Contains(t, content, "func (x *Book) ParseParent(parent string) (ParsedBookParent, error)")
+	assert.Contains(
+		t,
+		content,
+		"func (x *Book) ParseParent(parent string) (ParsedBookParent, error)",
+	)
 	assert.Contains(t, content, "func (x *Book) ValidateParent(parent string) error")
 }
 
@@ -390,10 +506,16 @@ func newPublisherFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("publisher.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("Publisher", "library.googleapis.com/Publisher", []string{"publishers/{publisher}"}),
+			newResourceMessage(
+				"Publisher",
+				"library.googleapis.com/Publisher",
+				[]string{"publishers/{publisher}"},
+			),
 			newGetBookRequestMessage(),
 		},
 		Service: []*descriptorpb.ServiceDescriptorProto{
@@ -418,7 +540,9 @@ func newBookFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("book.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessage(
@@ -432,14 +556,18 @@ func newBookFile() *descriptorpb.FileDescriptorProto {
 		},
 	}
 
-	proto.SetExtension(file.Options, annotationspb.E_ResourceDefinition, []*annotationspb.ResourceDescriptor{
-		{
-			Type:     "library.googleapis.com/Archive",
-			Pattern:  []string{"archives/{archive}"},
-			Plural:   "archives",
-			Singular: "archive",
+	proto.SetExtension(
+		file.Options,
+		annotationspb.E_ResourceDefinition,
+		[]*annotationspb.ResourceDescriptor{
+			{
+				Type:     "library.googleapis.com/Archive",
+				Pattern:  []string{"archives/{archive}"},
+				Plural:   "archives",
+				Singular: "archive",
+			},
 		},
-	})
+	)
 	return file
 }
 
@@ -448,7 +576,9 @@ func newOrphanBookFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("orphan_book.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessage(
@@ -465,7 +595,9 @@ func newMixedParentBookFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("mixed_parent_book.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessage(
@@ -485,18 +617,24 @@ func newFileDefinitionsOnlyFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("definitions.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 	}
 
-	proto.SetExtension(file.Options, annotationspb.E_ResourceDefinition, []*annotationspb.ResourceDescriptor{
-		{
-			Type:     "library.googleapis.com/Archive",
-			Pattern:  []string{"archives/{archive}"},
-			Plural:   "archives",
-			Singular: "archive",
+	proto.SetExtension(
+		file.Options,
+		annotationspb.E_ResourceDefinition,
+		[]*annotationspb.ResourceDescriptor{
+			{
+				Type:     "library.googleapis.com/Archive",
+				Pattern:  []string{"archives/{archive}"},
+				Plural:   "archives",
+				Singular: "archive",
+			},
 		},
-	})
+	)
 	return file
 }
 
@@ -505,7 +643,9 @@ func newPlainFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("plain.proto"),
 		Package: proto.String("codesjoy.example.plain.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/plain/v1;plainv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/plain/v1;plainv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			{
@@ -524,8 +664,17 @@ func newPlainFile() *descriptorpb.FileDescriptorProto {
 	}
 }
 
-func newResourceMessage(name, resourceType string, patterns []string) *descriptorpb.DescriptorProto {
-	return newResourceMessageWithNameField(name, resourceType, patterns, "name", stringField("name", 1))
+func newResourceMessage(
+	name, resourceType string,
+	patterns []string,
+) *descriptorpb.DescriptorProto {
+	return newResourceMessageWithNameField(
+		name,
+		resourceType,
+		patterns,
+		"name",
+		stringField("name", 1),
+	)
 }
 
 func newResourceMessageWithNameField(
@@ -556,7 +705,9 @@ func newNamedResourceFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("shelf.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessageWithNameField(
@@ -575,7 +726,9 @@ func newMissingNameFieldFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("broken.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessageWithNameField(
@@ -594,7 +747,9 @@ func newNonStringNameFieldFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("broken.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessageWithNameField(
@@ -613,10 +768,16 @@ func newDuplicatePublisherFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("duplicate.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("DuplicatePublisher", "library.googleapis.com/Publisher", []string{"duplicate_publishers/{publisher}"}),
+			newResourceMessage(
+				"DuplicatePublisher",
+				"library.googleapis.com/Publisher",
+				[]string{"duplicate_publishers/{publisher}"},
+			),
 		},
 	}
 }
@@ -637,7 +798,9 @@ func newListBooksFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("list_books.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newResourceMessage(
@@ -652,28 +815,19 @@ func newListBooksFile() *descriptorpb.FileDescriptorProto {
 		},
 	}
 
-	proto.SetExtension(file.Options, annotationspb.E_ResourceDefinition, []*annotationspb.ResourceDescriptor{
-		{
-			Type:     "library.googleapis.com/Archive",
-			Pattern:  []string{"archives/{archive}"},
-			Plural:   "archives",
-			Singular: "archive",
+	proto.SetExtension(
+		file.Options,
+		annotationspb.E_ResourceDefinition,
+		[]*annotationspb.ResourceDescriptor{
+			{
+				Type:     "library.googleapis.com/Archive",
+				Pattern:  []string{"archives/{archive}"},
+				Plural:   "archives",
+				Singular: "archive",
+			},
 		},
-	})
+	)
 	return file
-}
-
-func newExternalParentFile() *descriptorpb.FileDescriptorProto {
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("external_parent.proto"),
-		Package: proto.String("codesjoy.example.library.v1"),
-		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
-		},
-		MessageType: []*descriptorpb.DescriptorProto{
-			newSimpleMessage("ExternalParentRequest", stringField("parent", 1)),
-		},
-	}
 }
 
 func newExamplePublisherOnlyFile() *descriptorpb.FileDescriptorProto {
@@ -681,10 +835,16 @@ func newExamplePublisherOnlyFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("publisher.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("Publisher", "library.googleapis.com/Publisher", []string{"publishers/{publisher}"}),
+			newResourceMessage(
+				"Publisher",
+				"library.googleapis.com/Publisher",
+				[]string{"publishers/{publisher}"},
+			),
 		},
 	}
 }
@@ -739,43 +899,21 @@ func newExampleBookLayoutFile() *descriptorpb.FileDescriptorProto {
 	return file
 }
 
-func newNonStringParentFile() *descriptorpb.FileDescriptorProto {
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("broken_parent.proto"),
-		Package: proto.String("codesjoy.example.library.v1"),
-		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
-		},
-		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("Book", "library.googleapis.com/Book", []string{"publishers/{publisher}/books/{book}"}),
-			newSimpleMessage("BrokenParentRequest", int32Field("parent", 1)),
-		},
-	}
-}
-
-func newContainerReferenceFile() *descriptorpb.FileDescriptorProto {
-	return &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("container.proto"),
-		Package: proto.String("codesjoy.example.library.v1"),
-		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
-		},
-		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("Book", "library.googleapis.com/Book", []string{"publishers/{publisher}/books/{book}"}),
-			newSimpleMessage("ContainerRequest", stringField("container", 1)),
-		},
-	}
-}
-
 func newBrokenParentPatternFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{
 		Name:    proto.String("broken_parent_pattern.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
-			newResourceMessage("WeirdChild", "library.googleapis.com/WeirdChild", []string{"publishers/{publisher}/{child}"}),
+			newResourceMessage(
+				"WeirdChild",
+				"library.googleapis.com/WeirdChild",
+				[]string{"publishers/{publisher}/{child}"},
+			),
 			newSimpleMessage("ListWeirdChildrenRequest", stringField("parent", 1)),
 		},
 	}
@@ -793,7 +931,10 @@ func newListBooksRequestMessage() *descriptorpb.DescriptorProto {
 	return message
 }
 
-func newSimpleMessage(name string, fields ...*descriptorpb.FieldDescriptorProto) *descriptorpb.DescriptorProto {
+func newSimpleMessage(
+	name string,
+	fields ...*descriptorpb.FieldDescriptorProto,
+) *descriptorpb.DescriptorProto {
 	return &descriptorpb.DescriptorProto{
 		Name:    proto.String(name),
 		Field:   fields,
@@ -814,7 +955,9 @@ func newResourceReferenceOnlyFile() *descriptorpb.FileDescriptorProto {
 		Name:    proto.String("reference_only.proto"),
 		Package: proto.String("codesjoy.example.library.v1"),
 		Options: &descriptorpb.FileOptions{
-			GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1"),
+			GoPackage: proto.String(
+				"github.com/codesjoy/pkg/tools/protoc-gen-google-aip/example/protogen/codesjoy/example/library/v1;libraryv1",
+			),
 		},
 		MessageType: []*descriptorpb.DescriptorProto{
 			newSimpleMessage("ReferenceOnlyRequest", field),

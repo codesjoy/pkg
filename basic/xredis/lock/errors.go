@@ -17,11 +17,20 @@ package lock
 import "errors"
 
 var (
-	ErrNilClient                = errors.New("redis client is nil")
-	ErrEmptyKey                 = errors.New("lock key is empty")
-	ErrInvalidTTL               = errors.New("lock ttl must be greater than 0")
-	ErrInvalidRetryInterval     = errors.New("lock retry interval must be non-negative")
-	ErrInvalidKeepAliveInterval = errors.New("keepalive interval must be greater than 0 and less than ttl")
-	ErrNotObtained              = errors.New("lock not obtained")
-	ErrLockNotHeld              = errors.New("lock not held")
+	// ErrNilClient indicates the redis client dependency was not provided.
+	ErrNilClient = errors.New("redis client is nil")
+	// ErrEmptyKey indicates the caller did not provide a lock key.
+	ErrEmptyKey = errors.New("lock key is empty")
+	// ErrInvalidTTL indicates the lock ttl is not greater than zero.
+	ErrInvalidTTL = errors.New("lock ttl must be greater than 0")
+	// ErrInvalidRetryInterval indicates the retry interval is negative.
+	ErrInvalidRetryInterval = errors.New("lock retry interval must be non-negative")
+	// ErrInvalidKeepAliveInterval indicates the keepalive interval is outside the valid ttl window.
+	ErrInvalidKeepAliveInterval = errors.New(
+		"keepalive interval must be greater than 0 and less than ttl",
+	)
+	// ErrNotObtained indicates the lock could not be acquired.
+	ErrNotObtained = errors.New("lock not obtained")
+	// ErrLockNotHeld indicates the caller tried to operate on a lock it does not hold.
+	ErrLockNotHeld = errors.New("lock not held")
 )

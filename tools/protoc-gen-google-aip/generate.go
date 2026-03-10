@@ -140,7 +140,10 @@ func collectMessageAnnotations(
 			return fmt.Errorf("message %s: %w", message.Desc.FullName(), err)
 		}
 		if resource != nil {
-			resource.parentDescriptors = resourceParentDescriptors(resource.descriptorResource, registry)
+			resource.parentDescriptors = resourceParentDescriptors(
+				resource.descriptorResource,
+				registry,
+			)
 			annotations.messageResources = append(annotations.messageResources, *resource)
 		}
 	}
@@ -229,7 +232,8 @@ func (registry *resourceRegistry) add(resource descriptorResource, owner string)
 	registry.byType[resource.resourceType] = entry
 
 	for _, pattern := range resource.patterns {
-		if existing, ok := registry.byPattern[pattern]; ok && existing.descriptor.resourceType != resource.resourceType {
+		if existing, ok := registry.byPattern[pattern]; ok &&
+			existing.descriptor.resourceType != resource.resourceType {
 			return fmt.Errorf(
 				"duplicate resource pattern %q declared by %s and %s",
 				pattern,
@@ -247,7 +251,9 @@ func messageResourceDescriptor(message *protogen.Message) (*messageResource, err
 		return nil, nil
 	}
 
-	descriptor, err := asResourceDescriptor(proto.GetExtension(message.Desc.Options(), annotationspb.E_Resource))
+	descriptor, err := asResourceDescriptor(
+		proto.GetExtension(message.Desc.Options(), annotationspb.E_Resource),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +261,7 @@ func messageResourceDescriptor(message *protogen.Message) (*messageResource, err
 		return nil, nil
 	}
 
-	resourceDescriptor := normalizeResourceDescriptor(*descriptor)
+	resourceDescriptor := normalizeResourceDescriptor(descriptor)
 	if err := validateDescriptorResource(resourceDescriptor); err != nil {
 		return nil, err
 	}
@@ -278,7 +284,9 @@ func fileResourceDefinitions(file *protogen.File) ([]descriptorResource, error) 
 		return nil, nil
 	}
 
-	descriptors, err := asResourceDescriptorList(proto.GetExtension(file.Desc.Options(), annotationspb.E_ResourceDefinition))
+	descriptors, err := asResourceDescriptorList(
+		proto.GetExtension(file.Desc.Options(), annotationspb.E_ResourceDefinition),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +296,7 @@ func fileResourceDefinitions(file *protogen.File) ([]descriptorResource, error) 
 		if descriptor == nil {
 			continue
 		}
-		resource := normalizeResourceDescriptor(*descriptor)
+		resource := normalizeResourceDescriptor(descriptor)
 		if err := validateDescriptorResource(resource); err != nil {
 			return nil, err
 		}
@@ -337,7 +345,11 @@ func resourceParentDescriptors(
 	return descriptors
 }
 
-func normalizeResourceDescriptor(descriptor annotationspb.ResourceDescriptor) descriptorResource {
+func normalizeResourceDescriptor(descriptor *annotationspb.ResourceDescriptor) descriptorResource {
+	if descriptor == nil {
+		return descriptorResource{}
+	}
+
 	nameField := descriptor.GetNameField()
 	if nameField == "" {
 		nameField = "name"
@@ -371,7 +383,8 @@ func resourceNameField(message *protogen.Message, name string) (*protogen.Field,
 		if string(field.Desc.Name()) != name {
 			continue
 		}
-		if field.Desc.Kind() != protoreflect.StringKind || field.Desc.IsList() || field.Desc.IsMap() {
+		if field.Desc.Kind() != protoreflect.StringKind || field.Desc.IsList() ||
+			field.Desc.IsMap() {
 			return nil, fmt.Errorf(
 				"resource name_field %q on message %s must target a singular string field",
 				name,
@@ -400,14 +413,22 @@ func validatePatternSyntax(pattern string) error {
 		}
 		if strings.HasPrefix(raw, "{") || strings.HasSuffix(raw, "}") {
 			if !strings.HasPrefix(raw, "{") || !strings.HasSuffix(raw, "}") {
-				return fmt.Errorf("resource pattern %q contains malformed variable segment %q", pattern, raw)
+				return fmt.Errorf(
+					"resource pattern %q contains malformed variable segment %q",
+					pattern,
+					raw,
+				)
 			}
 			name := strings.TrimSuffix(strings.TrimPrefix(raw, "{"), "}")
 			if name == "" {
 				return fmt.Errorf("resource pattern %q contains an empty variable segment", pattern)
 			}
 			if strings.Contains(name, "/") || strings.Contains(name, "=") {
-				return fmt.Errorf("resource pattern %q contains unsupported variable syntax %q", pattern, raw)
+				return fmt.Errorf(
+					"resource pattern %q contains unsupported variable syntax %q",
+					pattern,
+					raw,
+				)
 			}
 			if _, ok := seen[name]; ok {
 				return fmt.Errorf("resource pattern %q reuses variable %q", pattern, name)
@@ -454,8 +475,7 @@ func asResourceDescriptor(value any) (*annotationspb.ResourceDescriptor, error) 
 	case *annotationspb.ResourceDescriptor:
 		return typed, nil
 	case annotationspb.ResourceDescriptor:
-		descriptor := typed
-		return &descriptor, nil
+		return &typed, nil
 	default:
 		return nil, fmt.Errorf("unexpected resource extension type %T", value)
 	}
@@ -473,8 +493,7 @@ func asResourceDescriptorList(value any) ([]*annotationspb.ResourceDescriptor, e
 	case []annotationspb.ResourceDescriptor:
 		out := make([]*annotationspb.ResourceDescriptor, 0, len(typed))
 		for i := range typed {
-			descriptor := typed[i]
-			out = append(out, &descriptor)
+			out = append(out, &typed[i])
 		}
 		return out, nil
 	default:
@@ -498,15 +517,32 @@ func generateFileContent(g *protogen.GeneratedFile, annotations fileAnnotations)
 func generateResourcePatternConstants(g *protogen.GeneratedFile, resources []messageResource) {
 	for _, resource := range resources {
 		if len(resource.patterns) == 1 {
-			g.P("// ", messageResourcePatternConstName(resource, 0), " is a supported resource name pattern for ", resource.goName, ".")
-			g.P("const ", messageResourcePatternConstName(resource, 0), " = ", strconv.Quote(resource.patterns[0]))
+			g.P(
+				"// ",
+				messageResourcePatternConstName(resource, 0),
+				" is a supported resource name pattern for ",
+				resource.goName,
+				".",
+			)
+			g.P(
+				"const ",
+				messageResourcePatternConstName(resource, 0),
+				" = ",
+				strconv.Quote(resource.patterns[0]),
+			)
 			g.P()
 			continue
 		}
 
 		g.P("const (")
 		for i, pattern := range resource.patterns {
-			g.P("\t// ", messageResourcePatternConstName(resource, i), " is a supported resource name pattern for ", resource.goName, ".")
+			g.P(
+				"\t// ",
+				messageResourcePatternConstName(resource, i),
+				" is a supported resource name pattern for ",
+				resource.goName,
+				".",
+			)
 			g.P("\t", messageResourcePatternConstName(resource, i), " = ", strconv.Quote(pattern))
 		}
 		g.P(")")
@@ -599,7 +635,13 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P("}")
 		g.P()
 
-		g.P("// ", validateFuncName, " reports whether name is a valid ", resource.goName, " resource name.")
+		g.P(
+			"// ",
+			validateFuncName,
+			" reports whether name is a valid ",
+			resource.goName,
+			" resource name.",
+		)
 		g.P("func ", validateFuncName, "(name string) error {")
 		g.P("\t_, err := ", parseFuncName, "(name)")
 		g.P("\treturn err")
@@ -619,7 +661,11 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P("}")
 		g.P()
 
-		g.P("// ValidateName reports whether the resource name stored on ", resource.goName, " is valid.")
+		g.P(
+			"// ValidateName reports whether the resource name stored on ",
+			resource.goName,
+			" is valid.",
+		)
 		g.P("func (x *", resource.goName, ") ValidateName() error {")
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
@@ -628,9 +674,15 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P("}")
 		g.P()
 
-		g.P("// FillNameWithPattern formats a supported resource name pattern and writes it back to ", resource.nameFieldGoName, ".")
 		g.P(
-			"func (x *", resource.goName, ") FillNameWithPattern(pattern string, values map[string]string) error {",
+			"// FillNameWithPattern formats a supported resource name pattern and writes it back to ",
+			resource.nameFieldGoName,
+			".",
+		)
+		g.P(
+			"func (x *",
+			resource.goName,
+			") FillNameWithPattern(pattern string, values map[string]string) error {",
 		)
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
@@ -655,9 +707,17 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P()
 
 		if len(resource.patterns) == 1 {
-			g.P("// FillName formats the only supported resource name pattern and writes it back to ", resource.nameFieldGoName, ".")
+			g.P(
+				"// FillName formats the only supported resource name pattern and writes it back to ",
+				resource.nameFieldGoName,
+				".",
+			)
 			g.P("func (x *", resource.goName, ") FillName(values map[string]string) error {")
-			g.P("\treturn x.FillNameWithPattern(", messageResourcePatternConstName(resource, 0), ", values)")
+			g.P(
+				"\treturn x.FillNameWithPattern(",
+				messageResourcePatternConstName(resource, 0),
+				", values)",
+			)
 			g.P("}")
 			g.P()
 		}
@@ -670,7 +730,9 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		parentValidateFuncName := messageResourceValidateParentFuncName(resource)
 		parentParsedTypeName := messageResourceParsedParentTypeName(resource)
 		parentParsedFields := messageResourceParsedParentFields(resource)
-		parseParentError := strconv.Quote("parent %q does not match any inferred parent resource for type " + resource.resourceType)
+		parseParentError := strconv.Quote(
+			"parent %q does not match any inferred parent resource for type " + resource.resourceType,
+		)
 
 		g.P(
 			"// ", parentParseFuncName,
@@ -707,7 +769,13 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P("}")
 		g.P()
 
-		g.P("// ", parentValidateFuncName, " reports whether parent is a valid parent resource name for ", resource.goName, ".")
+		g.P(
+			"// ",
+			parentValidateFuncName,
+			" reports whether parent is a valid parent resource name for ",
+			resource.goName,
+			".",
+		)
 		g.P("func ", parentValidateFuncName, "(parent string) error {")
 		g.P("\t_, err := ", parentParseFuncName, "(parent)")
 		g.P("\treturn err")
@@ -721,13 +789,25 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 			", error) {",
 		)
 		g.P("\tif x == nil {")
-		g.P("\t\treturn ", parentParsedTypeName, "{}, ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+		g.P(
+			"\t\treturn ",
+			parentParsedTypeName,
+			"{}, ",
+			stdfmt(g, "Errorf"),
+			"(",
+			nilReceiverError,
+			")",
+		)
 		g.P("\t}")
 		g.P("\treturn ", parentParseFuncName, "(parent)")
 		g.P("}")
 		g.P()
 
-		g.P("// ValidateParent reports whether parent is a valid parent resource name for ", resource.goName, ".")
+		g.P(
+			"// ValidateParent reports whether parent is a valid parent resource name for ",
+			resource.goName,
+			".",
+		)
 		g.P("func (x *", resource.goName, ") ValidateParent(parent string) error {")
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")

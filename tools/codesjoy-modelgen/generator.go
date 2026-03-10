@@ -138,7 +138,11 @@ func warnLegacySplitFilesForTables(outDir string, tables []ResolvedTable, stdout
 	}
 }
 
-func (g *Generator) writeGeneratedFiles(files []GeneratedFile, opts Options, stdout io.Writer) error {
+func (g *Generator) writeGeneratedFiles(
+	files []GeneratedFile,
+	opts Options,
+	stdout io.Writer,
+) error {
 	for _, file := range files {
 		if err := g.Writer.Write(file, opts.Force, opts.DryRun); err != nil {
 			return err

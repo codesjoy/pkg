@@ -156,7 +156,9 @@ func TestCollectReasons(t *testing.T) {
 				Name:    proto.String("test.proto"),
 				Package: proto.String("codesjoy.reason.v1.test"),
 				Options: &descriptorpb.FileOptions{
-					GoPackage: proto.String("github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason;main"),
+					GoPackage: proto.String(
+						"github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason;main",
+					),
 				},
 				EnumType: []*descriptorpb.EnumDescriptorProto{
 					newReasonEnum("ErrorReason"),
