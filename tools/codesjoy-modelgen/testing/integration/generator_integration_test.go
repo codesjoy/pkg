@@ -44,8 +44,8 @@ func TestIntegration_Generator_EndToEnd_MySQL_UnixNano(t *testing.T) {
 		t.Fatalf("runGenerator(mysql) error = %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
-	eventsFile := mustReadFile(t, filepath.Join(outDir, "events_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
+	eventsFile := mustReadFile(t, filepath.Join(outDir, "event_model_gen.go"))
 
 	assertContains(t, usersFile, "CreatedAt int64")
 	assertContains(t, usersFile, "column:created_at;autoCreateTime:nano")
@@ -53,12 +53,13 @@ func TestIntegration_Generator_EndToEnd_MySQL_UnixNano(t *testing.T) {
 	assertContains(t, usersFile, "column:update;autoUpdateTime:nano")
 	assertContains(t, usersFile, "DeletedAt soft_delete.DeletedAt")
 	assertContains(t, usersFile, "column:deleted_at;softDelete:nano")
-	assertContains(t, usersFile, "func NewUsersAIPTable() *aipsql.Table")
+	assertContains(t, usersFile, "func NewUserAIPTable() *aipsql.Table")
 	assertNotContains(t, usersFile, "WithDatabaseName(\"deleted_at\")")
 
+	assertContains(t, eventsFile, "CreatedAt time.Time")
 	assertContains(t, eventsFile, "DeletedAt gorm.DeletedAt")
 	assertContains(t, eventsFile, "column:deleted_at;index")
-	assertContains(t, eventsFile, "func NewEventsAIPTable() *aipsql.Table")
+	assertContains(t, eventsFile, "func NewEventAIPTable() *aipsql.Table")
 	assertContains(t, stdout, "[warn] table events")
 }
 
@@ -84,8 +85,8 @@ func TestIntegration_Generator_EndToEnd_Postgres_UnixNano(t *testing.T) {
 		t.Fatalf("runGenerator(postgres) error = %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
-	eventsFile := mustReadFile(t, filepath.Join(outDir, "events_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
+	eventsFile := mustReadFile(t, filepath.Join(outDir, "event_model_gen.go"))
 
 	assertContains(t, usersFile, "CreatedAt int64")
 	assertContains(t, usersFile, "column:created_at;autoCreateTime:nano")
@@ -95,9 +96,10 @@ func TestIntegration_Generator_EndToEnd_Postgres_UnixNano(t *testing.T) {
 	assertContains(t, usersFile, "column:deleted_at;softDelete:nano")
 	assertNotContains(t, usersFile, "WithDatabaseName(\"deleted_at\")")
 
+	assertContains(t, eventsFile, "CreatedAt time.Time")
 	assertContains(t, eventsFile, "DeletedAt gorm.DeletedAt")
 	assertContains(t, eventsFile, "column:deleted_at;index")
-	assertContains(t, eventsFile, "func NewEventsAIPTable() *aipsql.Table")
+	assertContains(t, eventsFile, "func NewEventAIPTable() *aipsql.Table")
 	assertContains(t, stdout, "[warn] table events")
 }
 
@@ -136,9 +138,9 @@ tables:
 		t.Fatalf("runGenerator(override) error = %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(t, usersFile, "WithDatabaseName(\"deleted_at\")")
-	assertContains(t, usersFile, "func NewUsersAIPTable() *aipsql.Table")
+	assertContains(t, usersFile, "func NewUserAIPTable() *aipsql.Table")
 }
 
 func TestIntegration_AIPIndexes_VisibleCompositeIncluded(t *testing.T) {
@@ -168,7 +170,7 @@ func TestIntegration_AIPIndexes_VisibleCompositeIncluded(t *testing.T) {
 		)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(t, usersFile, "Name:    \"idx_users_created_id\"")
 	assertContains(t, usersFile, "Columns: []string{\"created_at\", \"id\"}")
 	assertNotContains(t, usersFile, "Name:    \"idx_users_created_at\"")
@@ -202,7 +204,7 @@ func TestIntegration_AIPIndexes_HiddenColumnCompositePruned(t *testing.T) {
 		)
 	}
 
-	eventsFile := mustReadFile(t, filepath.Join(outDir, "events_gen.go"))
+	eventsFile := mustReadFile(t, filepath.Join(outDir, "event_model_gen.go"))
 	assertNotContains(t, eventsFile, "Name:    \"idx_events_user_deleted\"")
 }
 
@@ -236,7 +238,7 @@ func TestIntegration_AIPIndexes_ExposeDeletedRestoresComposite(t *testing.T) {
 		)
 	}
 
-	eventsFile := mustReadFile(t, filepath.Join(outDir, "events_gen.go"))
+	eventsFile := mustReadFile(t, filepath.Join(outDir, "event_model_gen.go"))
 	assertContains(t, eventsFile, "WithDatabaseName(\"deleted_at\")")
 	assertContains(t, eventsFile, "Name:    \"idx_events_user_deleted\"")
 	assertContains(t, eventsFile, "Columns: []string{\"user_id\", \"deleted_at\"}")
@@ -269,7 +271,7 @@ func TestIntegration_PostgresCharacterVarying_DefaultExactMatchMode(t *testing.T
 		)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(t, usersFile, "WithDatabaseName(\"name\")")
 	assertContains(t, usersFile, "WithMatchModes(aipsql.MatchModeExact)")
 }
@@ -304,7 +306,7 @@ func TestIntegration_AIPIndexes_IndexHintFromOverride(t *testing.T) {
 		)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(t, usersFile, "WithDatabaseName(\"name\")")
 	assertContains(t, usersFile, "WithMatchModes(aipsql.MatchModeExact)")
 	assertContains(t, usersFile, "WithIndexHint(\"idx_users_name_hint\")")

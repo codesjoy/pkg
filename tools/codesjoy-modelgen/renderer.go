@@ -20,7 +20,7 @@ func (r *GoRenderer) Render(packageName string, tables []ResolvedTable) ([]Rende
 			return nil, fmt.Errorf("render table file for %s: %w", table.Name, err)
 		}
 		files = append(files, RenderedFile{
-			Name:    fmt.Sprintf("%s_gen.go", table.Name),
+			Name:    generatedModelFileName(table.Name),
 			Content: content,
 		})
 	}

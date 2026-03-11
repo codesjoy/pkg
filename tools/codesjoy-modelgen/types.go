@@ -13,7 +13,6 @@ const (
 	timestampModeUnixSec   = "unix_sec"
 	timestampModeUnixMilli = "unix_milli"
 	timestampModeUnixNano  = "unix_nano"
-	timestampModeTime      = "time"
 )
 
 const (

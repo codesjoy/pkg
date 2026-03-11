@@ -2,7 +2,7 @@
 
 `codesjoy-modelgen` introspects MySQL/PostgreSQL metadata and generates:
 
-- Single combined file per table: `*_gen.go`
+- Single combined file per table: `<singular_table>_model_gen.go`
 - GORM model + optional `AIPTable()` method + optional compatibility wrapper
 
 ## Install
@@ -15,11 +15,9 @@ go install github.com/codesjoy/pkg/tools/codesjoy-modelgen@latest
 
 ```bash
 codesjoy-modelgen \
-  --dialect mysql \
   --dsn "user:pass@tcp(127.0.0.1:3306)/demo?parseTime=true" \
   --schema demo \
   --tables users,orders \
-  --package model \
   --out-dir ./internal/model \
   --gen-aipsql=true \
   --timestamp-mode unix_sec \
@@ -28,18 +26,18 @@ codesjoy-modelgen \
 
 Required flags:
 
-- `--dialect` (`mysql|postgres`)
 - `--dsn`
-- `--out-dir`
-- `--package`
 
 Optional flags:
 
+- `--out-dir` (default `./`)
+- `--dialect` (`mysql|postgres`, inferred from `--dsn` by default)
 - `--schema`
 - `--tables`
 - `--override`
+- `--package` (defaults to the cleaned `--out-dir` directory name; when `--out-dir` is `./`, uses the current working directory name)
 - `--gen-aipsql` (default `true`)
-- `--timestamp-mode` (`unix_sec|unix_milli|unix_nano|time`, default `unix_sec`)
+- `--timestamp-mode` (`unix_sec|unix_milli|unix_nano`, default `unix_sec`; only affects integer-like timestamp columns)
 - `--dry-run`
 - `--force`
 
@@ -82,8 +80,10 @@ tables:
 - Text columns default to `WithMatchModes(aipsql.MatchModeExact)`.
   - PostgreSQL `character varying` / `character` columns are treated as text by default.
 - Composite indexes are generated from multi-column physical indexes.
-- Timestamp columns (`created*/updated*/deleted*`) support `unix_sec`, `unix_milli`, `unix_nano`, and `time` strategies.
+- Timestamp role fields (`created*/updated*/deleted*`) choose Go types from the physical database type first.
+- `--timestamp-mode` only controls integer-like timestamp precision: `unix_sec`, `unix_milli`, or `unix_nano`.
 - Timestamp role fields are normalized to `CreatedAt`, `UpdatedAt`, `DeletedAt` by default (override-able with `go_field`).
+- datetime-like `created*` / `updated*` columns -> `time.Time`
 - `deleted*` columns are soft-delete aware:
   - datetime-like physical columns -> `gorm.DeletedAt` + `index`
   - integer-like physical columns -> `soft_delete.DeletedAt` + `softDelete[:milli|:nano]`
@@ -92,6 +92,7 @@ tables:
   - `func (Model) AIPTable() *aipsql.Table`
   - `func New<Model>AIPTable() *aipsql.Table` compatibility wrapper.
 - Existing files without the generated header are protected unless `--force` is set.
+- Legacy `*_gen.go`, `<table>_model_gen.go`, and `<table>_aipsql_gen.go` files are not deleted automatically; the generator prints migrate hints when they are detected.
 
 ## Test
 

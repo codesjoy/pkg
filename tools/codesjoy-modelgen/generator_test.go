@@ -40,7 +40,7 @@ func TestGenerator_ProtectsNonGeneratedFile(t *testing.T) {
 	t.Parallel()
 
 	outDir := t.TempDir()
-	nonGeneratedFile := filepath.Join(outDir, "users_gen.go")
+	nonGeneratedFile := filepath.Join(outDir, generatedModelFileName("users"))
 	if err := os.WriteFile(nonGeneratedFile, []byte("package demo\n"), 0o600); err != nil {
 		t.Fatalf("write non-generated file: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestGenerator_DryRunDoesNotWriteFiles(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	modelFile := filepath.Join(outDir, "users_gen.go")
+	modelFile := filepath.Join(outDir, generatedModelFileName("users"))
 	if _, err := os.Stat(modelFile); !os.IsNotExist(err) {
 		t.Fatalf("model file should not exist in dry-run mode")
 	}
@@ -133,6 +133,10 @@ func TestGenerator_WarnsLegacySplitFiles(t *testing.T) {
 	if err := os.WriteFile(legacyModel, []byte(generatedHeader), 0o600); err != nil {
 		t.Fatalf("write legacy model: %v", err)
 	}
+	legacySingle := filepath.Join(outDir, "users_gen.go")
+	if err := os.WriteFile(legacySingle, []byte(generatedHeader), 0o600); err != nil {
+		t.Fatalf("write legacy single file: %v", err)
+	}
 
 	stdout := &bytes.Buffer{}
 	gen := &Generator{
@@ -150,7 +154,14 @@ func TestGenerator_WarnsLegacySplitFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !strings.Contains(stdout.String(), "[migrate]") {
-		t.Fatalf("expected migrate warning, got %q", stdout.String())
+	output := stdout.String()
+	if !strings.Contains(output, "[migrate]") {
+		t.Fatalf("expected migrate warning, got %q", output)
+	}
+	if !strings.Contains(output, legacyModel) || !strings.Contains(output, legacySingle) {
+		t.Fatalf("expected both legacy paths in output, got %q", output)
+	}
+	if !strings.Contains(output, "user_model_gen.go") {
+		t.Fatalf("expected new file name in migrate output, got %q", output)
 	}
 }

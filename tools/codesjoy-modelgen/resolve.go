@@ -281,7 +281,7 @@ func shouldIncludeTable(
 }
 
 func resolveModelName(tableName string, tableOv TableOverride, hasTableOv bool) string {
-	modelName := ToPascalCase(tableName)
+	modelName := defaultModelName(tableName)
 	if hasTableOv && strings.TrimSpace(tableOv.ModelName) != "" {
 		modelName = strings.TrimSpace(tableOv.ModelName)
 	}

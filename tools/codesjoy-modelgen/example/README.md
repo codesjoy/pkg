@@ -4,7 +4,7 @@ This example is fully reproducible with local Docker:
 
 - starts a PostgreSQL demo database
 - runs `codesjoy-modelgen` against the demo table
-- includes a committed sample output at `output/users_gen.go` for quick inspection
+- includes a committed sample output at `output/user_model_gen.go` for quick inspection
 
 ## Prerequisites
 
@@ -26,36 +26,36 @@ From repo root:
 
 ```bash
 go run ./tools/codesjoy-modelgen \
-  --dialect postgres \
   --dsn "postgres://modelgen:modelgen@127.0.0.1:5432/modelgen_it?sslmode=disable" \
   --schema public \
   --tables users \
-  --package demo \
   --out-dir ./tools/codesjoy-modelgen/example/output \
   --gen-aipsql=true \
   --timestamp-mode unix_nano \
   --override ./tools/codesjoy-modelgen/example/override.yaml
 ```
 
+`--out-dir` defaults to `./`, and `--package` defaults to the output directory name (or the current working directory name when `--out-dir=./`).
+
 The generated file is:
 
-- `tools/codesjoy-modelgen/example/output/users_gen.go`
+- `tools/codesjoy-modelgen/example/output/user_model_gen.go`
 
 ## Quick Checks
 
 From repo root:
 
 ```bash
-grep -n 'WithDatabaseName("name")' tools/codesjoy-modelgen/example/output/users_gen.go
-grep -n 'WithMatchModes(aipsql.MatchModeExact' tools/codesjoy-modelgen/example/output/users_gen.go
-grep -n 'Name:    "idx_users_created_id"' tools/codesjoy-modelgen/example/output/users_gen.go
-grep -n 'Columns: \\[\\]string{"created_at", "id"}' tools/codesjoy-modelgen/example/output/users_gen.go
-grep -n 'WithDatabaseName("deleted_at")' tools/codesjoy-modelgen/example/output/users_gen.go
+grep -n 'WithDatabaseName("name")' tools/codesjoy-modelgen/example/output/user_model_gen.go
+grep -n 'WithMatchModes(aipsql.MatchModeExact' tools/codesjoy-modelgen/example/output/user_model_gen.go
+grep -n 'Name:    "idx_users_created_id"' tools/codesjoy-modelgen/example/output/user_model_gen.go
+grep -n 'Columns: \\[\\]string{"created_at", "id"}' tools/codesjoy-modelgen/example/output/user_model_gen.go
+grep -n 'WithDatabaseName("deleted_at")' tools/codesjoy-modelgen/example/output/user_model_gen.go
 ```
 
 ## Regenerate Sample Output
 
-Re-run the same generate command above to refresh `output/users_gen.go`.
+Re-run the same generate command above to refresh `output/user_model_gen.go`.
 
 ## Cleanup
 

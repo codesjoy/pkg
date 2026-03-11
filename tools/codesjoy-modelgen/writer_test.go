@@ -19,7 +19,7 @@ func TestOSFileWriter_WriteValidationAndForce(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	path := filepath.Join(outDir, "users_gen.go")
+	path := filepath.Join(outDir, generatedModelFileName("users"))
 	if err := writer.Write(
 		GeneratedFile{Path: path, Content: []byte(generatedHeader + "\npackage demo\n")},
 		true,

@@ -78,17 +78,22 @@ func (g *Generator) Run(ctx context.Context, opts Options, stdout io.Writer) err
 }
 
 func warnLegacySplitFiles(outDir string, tableName string, stdout io.Writer) {
+	newFileName := generatedModelFileName(tableName)
 	legacyFiles := []string{
 		filepath.Join(outDir, fmt.Sprintf("%s_model_gen.go", tableName)),
 		filepath.Join(outDir, fmt.Sprintf("%s_aipsql_gen.go", tableName)),
+		filepath.Join(outDir, fmt.Sprintf("%s_gen.go", tableName)),
 	}
 	for _, legacy := range legacyFiles {
+		if filepath.Base(legacy) == newFileName {
+			continue
+		}
 		if _, err := os.Stat(legacy); err == nil {
 			_, _ = fmt.Fprintf(
 				stdout,
-				"[migrate] found legacy file %s, new generator emits %s_gen.go; remove legacy file manually if no longer needed\n",
+				"[migrate] found legacy file %s, new generator emits %s; remove legacy file manually if no longer needed\n",
 				legacy,
-				tableName,
+				newFileName,
 			)
 		}
 	}

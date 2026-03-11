@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/jinzhu/inflection"
 )
 
 var commonAcronyms = map[string]string{
@@ -78,6 +81,34 @@ func splitWords(input string) []string {
 	flush()
 
 	return parts
+}
+
+func singularizeTableName(tableName string) string {
+	singularTableName := strings.TrimSpace(inflection.Singular(tableName))
+	if singularTableName == "" {
+		singularTableName = strings.TrimSpace(tableName)
+	}
+	return singularTableName
+}
+
+func defaultModelName(tableName string) string {
+	singularTableName := singularizeTableName(tableName)
+	if singularTableName == "" {
+		return "Model"
+	}
+	return ToPascalCase(singularTableName)
+}
+
+func defaultAIPSQLBuilderName(tableName string) string {
+	return "New" + defaultModelName(tableName) + "AIPTable"
+}
+
+func generatedModelFileName(tableName string) string {
+	singularTableName := singularizeTableName(tableName)
+	if singularTableName == "" {
+		singularTableName = "model"
+	}
+	return filepath.Base(singularTableName) + "_model_gen.go"
 }
 
 func dedupeFieldNames(cols []ResolvedColumn) ([]ResolvedColumn, error) {

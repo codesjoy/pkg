@@ -102,21 +102,11 @@ func TestResolveTimestampType(t *testing.T) {
 			wantWarn:   false,
 		},
 		{
-			name:       "unix milli datetime fallback",
+			name:       "unix milli datetime uses time",
 			col:        ColumnMeta{DataType: "timestamp", RawType: "timestamp", Nullable: false},
 			mode:       timestampModeUnixMilli,
 			role:       timestampRoleUpdated,
 			wantType:   "time.Time",
-			wantUseInt: false,
-			wantSoft:   softDeleteKindNone,
-			wantWarn:   true,
-		},
-		{
-			name:       "time mode",
-			col:        ColumnMeta{DataType: "bigint", RawType: "bigint", Nullable: true},
-			mode:       timestampModeTime,
-			role:       timestampRoleUpdated,
-			wantType:   "*time.Time",
 			wantUseInt: false,
 			wantSoft:   softDeleteKindNone,
 			wantWarn:   false,
@@ -190,14 +180,6 @@ func TestTimestampGormTag(t *testing.T) {
 				UseIntTimestamp: true,
 			},
 			want: "autoUpdateTime:nano",
-		},
-		{
-			name: "created time mode",
-			col: ResolvedColumn{
-				TimestampRole: timestampRoleCreated,
-				TimestampMode: timestampModeTime,
-			},
-			want: "autoCreateTime",
 		},
 		{
 			name: "deleted plugin milli",

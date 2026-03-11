@@ -68,6 +68,9 @@ func TestGoRenderer_Golden(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("Render() file count = %d, want 1", len(files))
 	}
+	if files[0].Name != "user_model_gen.go" {
+		t.Fatalf("Render() file name = %q, want user_model_gen.go", files[0].Name)
+	}
 
 	filesAgain, err := renderer.Render("demo", tables)
 	if err != nil {
@@ -79,7 +82,7 @@ func TestGoRenderer_Golden(t *testing.T) {
 		}
 	}
 
-	goldenPath := filepath.Join("testdata", "golden", "users_gen.go")
+	goldenPath := filepath.Join("testdata", "golden", "user_model_gen.go")
 	// #nosec G304 -- testdata path is derived from fixed fixture names.
 	golden, err := os.ReadFile(goldenPath)
 	if err != nil {

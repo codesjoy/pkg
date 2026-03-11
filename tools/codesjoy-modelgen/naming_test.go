@@ -50,3 +50,81 @@ func TestDedupeFieldNames(t *testing.T) {
 		t.Fatalf("third field mismatch: %q", got[2].GoField)
 	}
 }
+
+func TestGeneratedModelFileName(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		table string
+		want  string
+	}{
+		{name: "plural s", table: "users", want: "user_model_gen.go"},
+		{name: "plural ies", table: "categories", want: "category_model_gen.go"},
+		{name: "snake plural", table: "user_profiles", want: "user_profile_model_gen.go"},
+		{name: "irregular", table: "indices", want: "index_model_gen.go"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := generatedModelFileName(tc.table); got != tc.want {
+				t.Fatalf("generatedModelFileName(%q) = %q, want %q", tc.table, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultModelName(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		table string
+		want  string
+	}{
+		{name: "plural s", table: "users", want: "User"},
+		{name: "snake plural", table: "user_profiles", want: "UserProfile"},
+		{name: "irregular", table: "indices", want: "Index"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := defaultModelName(tc.table); got != tc.want {
+				t.Fatalf("defaultModelName(%q) = %q, want %q", tc.table, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDefaultAIPSQLBuilderName(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		table string
+		want  string
+	}{
+		{name: "plural s", table: "users", want: "NewUserAIPTable"},
+		{name: "snake plural", table: "user_profiles", want: "NewUserProfileAIPTable"},
+		{name: "irregular", table: "indices", want: "NewIndexAIPTable"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := defaultAIPSQLBuilderName(tc.table); got != tc.want {
+				t.Fatalf(
+					"defaultAIPSQLBuilderName(%q) = %q, want %q",
+					tc.table,
+					got,
+					tc.want,
+				)
+			}
+		})
+	}
+}

@@ -28,7 +28,7 @@ tables:
     timestamp_mode: unix_sec
     columns:
       created_at:
-        timestamp_mode: time
+        timestamp_mode: unix_nano
       is_active:
         filterable: false
         sortable: true
@@ -53,7 +53,7 @@ tables:
 			Name:   "users",
 			Columns: []ColumnMeta{
 				{Name: "id", DataType: "bigint", RawType: "bigint", IsPrimaryKey: true},
-				{Name: "created_at", DataType: "bigint", RawType: "bigint", Nullable: false},
+				{Name: "created_at", DataType: "timestamp", RawType: "timestamp", Nullable: false},
 				{Name: "is_active", DataType: "boolean", RawType: "bool", Nullable: false},
 				{
 					Name:     "password_hash",
@@ -108,15 +108,18 @@ tables:
 	if createdCol.Name == "" {
 		t.Fatalf("created_at column not found")
 	}
-	if createdCol.TimestampMode != timestampModeTime {
+	if createdCol.TimestampMode != timestampModeUnixNano {
 		t.Fatalf(
 			"created_at timestamp mode = %q, want %q",
 			createdCol.TimestampMode,
-			timestampModeTime,
+			timestampModeUnixNano,
 		)
 	}
 	if createdCol.GoType != "time.Time" {
 		t.Fatalf("created_at go type = %q, want time.Time", createdCol.GoType)
+	}
+	if createdCol.UseIntTimestamp {
+		t.Fatalf("created_at UseIntTimestamp = true, want false")
 	}
 	if activeCol.Name == "" {
 		t.Fatalf("is_active column not found")
@@ -140,12 +143,12 @@ func TestResolveTables_CLIOverridesYAML(t *testing.T) {
 
 	overrides := OverrideConfig{
 		GenAIPSQL:     boolPtr(false),
-		TimestampMode: timestampModeTime,
+		TimestampMode: timestampModeUnixNano,
 		Tables: map[string]TableOverride{
 			"users": {
 				TimestampMode: timestampModeUnixSec,
 				Columns: map[string]ColumnOverride{
-					"updated_at": {TimestampMode: timestampModeTime},
+					"updated_at": {TimestampMode: timestampModeUnixMilli},
 				},
 			},
 		},
@@ -184,6 +187,35 @@ func TestResolveTables_CLIOverridesYAML(t *testing.T) {
 	}
 	if !col.UseIntTimestamp {
 		t.Fatalf("UseIntTimestamp = false, want true")
+	}
+}
+
+func TestResolveTables_DefaultNamesAreSingular(t *testing.T) {
+	t.Parallel()
+
+	metas := []TableMeta{
+		{
+			Name: "users",
+			Columns: []ColumnMeta{
+				{Name: "id", DataType: "bigint", RawType: "bigint", IsPrimaryKey: true},
+			},
+		},
+	}
+
+	resolved, _, err := ResolveTables(metas, OverrideConfig{}, Options{})
+	if err != nil {
+		t.Fatalf("ResolveTables() error = %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("resolved table count = %d, want 1", len(resolved))
+	}
+
+	table := resolved[0]
+	if table.ModelName != "User" {
+		t.Fatalf("ModelName = %q, want User", table.ModelName)
+	}
+	if table.AIPSQLBuilder != "NewUserAIPTable" {
+		t.Fatalf("AIPSQLBuilder = %q, want NewUserAIPTable", table.AIPSQLBuilder)
 	}
 }
 
@@ -322,6 +354,28 @@ tables:
 	_, err := LoadOverrideConfig(overridePath)
 	if err != nil {
 		t.Fatalf("LoadOverrideConfig() error = %v", err)
+	}
+}
+
+func TestLoadOverrideConfig_RejectsTimeMode(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	overridePath := filepath.Join(dir, "override.yaml")
+	overrideYAML := []byte(`
+tables:
+  users:
+    columns:
+      updated_at:
+        timestamp_mode: time
+`)
+	if err := os.WriteFile(overridePath, overrideYAML, 0o600); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	_, err := LoadOverrideConfig(overridePath)
+	if err == nil {
+		t.Fatal("LoadOverrideConfig() error = nil, want error")
 	}
 }
 

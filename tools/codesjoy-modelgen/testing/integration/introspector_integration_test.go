@@ -44,7 +44,7 @@ func TestIntegration_SQLIntrospector_MySQL_Metadata(t *testing.T) {
 		t.Fatalf("runGenerator(mysql) error = %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(t, usersFile, "ID")
 	assertContains(t, usersFile, "primaryKey;autoIncrement")
 	assertContains(t, usersFile, "gorm:\"column:name\"")
@@ -79,8 +79,8 @@ func TestIntegration_SQLIntrospector_Postgres_Metadata(t *testing.T) {
 		)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
-	eventsFile := mustReadFile(t, filepath.Join(outDir, "events_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
+	eventsFile := mustReadFile(t, filepath.Join(outDir, "event_model_gen.go"))
 
 	assertContains(t, usersFile, "column:update;autoUpdateTime:nano")
 	assertContains(t, usersFile, "Name:    \"idx_users_created_id\"")
@@ -109,11 +109,11 @@ func TestIntegration_SQLIntrospector_TableFilterAndMissing(t *testing.T) {
 		t.Fatalf("runGenerator(filtered) error = %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 
-	if !fileExists(filepath.Join(outDir, "users_gen.go")) {
-		t.Fatal("users_gen.go should exist in filtered generation")
+	if !fileExists(filepath.Join(outDir, "user_model_gen.go")) {
+		t.Fatal("user_model_gen.go should exist in filtered generation")
 	}
-	if fileExists(filepath.Join(outDir, "events_gen.go")) {
-		t.Fatal("events_gen.go should not exist when --tables=users")
+	if fileExists(filepath.Join(outDir, "event_model_gen.go")) {
+		t.Fatal("event_model_gen.go should not exist when --tables=users")
 	}
 
 	_, stderrMissing, err := runGenerator(
@@ -185,7 +185,7 @@ func TestIntegration_SQLIntrospector_IndexOrderingStable(t *testing.T) {
 				)
 			}
 
-			usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+			usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 			assertContains(t, usersFile, "Name:    \"idx_users_created_id\"")
 			assertContains(t, usersFile, "Columns: []string{\"created_at\", \"id\"}")
 			assertNotContains(t, usersFile, "Columns: []string{\"id\", \"created_at\"}")
@@ -220,7 +220,7 @@ func TestIntegration_SQLIntrospector_IndexSetAffectsSortable(t *testing.T) {
 		)
 	}
 
-	usersFile := mustReadFile(t, filepath.Join(outDir, "users_gen.go"))
+	usersFile := mustReadFile(t, filepath.Join(outDir, "user_model_gen.go"))
 	assertContains(
 		t,
 		usersFile,

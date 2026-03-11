@@ -196,10 +196,10 @@ func resolveTimestampType(
 	}
 
 	if role == timestampRoleDeleted {
-		return resolveDeletedAtType(col, normalizedMode)
+		return resolveDeletedAtType(col)
 	}
 
-	if normalizedMode == timestampModeTime {
+	if isDateTimeLikeColumnType(col) {
 		return applyNullable("time.Time", col.Nullable), false, softDeleteKindNone, "", nil
 	}
 
@@ -207,20 +207,10 @@ func resolveTimestampType(
 		return applyNullable("int64", col.Nullable), true, softDeleteKindNone, "", nil
 	}
 
-	if isDateTimeLikeColumnType(col) {
-		return applyNullable("time.Time", col.Nullable), false, softDeleteKindNone, fmt.Sprintf(
-			"column %s uses %s mode but physical type %q is datetime-like, fallback to time.Time",
-			col.Name,
-			normalizedMode,
-			col.DataType,
-		), nil
-	}
-
 	fallbackType := inferGoType(col)
 	return fallbackType, false, softDeleteKindNone, fmt.Sprintf(
-		"column %s uses %s mode but physical type %q is not integer-like, fallback to %s",
+		"column %s physical type %q is neither datetime-like nor integer-like, fallback to %s",
 		col.Name,
-		normalizedMode,
 		col.DataType,
 		fallbackType,
 	), nil
@@ -228,7 +218,6 @@ func resolveTimestampType(
 
 func resolveDeletedAtType(
 	col ColumnMeta,
-	mode string,
 ) (goType string, useInt bool, softDeleteKind string, warning string, err error) {
 	if isDateTimeLikeColumnType(col) {
 		return "gorm.DeletedAt", false, softDeleteKindGORM, "", nil
@@ -237,9 +226,8 @@ func resolveDeletedAtType(
 		return "soft_delete.DeletedAt", true, softDeleteKindPlugin, "", nil
 	}
 	return "gorm.DeletedAt", false, softDeleteKindGORM, fmt.Sprintf(
-		"column %s uses %s mode but physical type %q is neither integer-like nor datetime-like, fallback to gorm.DeletedAt",
+		"column %s physical type %q is neither integer-like nor datetime-like, fallback to gorm.DeletedAt",
 		col.Name,
-		mode,
 		col.DataType,
 	), nil
 }

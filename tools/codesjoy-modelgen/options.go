@@ -6,7 +6,12 @@ import (
 	"go/token"
 	"go/types"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
 )
 
 // Options contains CLI arguments for model generation.
@@ -30,18 +35,18 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	fs := flag.NewFlagSet("codesjoy-modelgen", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 
-	dialect := fs.String("dialect", "", "database dialect: mysql or postgres")
+	dialect := fs.String("dialect", "", "database dialect: mysql or postgres (optional, inferred from DSN when omitted)")
 	dsn := fs.String("dsn", "", "database DSN")
 	schema := fs.String("schema", "", "database schema (optional)")
 	tables := fs.String("tables", "", "comma-separated tables (optional)")
 	overrideFile := fs.String("override", "", "path to YAML override file (optional)")
-	outDir := fs.String("out-dir", "", "output directory")
-	packageName := fs.String("package", "", "go package name for generated files")
+	outDir := fs.String("out-dir", "./", "output directory")
+	packageName := fs.String("package", "", "go package name for generated files (optional, inferred from out-dir when omitted)")
 	genAIPSQL := fs.Bool("gen-aipsql", true, "generate AIPTable method and wrapper")
 	timestampMode := fs.String(
 		"timestamp-mode",
 		timestampModeUnixSec,
-		"timestamp mode: unix_sec, unix_milli, unix_nano, or time",
+		"integer timestamp precision: unix_sec, unix_milli, or unix_nano",
 	)
 	dryRun := fs.Bool("dry-run", false, "validate and render without writing files")
 	force := fs.Bool("force", false, "overwrite files without generated header")
@@ -49,7 +54,7 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(
 			errOut,
-			"Usage: codesjoy-modelgen --dialect mysql|postgres --dsn <dsn> --out-dir <dir> --package <name> [--schema <schema>] [--tables t1,t2] [--override file.yaml] [--gen-aipsql=true] [--timestamp-mode unix_sec|unix_milli|unix_nano|time] [--dry-run] [--force]",
+			"Usage: codesjoy-modelgen --dsn <dsn> [--out-dir <dir>] [--dialect mysql|postgres] [--package <name>] [--schema <schema>] [--tables t1,t2] [--override file.yaml] [--gen-aipsql=true] [--timestamp-mode unix_sec|unix_milli|unix_nano] [--dry-run] [--force]",
 		)
 		fs.PrintDefaults()
 	}
@@ -79,6 +84,12 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	_, opts.GenAIPSQLSet = visitedFlags["gen-aipsql"]
 	_, opts.TimestampModeSet = visitedFlags["timestamp-mode"]
 
+	if err := opts.validateRequired(); err != nil {
+		return Options{}, err
+	}
+	if err := opts.resolveDefaults(); err != nil {
+		return Options{}, err
+	}
 	if err := opts.validate(); err != nil {
 		return Options{}, err
 	}
@@ -103,18 +114,81 @@ func (o Options) validate() error {
 	return nil
 }
 
+func (o *Options) resolveDefaults() error {
+	if strings.TrimSpace(o.Dialect) == "" {
+		dialect, err := resolveDialect(o.DSN)
+		if err != nil {
+			return err
+		}
+		o.Dialect = dialect
+	}
+
+	if strings.TrimSpace(o.PackageName) == "" {
+		packageName, err := resolvePackageName(o.OutDir)
+		if err != nil {
+			return err
+		}
+		o.PackageName = packageName
+	}
+
+	return nil
+}
+
+func resolveDialect(dsn string) (string, error) {
+	trimmedDSN := strings.TrimSpace(dsn)
+	if trimmedDSN == "" {
+		return "", fmt.Errorf("--dsn is required")
+	}
+
+	if _, err := pgx.ParseConfig(trimmedDSN); err == nil {
+		return dialectPostgres, nil
+	}
+	if _, err := mysql.ParseDSN(trimmedDSN); err == nil {
+		return dialectMySQL, nil
+	}
+
+	return "", fmt.Errorf("cannot infer --dialect from DSN; please pass --dialect explicitly")
+}
+
+func resolvePackageName(outDir string) (string, error) {
+	cleanedOutDir := filepath.Clean(strings.TrimSpace(outDir))
+	if cleanedOutDir == "." {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve current working directory: %w", err)
+		}
+		cleanedOutDir = filepath.Base(cwd)
+	}
+
+	packageName := filepath.Base(cleanedOutDir)
+	if packageName == "." || packageName == string(filepath.Separator) || packageName == "" {
+		return "", fmt.Errorf(
+			"cannot infer --package from --out-dir %q; please pass --package explicitly",
+			outDir,
+		)
+	}
+
+	if !token.IsIdentifier(packageName) || types.Universe.Lookup(packageName) != nil {
+		return "", fmt.Errorf(
+			"cannot infer valid --package from --out-dir %q; please pass --package explicitly",
+			outDir,
+		)
+	}
+
+	return packageName, nil
+}
+
 func validateTimestampMode(mode string) error {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case timestampModeUnixSec, timestampModeUnixMilli, timestampModeUnixNano, timestampModeTime:
+	case timestampModeUnixSec, timestampModeUnixMilli, timestampModeUnixNano:
 		return nil
 	default:
 		return fmt.Errorf(
-			"unsupported --timestamp-mode %q, expected %q, %q, %q, or %q",
+			"unsupported --timestamp-mode %q, expected %q, %q, or %q",
 			mode,
 			timestampModeUnixSec,
 			timestampModeUnixMilli,
 			timestampModeUnixNano,
-			timestampModeTime,
 		)
 	}
 }
@@ -149,17 +223,8 @@ func collectVisitedFlags(fs *flag.FlagSet) map[string]struct{} {
 }
 
 func (o Options) validateRequired() error {
-	if o.Dialect == "" {
-		return fmt.Errorf("--dialect is required")
-	}
 	if o.DSN == "" {
 		return fmt.Errorf("--dsn is required")
-	}
-	if o.OutDir == "" {
-		return fmt.Errorf("--out-dir is required")
-	}
-	if o.PackageName == "" {
-		return fmt.Errorf("--package is required")
 	}
 	return nil
 }
