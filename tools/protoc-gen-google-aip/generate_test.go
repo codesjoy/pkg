@@ -100,6 +100,62 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.Contains(
 		t,
 		publisherContent,
+		"// PublisherNameParts contains the typed components used to format a Publisher resource name.",
+	)
+	assert.Contains(t, publisherContent, "type PublisherNameParts struct {")
+	assert.Contains(
+		t,
+		publisherContent,
+		"// FormatPublisherNameWithPattern formats a supported resource name pattern for Publisher.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func FormatPublisherNameWithPattern(pattern string, parts PublisherNameParts) (string, error)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// FormatPublisherName formats the only supported resource name pattern for Publisher.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func FormatPublisherName(parts PublisherNameParts) (string, error)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"return FormatPublisherNameWithPattern(PublisherNamePattern, parts)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// FillNameFromParts formats the only supported resource name pattern and writes it back to Name.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func (x *Publisher) FillNameFromParts(parts PublisherNameParts) error",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"return x.FillNameWithPatternFromParts(PublisherNamePattern, parts)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// FillNameWithPatternFromParts formats a supported resource name pattern and writes it back to Name.",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"func (x *Publisher) FillNameWithPatternFromParts(pattern string, parts PublisherNameParts) error",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
 		"// FillName formats the only supported resource name pattern and writes it back to Name.",
 	)
 	assert.Contains(
@@ -110,11 +166,21 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.Contains(
 		t,
 		publisherContent,
-		"return x.FillNameWithPattern(PublisherNamePattern, values)",
+		"// Deprecated: Use FillNameFromParts instead.",
+	)
+	assert.Contains(t, publisherContent, "formatted, err := formatPublisherNameFromMap(values)")
+	assert.Contains(t, publisherContent, "func formatPublisherNameFromMap(values map[string]string) (string, error)")
+	assert.Contains(
+		t,
+		publisherContent,
+		"func formatPublisherNameWithPatternFromMap(pattern string, values map[string]string) (string, error)",
+	)
+	assert.Contains(
+		t,
+		publisherContent,
+		"// Deprecated: Use FillNameWithPatternFromParts instead.",
 	)
 	assert.Contains(t, publisherContent, "switch pattern {")
-	assert.NotContains(t, publisherContent, "func FormatPublisherName(")
-	assert.NotContains(t, publisherContent, "func FormatPublisherNameWithPattern(")
 	assert.NotContains(t, publisherContent, "googleaip.")
 	assert.NotContains(t, publisherContent, "func (x *Publisher) ParseParent(parent string)")
 	assert.NotContains(t, publisherContent, "func (x *Publisher) ValidateParent(parent string)")
@@ -167,12 +233,48 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.Contains(
 		t,
 		bookContent,
+		"// BookNameParts contains the typed components used to format a Book resource name.",
+	)
+	assert.Contains(t, bookContent, "type BookNameParts struct {")
+	assert.Contains(
+		t,
+		bookContent,
+		"// FormatBookNameWithPattern formats a supported resource name pattern for Book.",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"func FormatBookNameWithPattern(pattern string, parts BookNameParts) (string, error)",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"// FillNameWithPatternFromParts formats a supported resource name pattern and writes it back to Name.",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"func (x *Book) FillNameWithPatternFromParts(pattern string, parts BookNameParts) error",
+	)
+	assert.Contains(
+		t,
+		bookContent,
 		"// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.",
 	)
 	assert.Contains(
 		t,
 		bookContent,
 		"func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"func formatBookNameWithPatternFromMap(pattern string, values map[string]string) (string, error)",
+	)
+	assert.Contains(
+		t,
+		bookContent,
+		"// Deprecated: Use FillNameWithPatternFromParts instead.",
 	)
 	assert.Contains(t, bookContent, "return ParseBookName(x.Name)")
 	assert.Contains(t, bookContent, "return ValidateBookName(x.Name)")
@@ -220,8 +322,7 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 	assert.Contains(t, bookContent, "return ParseBookParent(parent)")
 	assert.Contains(t, bookContent, "return ValidateBookParent(parent)")
 	assert.NotContains(t, bookContent, "func (x *Book) FillName(values map[string]string) error")
-	assert.NotContains(t, bookContent, "func FormatBookName(")
-	assert.NotContains(t, bookContent, "func FormatBookNameWithPattern(")
+	assert.NotContains(t, bookContent, "func FormatBookName(parts BookNameParts)")
 	assert.NotContains(t, bookContent, "googleaip.")
 	assert.Contains(t, bookContent, "nil *Book receiver")
 	assert.NotContains(t, bookContent, "func (x *ListBooksRequest) ParseParent()")
@@ -302,7 +403,10 @@ func TestGenerateFilesUsesConfiguredNameField(t *testing.T) {
 	assert.Regexp(t, `Shelf:\s+parts\[1\],`, content)
 	assert.Contains(t, content, "x.ResourceName = formatted")
 	assert.Contains(t, content, `const ShelfNamePattern = "shelves/{shelf}"`)
-	assert.Contains(t, content, "return x.FillNameWithPattern(ShelfNamePattern, values)")
+	assert.Contains(t, content, "type ShelfNameParts struct {")
+	assert.Contains(t, content, "func FormatShelfName(parts ShelfNameParts) (string, error)")
+	assert.Contains(t, content, "func (x *Shelf) FillNameFromParts(parts ShelfNameParts) error")
+	assert.Contains(t, content, "return x.FillNameWithPatternFromParts(ShelfNamePattern, parts)")
 	assert.NotContains(t, content, "runtime/googleaip")
 }
 

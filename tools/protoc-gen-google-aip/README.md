@@ -63,17 +63,22 @@ For resource-annotated messages it adds methods onto the generated message type:
 - `<Message>NamePattern` for single-pattern resources
 - `<Message>NamePattern1..N` for multi-pattern resources
 - `Parsed<Message>Name`
+- `<Message>NameParts`
 - `Parsed<Message>Parent` when the resource patterns imply one or more parent patterns
 - `Parse<Message>Name(name string)`
 - `Validate<Message>Name(name string)`
+- `Format<Message>Name(parts <Message>NameParts)` when the resource has exactly one pattern
+- `Format<Message>NameWithPattern(pattern string, parts <Message>NameParts)`
 - `Parse<Message>Parent(parent string)` when the resource patterns imply one or more parent patterns
 - `Validate<Message>Parent(parent string)` when the resource patterns imply one or more parent patterns
 - `(*<Message>).ParseName()`
 - `(*<Message>).ValidateName()`
+- `(*<Message>).FillNameFromParts(parts <Message>NameParts)` when the resource has exactly one pattern
+- `(*<Message>).FillNameWithPatternFromParts(pattern string, parts <Message>NameParts)`
 - `(*<Message>).ParseParent(parent string)` when the resource patterns imply one or more parent patterns
 - `(*<Message>).ValidateParent(parent string)` when the resource patterns imply one or more parent patterns
-- `(*<Message>).FillNameWithPattern(pattern string, values map[string]string)`
-- `(*<Message>).FillName(values map[string]string)` when the resource has exactly one pattern
+- `(*<Message>).FillNameWithPattern(pattern string, values map[string]string)` (deprecated compatibility wrapper)
+- `(*<Message>).FillName(values map[string]string)` when the resource has exactly one pattern (deprecated compatibility wrapper)
 
 When a parent pattern can be inferred but the parent resource type is not
 available in the current generation context, `Parse<Message>Parent(...)` and
@@ -83,7 +88,9 @@ and typed parent fields; in that case `DescriptorType` is the empty string.
 `Parse<Message>Name(...)`, `(*<Message>).ParseName()`,
 `Parse<Message>Parent(...)`, and `(*<Message>).ParseParent(...)` all return
 generated typed results, so callers can read resource variables as fields
-rather than indexing into a map.
+rather than indexing into a map. Name formatting now follows the same model:
+callers can populate `<Message>NameParts` and use the typed `Format...` or
+`Fill...FromParts` helpers instead of building a `map[string]string`.
 
 The generated code inlines resource name parsing, validation, parent parsing,
 and formatting logic. There is no generated-code runtime dependency in v1.

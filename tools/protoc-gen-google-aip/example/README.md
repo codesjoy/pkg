@@ -3,8 +3,9 @@
 This module shows how to annotate resources and request fields and
 generate Go helpers with `protoc-gen-google-aip`.
 
-The demo uses generated pattern constants such as `BookNamePattern1` together
-with `FillNameWithPattern(...)`, parses a request `name` by calling
+The demo uses generated typed inputs such as `PublisherNameParts` and
+`BookNameParts` together with `FillNameFromParts(...)` and
+`FillNameWithPatternFromParts(...)`, parses a request `name` by calling
 `ParseBookName(req.Name)` and reading typed fields from the parsed result, and
 shows parsing and validating a request `parent` by calling
 `ParseBookParent(req.Parent)` and `ValidateBookParent(req.Parent)`.

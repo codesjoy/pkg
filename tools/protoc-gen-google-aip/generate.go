@@ -509,6 +509,7 @@ func generateFileContent(g *protogen.GeneratedFile, annotations fileAnnotations)
 	if len(annotations.messageResources) > 0 {
 		generateResourcePatternConstants(g, annotations.messageResources)
 		generateParsedNameTypes(g, annotations.messageResources)
+		generateNamePartsTypes(g, annotations.messageResources)
 		generateParsedParentTypes(g, annotations.messageResources)
 		generateMessageResourceMethods(g, annotations.messageResources)
 	}
@@ -561,7 +562,24 @@ func generateParsedNameTypes(g *protogen.GeneratedFile, resources []messageResou
 		g.P("type ", messageResourceParsedNameTypeName(resource), " struct {")
 		g.P("\tDescriptorType string")
 		g.P("\tPattern string")
-		for _, field := range messageResourceParsedFields(resource.patterns) {
+		for _, field := range messageResourceNameFields(resource.patterns) {
+			g.P("\t", field.goName, " string")
+		}
+		g.P("}")
+		g.P()
+	}
+}
+
+func generateNamePartsTypes(g *protogen.GeneratedFile, resources []messageResource) {
+	for _, resource := range resources {
+		g.P(
+			"// ", messageResourceNamePartsTypeName(resource),
+			" contains the typed components used to format a ",
+			resource.goName,
+			" resource name.",
+		)
+		g.P("type ", messageResourceNamePartsTypeName(resource), " struct {")
+		for _, field := range messageResourceNameFields(resource.patterns) {
 			g.P("\t", field.goName, " string")
 		}
 		g.P("}")
@@ -599,7 +617,12 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		parseFuncName := messageResourceParseNameFuncName(resource)
 		validateFuncName := messageResourceValidateNameFuncName(resource)
 		parsedTypeName := messageResourceParsedNameTypeName(resource)
-		parsedFields := messageResourceParsedFields(resource.patterns)
+		namePartsTypeName := messageResourceNamePartsTypeName(resource)
+		nameFields := messageResourceNameFields(resource.patterns)
+		formatFuncName := messageResourceFormatNameFuncName(resource)
+		formatWithPatternFuncName := messageResourceFormatNameWithPatternFuncName(resource)
+		compatFormatFuncName := messageResourceCompatFormatNameFuncName(resource)
+		compatFormatWithPatternFuncName := messageResourceCompatFormatNameWithPatternFuncName(resource)
 
 		g.P(
 			"// ", parseFuncName, " parses a ", resource.goName,
@@ -617,7 +640,7 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 			g.P("\t\t\tDescriptorType: ", strconv.Quote(resource.resourceType), ",")
 			g.P("\t\t\tPattern: ", messageResourcePatternConstName(resource, i), ",")
 			indexes := patternVariableIndexes(pattern)
-			for _, field := range parsedFields {
+			for _, field := range nameFields {
 				if index, ok := indexes[field.variable]; ok {
 					g.P("\t\t\t", field.goName, ": parts[", strconv.Itoa(index), "],")
 				}
@@ -675,31 +698,151 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		g.P()
 
 		g.P(
-			"// FillNameWithPattern formats a supported resource name pattern and writes it back to ",
+			"// ", formatWithPatternFuncName,
+			" formats a supported resource name pattern for ",
+			resource.goName,
+			".",
+		)
+		g.P(
+			"func ", formatWithPatternFuncName,
+			"(pattern string, parts ", namePartsTypeName, ") (string, error) {",
+		)
+		g.P("\tvar formatted string")
+		g.P("\tswitch pattern {")
+		for i, pattern := range resource.patterns {
+			g.P("\tcase ", messageResourcePatternConstName(resource, i), ":")
+			writeGeneratedTypedFormatCase(g, pattern, "parts", nameFields)
+		}
+		g.P("\tdefault:")
+		g.P(
+			"\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
+			`("pattern %q is not registered for type %q", pattern, `,
+			strconv.Quote(resource.resourceType),
+			")",
+		)
+		g.P("\t}")
+		g.P("\treturn formatted, nil")
+		g.P("}")
+		g.P()
+
+		if len(resource.patterns) == 1 {
+			g.P(
+				"// ", formatFuncName,
+				" formats the only supported resource name pattern for ",
+				resource.goName,
+				".",
+			)
+			g.P(
+				"func ", formatFuncName, "(parts ", namePartsTypeName, ") (string, error) {",
+			)
+			g.P(
+				"\treturn ", formatWithPatternFuncName, "(",
+				messageResourcePatternConstName(resource, 0),
+				", parts)",
+			)
+			g.P("}")
+			g.P()
+		}
+
+		g.P(
+			"// FillNameWithPatternFromParts formats a supported resource name pattern and writes it back to ",
 			resource.nameFieldGoName,
 			".",
 		)
 		g.P(
-			"func (x *",
-			resource.goName,
+			"func (x *", resource.goName, ") FillNameWithPatternFromParts(pattern string, parts ",
+			namePartsTypeName, ") error {",
+		)
+		g.P("\tif x == nil {")
+		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+		g.P("\t}")
+		g.P("\tformatted, err := ", formatWithPatternFuncName, "(pattern, parts)")
+		g.P("\tif err != nil {")
+		g.P("\t\treturn err")
+		g.P("\t}")
+		g.P("\t", fieldExpr, " = formatted")
+		g.P("\treturn nil")
+		g.P("}")
+		g.P()
+
+		if len(resource.patterns) == 1 {
+			g.P(
+				"// FillNameFromParts formats the only supported resource name pattern and writes it back to ",
+				resource.nameFieldGoName,
+				".",
+			)
+			g.P(
+				"func (x *", resource.goName, ") FillNameFromParts(parts ", namePartsTypeName, ") error {",
+			)
+			g.P(
+				"\treturn x.FillNameWithPatternFromParts(",
+				messageResourcePatternConstName(resource, 0),
+				", parts)",
+			)
+			g.P("}")
+			g.P()
+		}
+
+		g.P(
+			"// ", compatFormatWithPatternFuncName,
+			" formats a supported resource name pattern from a legacy map input.",
+		)
+		g.P(
+			"func ", compatFormatWithPatternFuncName,
+			"(pattern string, values map[string]string) (string, error) {",
+		)
+		g.P("\tvar formatted string")
+		g.P("\tswitch pattern {")
+		for i, pattern := range resource.patterns {
+			g.P("\tcase ", messageResourcePatternConstName(resource, i), ":")
+			writeGeneratedMapFormatCase(g, pattern)
+		}
+		g.P("\tdefault:")
+		g.P(
+			"\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
+			`("pattern %q is not registered for type %q", pattern, `,
+			strconv.Quote(resource.resourceType),
+			")",
+		)
+		g.P("\t}")
+		g.P("\treturn formatted, nil")
+		g.P("}")
+		g.P()
+
+		if len(resource.patterns) == 1 {
+			g.P(
+				"// ", compatFormatFuncName,
+				" formats the only supported resource name pattern from a legacy map input.",
+			)
+			g.P(
+				"func ", compatFormatFuncName, "(values map[string]string) (string, error) {",
+			)
+			g.P(
+				"\treturn ", compatFormatWithPatternFuncName, "(",
+				messageResourcePatternConstName(resource, 0),
+				", values)",
+			)
+			g.P("}")
+			g.P()
+		}
+
+		g.P(
+			"// FillNameWithPattern formats a supported resource name pattern and writes it back to ",
+			resource.nameFieldGoName,
+			".",
+		)
+		g.P("//")
+		g.P("// Deprecated: Use FillNameWithPatternFromParts instead.")
+		g.P(
+			"func (x *", resource.goName,
 			") FillNameWithPattern(pattern string, values map[string]string) error {",
 		)
 		g.P("\tif x == nil {")
 		g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
 		g.P("\t}")
-		g.P("\tvar formatted string")
-		g.P("\tswitch pattern {")
-		for i, pattern := range resource.patterns {
-			g.P("\tcase ", messageResourcePatternConstName(resource, i), ":")
-			writeGeneratedFormatCase(g, pattern)
-		}
-		g.P("\tdefault:")
-		g.P(
-			"\t\treturn ", stdfmt(g, "Errorf"),
-			`("pattern %q is not registered for type %q", pattern, `,
-			strconv.Quote(resource.resourceType),
-			")",
-		)
+		g.P("\tformatted, err := ", compatFormatWithPatternFuncName, "(pattern, values)")
+		g.P("\tif err != nil {")
+		g.P("\t\treturn err")
 		g.P("\t}")
 		g.P("\t", fieldExpr, " = formatted")
 		g.P("\treturn nil")
@@ -712,12 +855,18 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 				resource.nameFieldGoName,
 				".",
 			)
+			g.P("//")
+			g.P("// Deprecated: Use FillNameFromParts instead.")
 			g.P("func (x *", resource.goName, ") FillName(values map[string]string) error {")
-			g.P(
-				"\treturn x.FillNameWithPattern(",
-				messageResourcePatternConstName(resource, 0),
-				", values)",
-			)
+			g.P("\tif x == nil {")
+			g.P("\t\treturn ", stdfmt(g, "Errorf"), "(", nilReceiverError, ")")
+			g.P("\t}")
+			g.P("\tformatted, err := ", compatFormatFuncName, "(values)")
+			g.P("\tif err != nil {")
+			g.P("\t\treturn err")
+			g.P("\t}")
+			g.P("\t", fieldExpr, " = formatted")
+			g.P("\treturn nil")
 			g.P("}")
 			g.P()
 		}
@@ -846,7 +995,46 @@ func patternVariableIndexes(pattern string) map[string]int {
 	return indexes
 }
 
-func writeGeneratedFormatCase(g *protogen.GeneratedFile, pattern string) {
+func writeGeneratedTypedFormatCase(
+	g *protogen.GeneratedFile,
+	pattern string,
+	partsExpr string,
+	fields []parsedNameField,
+) {
+	segments := strings.Split(pattern, "/")
+	formattedParts := make([]string, 0, len(segments))
+	fieldNames := fieldGoNameByVariable(fields)
+	for i, segment := range segments {
+		if !isVariablePatternSegment(segment) {
+			formattedParts = append(formattedParts, strconv.Quote(segment))
+			continue
+		}
+
+		variable := strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}")
+		localName := "value" + strconv.Itoa(i)
+		g.P("\t\t", localName, " := ", partsExpr, ".", fieldNames[variable])
+		g.P("\t\tif ", localName, ` == "" {`)
+		g.P(
+			"\t\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
+			`("value for variable %q in pattern %q must not be empty", `,
+			strconv.Quote(variable),
+			", pattern)",
+		)
+		g.P("\t\t}")
+		g.P("\t\tif ", stdstrings(g, "Contains"), "(", localName, `, "/") {`)
+		g.P(
+			"\t\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
+			`("value for variable %q in pattern %q must not contain '/'", `,
+			strconv.Quote(variable),
+			", pattern)",
+		)
+		g.P("\t\t}")
+		formattedParts = append(formattedParts, localName)
+	}
+	g.P("\t\tformatted = ", strings.Join(formattedParts, ` + "/" + `))
+}
+
+func writeGeneratedMapFormatCase(g *protogen.GeneratedFile, pattern string) {
 	segments := strings.Split(pattern, "/")
 	formattedParts := make([]string, 0, len(segments))
 	for i, segment := range segments {
@@ -860,7 +1048,7 @@ func writeGeneratedFormatCase(g *protogen.GeneratedFile, pattern string) {
 		g.P(`		`, localName, `, ok := values["`, variable, `"]`)
 		g.P("\t\tif !ok {")
 		g.P(
-			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			"\t\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
 			`("missing value for variable %q in pattern %q", `,
 			strconv.Quote(variable),
 			", pattern)",
@@ -868,7 +1056,7 @@ func writeGeneratedFormatCase(g *protogen.GeneratedFile, pattern string) {
 		g.P("\t\t}")
 		g.P("\t\tif ", localName, ` == "" {`)
 		g.P(
-			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			"\t\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
 			`("value for variable %q in pattern %q must not be empty", `,
 			strconv.Quote(variable),
 			", pattern)",
@@ -876,7 +1064,7 @@ func writeGeneratedFormatCase(g *protogen.GeneratedFile, pattern string) {
 		g.P("\t\t}")
 		g.P("\t\tif ", stdstrings(g, "Contains"), "(", localName, `, "/") {`)
 		g.P(
-			"\t\t\treturn ", stdfmt(g, "Errorf"),
+			"\t\t\treturn ", strconv.Quote(""), ", ", stdfmt(g, "Errorf"),
 			`("value for variable %q in pattern %q must not contain '/'", `,
 			strconv.Quote(variable),
 			", pattern)",
@@ -907,6 +1095,26 @@ func messageResourceParsedNameTypeName(resource messageResource) string {
 	return "Parsed" + resource.goName + "Name"
 }
 
+func messageResourceNamePartsTypeName(resource messageResource) string {
+	return resource.goName + "NameParts"
+}
+
+func messageResourceFormatNameFuncName(resource messageResource) string {
+	return "Format" + resource.goName + "Name"
+}
+
+func messageResourceFormatNameWithPatternFuncName(resource messageResource) string {
+	return "Format" + resource.goName + "NameWithPattern"
+}
+
+func messageResourceCompatFormatNameFuncName(resource messageResource) string {
+	return "format" + resource.goName + "NameFromMap"
+}
+
+func messageResourceCompatFormatNameWithPatternFuncName(resource messageResource) string {
+	return "format" + resource.goName + "NameWithPatternFromMap"
+}
+
 func messageResourceParseParentFuncName(resource messageResource) string {
 	return "Parse" + resource.goName + "Parent"
 }
@@ -924,10 +1132,10 @@ func messageResourceParsedParentFields(resource messageResource) []parsedNameFie
 	for _, descriptor := range resource.parentDescriptors {
 		patterns = append(patterns, descriptor.patterns[0])
 	}
-	return messageResourceParsedFields(patterns)
+	return messageResourceNameFields(patterns)
 }
 
-func messageResourceParsedFields(patterns []string) []parsedNameField {
+func messageResourceNameFields(patterns []string) []parsedNameField {
 	fields := make([]parsedNameField, 0, len(patterns))
 	seenVariables := make(map[string]struct{}, len(patterns))
 	usedGoNames := map[string]struct{}{
@@ -966,6 +1174,14 @@ func messageResourceParsedFields(patterns []string) []parsedNameField {
 	}
 
 	return fields
+}
+
+func fieldGoNameByVariable(fields []parsedNameField) map[string]string {
+	out := make(map[string]string, len(fields))
+	for _, field := range fields {
+		out[field.variable] = field.goName
+	}
+	return out
 }
 
 func patternVariables(pattern string) []string {

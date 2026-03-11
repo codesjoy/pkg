@@ -24,6 +24,13 @@ type ParsedBookName struct {
 	Archive        string
 }
 
+// BookNameParts contains the typed components used to format a Book resource name.
+type BookNameParts struct {
+	Publisher string
+	Book      string
+	Archive   string
+}
+
 // ParsedBookParent contains the typed components of a parsed parent for Book.
 type ParsedBookParent struct {
 	DescriptorType string
@@ -76,59 +83,125 @@ func (x *Book) ValidateName() error {
 	return ValidateBookName(x.Name)
 }
 
-// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
-func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error {
+// FormatBookNameWithPattern formats a supported resource name pattern for Book.
+func FormatBookNameWithPattern(pattern string, parts BookNameParts) (string, error) {
+	var formatted string
+	switch pattern {
+	case BookNamePattern1:
+		value1 := parts.Publisher
+		if value1 == "" {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+		}
+		value3 := parts.Book
+		if value3 == "" {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+		}
+		if strings.Contains(value3, "/") {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+		}
+		formatted = "publishers" + "/" + value1 + "/" + "books" + "/" + value3
+	case BookNamePattern2:
+		value1 := parts.Archive
+		if value1 == "" {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "archive", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "archive", pattern)
+		}
+		value3 := parts.Book
+		if value3 == "" {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+		}
+		if strings.Contains(value3, "/") {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+		}
+		formatted = "archives" + "/" + value1 + "/" + "books" + "/" + value3
+	default:
+		return "", fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Book")
+	}
+	return formatted, nil
+}
+
+// FillNameWithPatternFromParts formats a supported resource name pattern and writes it back to Name.
+func (x *Book) FillNameWithPatternFromParts(pattern string, parts BookNameParts) error {
 	if x == nil {
 		return fmt.Errorf("nil *Book receiver")
 	}
+	formatted, err := FormatBookNameWithPattern(pattern, parts)
+	if err != nil {
+		return err
+	}
+	x.Name = formatted
+	return nil
+}
+
+// formatBookNameWithPatternFromMap formats a supported resource name pattern from a legacy map input.
+func formatBookNameWithPatternFromMap(pattern string, values map[string]string) (string, error) {
 	var formatted string
 	switch pattern {
 	case BookNamePattern1:
 		value1, ok := values["publisher"]
 		if !ok {
-			return fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
+			return "", fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
 		}
 		if value1 == "" {
-			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
 		}
 		if strings.Contains(value1, "/") {
-			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
 		}
 		value3, ok := values["book"]
 		if !ok {
-			return fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
+			return "", fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
 		}
 		if value3 == "" {
-			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
 		}
 		if strings.Contains(value3, "/") {
-			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
 		}
 		formatted = "publishers" + "/" + value1 + "/" + "books" + "/" + value3
 	case BookNamePattern2:
 		value1, ok := values["archive"]
 		if !ok {
-			return fmt.Errorf("missing value for variable %q in pattern %q", "archive", pattern)
+			return "", fmt.Errorf("missing value for variable %q in pattern %q", "archive", pattern)
 		}
 		if value1 == "" {
-			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "archive", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "archive", pattern)
 		}
 		if strings.Contains(value1, "/") {
-			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "archive", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "archive", pattern)
 		}
 		value3, ok := values["book"]
 		if !ok {
-			return fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
+			return "", fmt.Errorf("missing value for variable %q in pattern %q", "book", pattern)
 		}
 		if value3 == "" {
-			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "book", pattern)
 		}
 		if strings.Contains(value3, "/") {
-			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "book", pattern)
 		}
 		formatted = "archives" + "/" + value1 + "/" + "books" + "/" + value3
 	default:
-		return fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Book")
+		return "", fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Book")
+	}
+	return formatted, nil
+}
+
+// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
+//
+// Deprecated: Use FillNameWithPatternFromParts instead.
+func (x *Book) FillNameWithPattern(pattern string, values map[string]string) error {
+	if x == nil {
+		return fmt.Errorf("nil *Book receiver")
+	}
+	formatted, err := formatBookNameWithPatternFromMap(pattern, values)
+	if err != nil {
+		return err
 	}
 	x.Name = formatted
 	return nil

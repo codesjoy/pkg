@@ -18,6 +18,11 @@ type ParsedPublisherName struct {
 	Publisher      string
 }
 
+// PublisherNameParts contains the typed components used to format a Publisher resource name.
+type PublisherNameParts struct {
+	Publisher string
+}
+
 // ParsePublisherName parses a Publisher resource name into typed fields.
 func ParsePublisherName(name string) (ParsedPublisherName, error) {
 	parts := strings.Split(name, "/")
@@ -53,33 +58,101 @@ func (x *Publisher) ValidateName() error {
 	return ValidatePublisherName(x.Name)
 }
 
-// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
-func (x *Publisher) FillNameWithPattern(pattern string, values map[string]string) error {
+// FormatPublisherNameWithPattern formats a supported resource name pattern for Publisher.
+func FormatPublisherNameWithPattern(pattern string, parts PublisherNameParts) (string, error) {
+	var formatted string
+	switch pattern {
+	case PublisherNamePattern:
+		value1 := parts.Publisher
+		if value1 == "" {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+		}
+		if strings.Contains(value1, "/") {
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+		}
+		formatted = "publishers" + "/" + value1
+	default:
+		return "", fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Publisher")
+	}
+	return formatted, nil
+}
+
+// FormatPublisherName formats the only supported resource name pattern for Publisher.
+func FormatPublisherName(parts PublisherNameParts) (string, error) {
+	return FormatPublisherNameWithPattern(PublisherNamePattern, parts)
+}
+
+// FillNameWithPatternFromParts formats a supported resource name pattern and writes it back to Name.
+func (x *Publisher) FillNameWithPatternFromParts(pattern string, parts PublisherNameParts) error {
 	if x == nil {
 		return fmt.Errorf("nil *Publisher receiver")
 	}
+	formatted, err := FormatPublisherNameWithPattern(pattern, parts)
+	if err != nil {
+		return err
+	}
+	x.Name = formatted
+	return nil
+}
+
+// FillNameFromParts formats the only supported resource name pattern and writes it back to Name.
+func (x *Publisher) FillNameFromParts(parts PublisherNameParts) error {
+	return x.FillNameWithPatternFromParts(PublisherNamePattern, parts)
+}
+
+// formatPublisherNameWithPatternFromMap formats a supported resource name pattern from a legacy map input.
+func formatPublisherNameWithPatternFromMap(pattern string, values map[string]string) (string, error) {
 	var formatted string
 	switch pattern {
 	case PublisherNamePattern:
 		value1, ok := values["publisher"]
 		if !ok {
-			return fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
+			return "", fmt.Errorf("missing value for variable %q in pattern %q", "publisher", pattern)
 		}
 		if value1 == "" {
-			return fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not be empty", "publisher", pattern)
 		}
 		if strings.Contains(value1, "/") {
-			return fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
+			return "", fmt.Errorf("value for variable %q in pattern %q must not contain '/'", "publisher", pattern)
 		}
 		formatted = "publishers" + "/" + value1
 	default:
-		return fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Publisher")
+		return "", fmt.Errorf("pattern %q is not registered for type %q", pattern, "library.googleapis.com/Publisher")
+	}
+	return formatted, nil
+}
+
+// formatPublisherNameFromMap formats the only supported resource name pattern from a legacy map input.
+func formatPublisherNameFromMap(values map[string]string) (string, error) {
+	return formatPublisherNameWithPatternFromMap(PublisherNamePattern, values)
+}
+
+// FillNameWithPattern formats a supported resource name pattern and writes it back to Name.
+//
+// Deprecated: Use FillNameWithPatternFromParts instead.
+func (x *Publisher) FillNameWithPattern(pattern string, values map[string]string) error {
+	if x == nil {
+		return fmt.Errorf("nil *Publisher receiver")
+	}
+	formatted, err := formatPublisherNameWithPatternFromMap(pattern, values)
+	if err != nil {
+		return err
 	}
 	x.Name = formatted
 	return nil
 }
 
 // FillName formats the only supported resource name pattern and writes it back to Name.
+//
+// Deprecated: Use FillNameFromParts instead.
 func (x *Publisher) FillName(values map[string]string) error {
-	return x.FillNameWithPattern(PublisherNamePattern, values)
+	if x == nil {
+		return fmt.Errorf("nil *Publisher receiver")
+	}
+	formatted, err := formatPublisherNameFromMap(values)
+	if err != nil {
+		return err
+	}
+	x.Name = formatted
+	return nil
 }

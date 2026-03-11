@@ -8,12 +8,12 @@ import (
 
 func main() {
 	publisher := &libraryv1.Publisher{}
-	_ = publisher.FillName(map[string]string{"publisher": "pub-1"})
+	_ = publisher.FillNameFromParts(libraryv1.PublisherNameParts{Publisher: "pub-1"})
 
 	book := &libraryv1.Book{}
-	_ = book.FillNameWithPattern(libraryv1.BookNamePattern1, map[string]string{
-		"publisher": "pub-1",
-		"book":      "book-1",
+	_ = book.FillNameWithPatternFromParts(libraryv1.BookNamePattern1, libraryv1.BookNameParts{
+		Publisher: "pub-1",
+		Book:      "book-1",
 	})
 	request := libraryv1.GetBookRequest{Name: book.GetName()}
 	bookParsed, _ := libraryv1.ParseBookName(request.GetName())
