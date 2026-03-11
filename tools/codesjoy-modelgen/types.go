@@ -25,7 +25,6 @@ const (
 type Introspector interface {
 	Inspect(
 		ctx context.Context,
-		dialect string,
 		dsn string,
 		schema string,
 		tables []string,

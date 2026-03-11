@@ -12,7 +12,7 @@ func TestRun_ParseOptionsError(t *testing.T) {
 
 	err := run(
 		context.Background(),
-		[]string{"--dialect", "mysql"},
+		nil,
 		&bytes.Buffer{},
 		&bytes.Buffer{},
 	)
@@ -27,7 +27,6 @@ func TestRun_GeneratorError(t *testing.T) {
 	err := run(
 		context.Background(),
 		[]string{
-			"--dialect", "mysql",
 			"--dsn", "invalid-dsn",
 			"--out-dir", t.TempDir(),
 			"--package", "demo",
@@ -39,7 +38,7 @@ func TestRun_GeneratorError(t *testing.T) {
 		t.Fatal("run() error = nil, want generator error")
 	}
 	if !strings.Contains(err.Error(), "inspect metadata") &&
-		!strings.Contains(err.Error(), "open mysql connection") {
-		t.Fatalf("run() error = %v, want inspect/open mysql failure", err)
+		!strings.Contains(err.Error(), "infer database dialect from DSN") {
+		t.Fatalf("run() error = %v, want inspect/infer dialect failure", err)
 	}
 }

@@ -8,7 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysql "github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -18,14 +19,13 @@ type SQLIntrospector struct{}
 // Inspect loads table/column/index metadata from the target database.
 func (i *SQLIntrospector) Inspect(
 	ctx context.Context,
-	dialect string,
 	dsn string,
 	schema string,
 	requestedTables []string,
 ) ([]TableMeta, error) {
-	normalizedDialect, err := normalizeDialect(dialect)
+	normalizedDialect, err := inferDialectFromDSN(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("infer database dialect from DSN: %w", err)
 	}
 
 	driverName := mysqlDriverName
@@ -99,15 +99,28 @@ const (
 	postgresDriverName = "pgx"
 )
 
-func normalizeDialect(dialect string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(dialect)) {
-	case dialectMySQL:
-		return dialectMySQL, nil
-	case dialectPostgres:
-		return dialectPostgres, nil
-	default:
-		return "", fmt.Errorf("unsupported dialect %q, expected mysql or postgres", dialect)
+func inferDialectFromDSN(dsn string) (string, error) {
+	trimmedDSN := strings.TrimSpace(dsn)
+	if trimmedDSN == "" {
+		return "", fmt.Errorf("--dsn is required")
 	}
+
+	lowerDSN := strings.ToLower(trimmedDSN)
+	switch {
+	case strings.HasPrefix(lowerDSN, "postgres://"), strings.HasPrefix(lowerDSN, "postgresql://"):
+		return dialectPostgres, nil
+	case strings.Contains(trimmedDSN, "@tcp("), strings.Contains(trimmedDSN, "@unix("):
+		return dialectMySQL, nil
+	}
+
+	if _, err := pgx.ParseConfig(trimmedDSN); err == nil {
+		return dialectPostgres, nil
+	}
+	if _, err := mysql.ParseDSN(trimmedDSN); err == nil {
+		return dialectMySQL, nil
+	}
+
+	return "", fmt.Errorf("unsupported DSN format; expected MySQL or PostgreSQL DSN")
 }
 
 func detectDefaultSchema(ctx context.Context, db *sql.DB, dialect string) (string, error) {

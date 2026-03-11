@@ -27,11 +27,12 @@ codesjoy-modelgen \
 Required flags:
 
 - `--dsn`
+  - MySQL example: `user:pass@tcp(127.0.0.1:3306)/demo?parseTime=true`
+  - PostgreSQL example: `postgres://user:pass@127.0.0.1:5432/demo?sslmode=disable`
 
 Optional flags:
 
 - `--out-dir` (default `./`)
-- `--dialect` (`mysql|postgres`, inferred from `--dsn` by default)
 - `--schema`
 - `--tables`
 - `--override`

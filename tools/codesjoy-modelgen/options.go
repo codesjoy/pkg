@@ -9,14 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgx/v5"
 )
 
 // Options contains CLI arguments for model generation.
 type Options struct {
-	Dialect          string
 	DSN              string
 	Schema           string
 	Tables           []string
@@ -35,13 +31,22 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	fs := flag.NewFlagSet("codesjoy-modelgen", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 
-	dialect := fs.String("dialect", "", "database dialect: mysql or postgres (optional, inferred from DSN when omitted)")
-	dsn := fs.String("dsn", "", "database DSN")
+	dsn := fs.String(
+		"dsn",
+		"",
+		"database DSN ("+
+			"MySQL: user:pass@tcp(127.0.0.1:3306)/db?parseTime=true; "+
+			"PostgreSQL: postgres://user:pass@127.0.0.1:5432/db?sslmode=disable)",
+	)
 	schema := fs.String("schema", "", "database schema (optional)")
 	tables := fs.String("tables", "", "comma-separated tables (optional)")
 	overrideFile := fs.String("override", "", "path to YAML override file (optional)")
 	outDir := fs.String("out-dir", "./", "output directory")
-	packageName := fs.String("package", "", "go package name for generated files (optional, inferred from out-dir when omitted)")
+	packageName := fs.String(
+		"package",
+		"",
+		"go package name for generated files (optional, inferred from out-dir when omitted)",
+	)
 	genAIPSQL := fs.Bool("gen-aipsql", true, "generate AIPTable method and wrapper")
 	timestampMode := fs.String(
 		"timestamp-mode",
@@ -54,7 +59,10 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(
 			errOut,
-			"Usage: codesjoy-modelgen --dsn <dsn> [--out-dir <dir>] [--dialect mysql|postgres] [--package <name>] [--schema <schema>] [--tables t1,t2] [--override file.yaml] [--gen-aipsql=true] [--timestamp-mode unix_sec|unix_milli|unix_nano] [--dry-run] [--force]",
+			"Usage: codesjoy-modelgen --dsn <dsn> [--out-dir <dir>] [--package <name>] "+
+				"[--schema <schema>] [--tables t1,t2] [--override file.yaml] "+
+				"[--gen-aipsql=true] [--timestamp-mode unix_sec|unix_milli|unix_nano] "+
+				"[--dry-run] [--force]",
 		)
 		fs.PrintDefaults()
 	}
@@ -69,7 +77,6 @@ func parseOptions(args []string, errOut io.Writer) (Options, error) {
 	visitedFlags := collectVisitedFlags(fs)
 
 	opts := Options{
-		Dialect:       strings.TrimSpace(*dialect),
 		DSN:           strings.TrimSpace(*dsn),
 		Schema:        strings.TrimSpace(*schema),
 		Tables:        splitCSV(*tables),
@@ -101,9 +108,6 @@ func (o Options) validate() error {
 	if err := o.validateRequired(); err != nil {
 		return err
 	}
-	if _, err := normalizeDialect(o.Dialect); err != nil {
-		return err
-	}
 	if !token.IsIdentifier(o.PackageName) || types.Universe.Lookup(o.PackageName) != nil {
 		return fmt.Errorf("invalid --package value %q", o.PackageName)
 	}
@@ -115,14 +119,6 @@ func (o Options) validate() error {
 }
 
 func (o *Options) resolveDefaults() error {
-	if strings.TrimSpace(o.Dialect) == "" {
-		dialect, err := resolveDialect(o.DSN)
-		if err != nil {
-			return err
-		}
-		o.Dialect = dialect
-	}
-
 	if strings.TrimSpace(o.PackageName) == "" {
 		packageName, err := resolvePackageName(o.OutDir)
 		if err != nil {
@@ -132,22 +128,6 @@ func (o *Options) resolveDefaults() error {
 	}
 
 	return nil
-}
-
-func resolveDialect(dsn string) (string, error) {
-	trimmedDSN := strings.TrimSpace(dsn)
-	if trimmedDSN == "" {
-		return "", fmt.Errorf("--dsn is required")
-	}
-
-	if _, err := pgx.ParseConfig(trimmedDSN); err == nil {
-		return dialectPostgres, nil
-	}
-	if _, err := mysql.ParseDSN(trimmedDSN); err == nil {
-		return dialectMySQL, nil
-	}
-
-	return "", fmt.Errorf("cannot infer --dialect from DSN; please pass --dialect explicitly")
 }
 
 func resolvePackageName(outDir string) (string, error) {

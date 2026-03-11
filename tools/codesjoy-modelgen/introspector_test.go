@@ -22,16 +22,20 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	return db, mock
 }
 
-func TestNormalizeDialect(t *testing.T) {
+func TestInferDialectFromDSN(t *testing.T) {
 	t.Parallel()
-	if got, err := normalizeDialect(" MySQL "); err != nil || got != dialectMySQL {
-		t.Fatalf("normalizeDialect(mysql) = %q, %v", got, err)
+	if got, err := inferDialectFromDSN(
+		"user:pass@tcp(127.0.0.1:3306)/demo?parseTime=true",
+	); err != nil || got != dialectMySQL {
+		t.Fatalf("inferDialectFromDSN(mysql) = %q, %v", got, err)
 	}
-	if got, err := normalizeDialect("postgres"); err != nil || got != dialectPostgres {
-		t.Fatalf("normalizeDialect(postgres) = %q, %v", got, err)
+	if got, err := inferDialectFromDSN(
+		"postgres://demo:demo@127.0.0.1:5432/app?sslmode=disable",
+	); err != nil || got != dialectPostgres {
+		t.Fatalf("inferDialectFromDSN(postgres) = %q, %v", got, err)
 	}
-	if _, err := normalizeDialect("sqlite"); err == nil {
-		t.Fatal("normalizeDialect(sqlite) error = nil, want error")
+	if _, err := inferDialectFromDSN("sqlite://demo"); err == nil {
+		t.Fatal("inferDialectFromDSN(sqlite) error = nil, want error")
 	}
 }
 

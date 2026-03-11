@@ -31,7 +31,6 @@ func TestIntegration_Generator_EndToEnd_MySQL_UnixNano(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectMySQL,
 		"--dsn", mustMySQLDSN(t),
 		"--schema", integrationDBName,
 		"--tables", "users,events",
@@ -72,7 +71,6 @@ func TestIntegration_Generator_EndToEnd_Postgres_UnixNano(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users,events",
@@ -124,7 +122,6 @@ tables:
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users",
@@ -152,7 +149,6 @@ func TestIntegration_AIPIndexes_VisibleCompositeIncluded(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectMySQL,
 		"--dsn", mustMySQLDSN(t),
 		"--schema", integrationDBName,
 		"--tables", "users",
@@ -186,7 +182,6 @@ func TestIntegration_AIPIndexes_HiddenColumnCompositePruned(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "events",
@@ -219,7 +214,6 @@ func TestIntegration_AIPIndexes_ExposeDeletedRestoresComposite(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "events",
@@ -253,7 +247,6 @@ func TestIntegration_PostgresCharacterVarying_DefaultExactMatchMode(t *testing.T
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users",
@@ -287,7 +280,6 @@ func TestIntegration_AIPIndexes_IndexHintFromOverride(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users",

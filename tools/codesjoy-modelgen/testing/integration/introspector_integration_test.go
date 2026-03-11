@@ -32,7 +32,6 @@ func TestIntegration_SQLIntrospector_MySQL_Metadata(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectMySQL,
 		"--dsn", mustMySQLDSN(t),
 		"--schema", integrationDBName,
 		"--tables", "users,events",
@@ -62,7 +61,6 @@ func TestIntegration_SQLIntrospector_Postgres_Metadata(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users,events",
@@ -98,7 +96,6 @@ func TestIntegration_SQLIntrospector_TableFilterAndMissing(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users",
@@ -119,7 +116,6 @@ func TestIntegration_SQLIntrospector_TableFilterAndMissing(t *testing.T) {
 	_, stderrMissing, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users,missing_table",
@@ -141,22 +137,19 @@ func TestIntegration_SQLIntrospector_IndexOrderingStable(t *testing.T) {
 	defer cancel()
 
 	cases := []struct {
-		name    string
-		dialect string
-		dsn     string
-		schema  string
+		name   string
+		dsn    string
+		schema string
 	}{
 		{
-			name:    "mysql",
-			dialect: dialectMySQL,
-			dsn:     mustMySQLDSN(t),
-			schema:  integrationDBName,
+			name:   "mysql",
+			dsn:    mustMySQLDSN(t),
+			schema: integrationDBName,
 		},
 		{
-			name:    "postgres",
-			dialect: dialectPostgres,
-			dsn:     mustPostgresDSN(t),
-			schema:  integrationSchemaPG,
+			name:   "postgres",
+			dsn:    mustPostgresDSN(t),
+			schema: integrationSchemaPG,
 		},
 	}
 
@@ -167,7 +160,6 @@ func TestIntegration_SQLIntrospector_IndexOrderingStable(t *testing.T) {
 			stdout, stderr, err := runGenerator(
 				ctx,
 				t,
-				"--dialect", tc.dialect,
 				"--dsn", tc.dsn,
 				"--schema", tc.schema,
 				"--tables", "users",
@@ -202,7 +194,6 @@ func TestIntegration_SQLIntrospector_IndexSetAffectsSortable(t *testing.T) {
 	stdout, stderr, err := runGenerator(
 		ctx,
 		t,
-		"--dialect", dialectPostgres,
 		"--dsn", mustPostgresDSN(t),
 		"--schema", integrationSchemaPG,
 		"--tables", "users",

@@ -30,12 +30,6 @@ func (g *Generator) Run(ctx context.Context, opts Options, stdout io.Writer) err
 		return err
 	}
 
-	normalizedDialect, err := normalizeDialect(opts.Dialect)
-	if err != nil {
-		return err
-	}
-	opts.Dialect = normalizedDialect
-
 	tables, err := g.inspectTables(ctx, opts)
 	if err != nil {
 		return err
@@ -115,7 +109,6 @@ func (g *Generator) validateDependencies() error {
 func (g *Generator) inspectTables(ctx context.Context, opts Options) ([]TableMeta, error) {
 	tables, err := g.Introspector.Inspect(
 		ctx,
-		opts.Dialect,
 		opts.DSN,
 		opts.Schema,
 		opts.Tables,

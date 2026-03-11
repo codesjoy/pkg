@@ -18,7 +18,6 @@ func (f *fakeIntrospector) Inspect(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ string,
 	_ []string,
 ) ([]TableMeta, error) {
 	if f.err != nil {
@@ -30,7 +29,7 @@ func (f *fakeIntrospector) Inspect(
 func TestParseOptions_RequiredFlags(t *testing.T) {
 	t.Parallel()
 
-	_, err := parseOptions([]string{"--dialect", "mysql"}, &bytes.Buffer{})
+	_, err := parseOptions([]string{}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("parseOptions() error = nil, want error")
 	}
@@ -52,7 +51,6 @@ func TestGenerator_ProtectsNonGeneratedFile(t *testing.T) {
 	}
 
 	err := gen.Run(context.Background(), Options{
-		Dialect:     "mysql",
 		DSN:         "demo",
 		OutDir:      outDir,
 		PackageName: "demo",
@@ -77,7 +75,6 @@ func TestGenerator_DryRunDoesNotWriteFiles(t *testing.T) {
 	}
 
 	err := gen.Run(context.Background(), Options{
-		Dialect:     "mysql",
 		DSN:         "demo",
 		OutDir:      outDir,
 		PackageName: "demo",
@@ -146,7 +143,6 @@ func TestGenerator_WarnsLegacySplitFiles(t *testing.T) {
 	}
 
 	err := gen.Run(context.Background(), Options{
-		Dialect:     "mysql",
 		DSN:         "demo",
 		OutDir:      outDir,
 		PackageName: "demo",

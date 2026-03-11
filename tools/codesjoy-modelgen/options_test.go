@@ -17,9 +17,6 @@ func TestParseOptions_DefaultsAndExplicitFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseOptions() error = %v", err)
 	}
-	if opts.Dialect != dialectPostgres {
-		t.Fatalf("Dialect = %q, want %q", opts.Dialect, dialectPostgres)
-	}
 	if opts.OutDir != "./internal/model" {
 		t.Fatalf("OutDir = %q, want ./internal/model", opts.OutDir)
 	}
@@ -40,7 +37,6 @@ func TestParseOptions_DefaultsAndExplicitFlags(t *testing.T) {
 	}
 
 	explicit, err := parseOptions([]string{
-		"--dialect", "mysql",
 		"--dsn", "postgres://demo:demo@127.0.0.1:5432/app?sslmode=disable",
 		"--out-dir", "./out",
 		"--package", "demo",
@@ -49,9 +45,6 @@ func TestParseOptions_DefaultsAndExplicitFlags(t *testing.T) {
 	}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("parseOptions(explicit) error = %v", err)
-	}
-	if explicit.Dialect != dialectMySQL {
-		t.Fatalf("Dialect = %q, want %q", explicit.Dialect, dialectMySQL)
 	}
 	if explicit.PackageName != "demo" {
 		t.Fatalf("PackageName = %q, want demo", explicit.PackageName)
@@ -72,7 +65,7 @@ func TestParseOptions_DefaultsAndExplicitFlags(t *testing.T) {
 
 func TestParseOptions_DefaultOutDirUsesCurrentDirectoryName(t *testing.T) {
 	workDir := filepath.Join(t.TempDir(), "model")
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		t.Fatalf("mkdir work dir: %v", err)
 	}
 
@@ -147,18 +140,18 @@ func TestParseOptions_InvalidInferredPackage(t *testing.T) {
 	}
 }
 
-func TestParseOptions_InvalidInferredDialect(t *testing.T) {
+func TestParseOptions_DoesNotValidateDSNFormat(t *testing.T) {
 	t.Parallel()
 
-	_, err := parseOptions([]string{
+	opts, err := parseOptions([]string{
 		"--dsn", "not-a-valid-dsn",
 		"--out-dir", "./model",
 	}, &bytes.Buffer{})
-	if err == nil {
-		t.Fatal("parseOptions() error = nil, want error")
+	if err != nil {
+		t.Fatalf("parseOptions() error = %v", err)
 	}
-	if got := err.Error(); got != "cannot infer --dialect from DSN; please pass --dialect explicitly" {
-		t.Fatalf("unexpected error = %q", got)
+	if opts.DSN != "not-a-valid-dsn" {
+		t.Fatalf("DSN = %q, want not-a-valid-dsn", opts.DSN)
 	}
 }
 
@@ -174,11 +167,10 @@ func TestSplitCSV(t *testing.T) {
 	}
 }
 
-func TestOptionsValidate_InvalidPackageAndDialect(t *testing.T) {
+func TestOptionsValidate_InvalidPackage(t *testing.T) {
 	t.Parallel()
 
 	err := (Options{
-		Dialect:       "mysql",
 		DSN:           "demo",
 		OutDir:        ".",
 		PackageName:   "for",
@@ -186,16 +178,5 @@ func TestOptionsValidate_InvalidPackageAndDialect(t *testing.T) {
 	}).validate()
 	if err == nil {
 		t.Fatal("validate(invalid package) error = nil")
-	}
-
-	err = (Options{
-		Dialect:       "sqlite",
-		DSN:           "demo",
-		OutDir:        ".",
-		PackageName:   "demo",
-		TimestampMode: timestampModeUnixSec,
-	}).validate()
-	if err == nil {
-		t.Fatal("validate(invalid dialect) error = nil")
 	}
 }
