@@ -108,19 +108,12 @@ func (cfg *GroupConsumerConfig) Validate() error {
 }
 
 func (cfg *GroupConsumerConfig) applyDefaults() {
-	if cfg.ShardCount == 0 {
-		cfg.ShardCount = DefaultShardCount
-	}
-	if cfg.ShardQueueSize == 0 {
-		cfg.ShardQueueSize = DefaultShardQueueSize
-	}
+	applyDefaultInt(&cfg.ShardCount, DefaultShardCount)
+	applyDefaultInt(&cfg.ShardQueueSize, DefaultShardQueueSize)
 	if cfg.TopicHandlers == nil {
 		cfg.TopicHandlers = make(map[string]ConsumeTopicHandlers)
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	applyDefaultBool(&cfg.LoggerHandlerEnabled, true)
 }
 
 func (cfg *GroupConsumerConfig) normalizeInputs() {
@@ -149,45 +142,15 @@ func (cfg *GroupConsumerConfig) validateRequiredFields() error {
 }
 
 func (cfg *GroupConsumerConfig) ensureDependencies() error {
-	if cfg.KeyExtractor == nil {
-		cfg.KeyExtractor = KeyExtractor(router.DefaultConsumeKeyExtractor)
-	}
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
-	if cfg.SaramaConfig == nil {
-		cfg.SaramaConfig = sarama.NewConfig()
-	}
-	cfg.SaramaConfig.Consumer.Return.Errors = true
-	if cfg.SaramaConfig.Version == sarama.MinVersion {
-		cfg.SaramaConfig.Version = sarama.V2_8_0_0
-	}
-	if err := cfg.SaramaConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid sarama config: %w", err)
-	}
-	return nil
+	return ensureConsumeDependencies(&cfg.KeyExtractor, &cfg.Logger, &cfg.SaramaConfig)
 }
 
 func (cfg *GroupConsumerConfig) validateExhaustedPolicy() error {
-	switch cfg.ExhaustedPolicy {
-	case "":
-		cfg.ExhaustedPolicy = ExhaustedPolicyBlock
-	case ExhaustedPolicyBlock, ExhaustedPolicyDLQCommit, ExhaustedPolicyStop:
-	default:
-		return fmt.Errorf("unsupported exhausted policy %q", cfg.ExhaustedPolicy)
-	}
-	return nil
+	return normalizeConsumeExhaustedPolicy(&cfg.ExhaustedPolicy)
 }
 
 func (cfg *GroupConsumerConfig) normalizeAndValidateRetryConfig() error {
-	if cfg.RetryConfig == (RetryConfig{}) {
-		cfg.RetryConfig = cretry.DefaultConfig()
-	}
-	cfg.RetryConfig = cretry.NormalizeConfig(cfg.RetryConfig)
-	if err := cretry.ValidateConfig(cfg.RetryConfig); err != nil {
-		return err
-	}
-	return nil
+	return normalizeConsumeRetryConfig(&cfg.RetryConfig)
 }
 
 func (cfg *GroupConsumerConfig) validateDLQ() error {
@@ -210,15 +173,11 @@ func (cfg *GroupConsumerConfig) normalizeAndValidateTopicHandlers() error {
 		if topicName == "" {
 			return errors.New("topic handlers contain empty topic")
 		}
-		if handlers.Mode == "" {
-			handlers.Mode = ChainModeAppend
-			cfg.TopicHandlers[topic] = handlers
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		if err := validateChainMode(topicName, handlers.Mode, "topic %q uses unsupported chain mode %q"); err != nil {
+			return err
 		}
-		switch handlers.Mode {
-		case ChainModeAppend, ChainModeReplace:
-		default:
-			return fmt.Errorf("topic %q uses unsupported chain mode %q", topicName, handlers.Mode)
-		}
+		cfg.TopicHandlers[topic] = handlers
 	}
 	return nil
 }

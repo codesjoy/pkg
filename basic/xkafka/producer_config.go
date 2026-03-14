@@ -126,10 +126,7 @@ func (cfg *ProducerConfig) applyDefaults() {
 	if cfg.TopicHandlers == nil {
 		cfg.TopicHandlers = make(map[string]ProduceTopicHandlers)
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	applyDefaultBool(&cfg.LoggerHandlerEnabled, true)
 }
 
 func (cfg *ProducerConfig) normalizeInputs() {
@@ -169,44 +166,15 @@ func (cfg *ProducerConfig) normalizeAndValidateDispatch() error {
 }
 
 func (cfg *ProducerConfig) ensureDependencies() error {
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
-	if cfg.SaramaConfig == nil {
-		cfg.SaramaConfig = sarama.NewConfig()
-	}
-	cfg.SaramaConfig.Producer.Return.Successes = true
-	if cfg.SaramaConfig.Version == sarama.MinVersion {
-		cfg.SaramaConfig.Version = sarama.V2_8_0_0
-	}
-	if err := cfg.SaramaConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid producer sarama config: %w", err)
-	}
-	return nil
+	return ensureProducerDependencies(&cfg.Logger, &cfg.SaramaConfig)
 }
 
 func (cfg *ProducerConfig) normalizeAndValidateRetryConfig() error {
-	if cfg.RetryConfig == (RetryConfig{}) {
-		cfg.RetryConfig = ppretry.DefaultConfig()
-	}
-	cfg.RetryConfig = ppretry.NormalizeConfig(cfg.RetryConfig)
-	if err := ppretry.ValidateConfig(cfg.RetryConfig); err != nil {
-		return err
-	}
-	return nil
+	return normalizeProduceRetryConfig(&cfg.RetryConfig)
 }
 
 func (cfg *ProducerConfig) validateExhaustedPolicy() error {
-	switch cfg.ExhaustedPolicy {
-	case "":
-		cfg.ExhaustedPolicy = ProducerExhaustedPolicyBlock
-	case ProducerExhaustedPolicyBlock,
-		ProducerExhaustedPolicyStop,
-		ProducerExhaustedPolicyDrop:
-	default:
-		return fmt.Errorf("unsupported producer exhausted policy %q", cfg.ExhaustedPolicy)
-	}
-	return nil
+	return normalizeProducerExhaustedPolicy(&cfg.ExhaustedPolicy)
 }
 
 func (cfg *ProducerConfig) normalizeAndValidateTopicHandlers() error {
@@ -215,19 +183,15 @@ func (cfg *ProducerConfig) normalizeAndValidateTopicHandlers() error {
 		if topicName == "" {
 			return errors.New("producer topic handlers contain empty topic")
 		}
-		if handlers.Mode == "" {
-			handlers.Mode = ChainModeAppend
-			cfg.TopicHandlers[topic] = handlers
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		if err := validateChainMode(
+			topicName,
+			handlers.Mode,
+			"producer topic %q uses unsupported chain mode %q",
+		); err != nil {
+			return err
 		}
-		switch handlers.Mode {
-		case ChainModeAppend, ChainModeReplace:
-		default:
-			return fmt.Errorf(
-				"producer topic %q uses unsupported chain mode %q",
-				topicName,
-				handlers.Mode,
-			)
-		}
+		cfg.TopicHandlers[topic] = handlers
 	}
 	return nil
 }

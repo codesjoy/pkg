@@ -151,19 +151,12 @@ func (cfg *PartitionConsumerConfig) Validate() error {
 }
 
 func (cfg *PartitionConsumerConfig) applyDefaults() {
-	if cfg.ShardCount == 0 {
-		cfg.ShardCount = DefaultShardCount
-	}
-	if cfg.ShardQueueSize == 0 {
-		cfg.ShardQueueSize = DefaultShardQueueSize
-	}
+	applyDefaultInt(&cfg.ShardCount, DefaultShardCount)
+	applyDefaultInt(&cfg.ShardQueueSize, DefaultShardQueueSize)
 	if cfg.InitialOffset == 0 {
 		cfg.InitialOffset = sarama.OffsetOldest
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	applyDefaultBool(&cfg.LoggerHandlerEnabled, true)
 }
 
 func (cfg *PartitionConsumerConfig) normalizeInputs() {
@@ -200,48 +193,21 @@ func (cfg *PartitionConsumerConfig) validateRequiredFields() error {
 }
 
 func (cfg *PartitionConsumerConfig) ensureDependencies() error {
-	if cfg.KeyExtractor == nil {
-		cfg.KeyExtractor = KeyExtractor(router.DefaultConsumeKeyExtractor)
-	}
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
+	if err := ensureConsumeDependencies(&cfg.KeyExtractor, &cfg.Logger, &cfg.SaramaConfig); err != nil {
+		return err
 	}
 	if cfg.OffsetStore == nil {
 		cfg.OffsetStore = NewMemoryOffsetStore()
-	}
-	if cfg.SaramaConfig == nil {
-		cfg.SaramaConfig = sarama.NewConfig()
-	}
-	cfg.SaramaConfig.Consumer.Return.Errors = true
-	if cfg.SaramaConfig.Version == sarama.MinVersion {
-		cfg.SaramaConfig.Version = sarama.V2_8_0_0
-	}
-	if err := cfg.SaramaConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid sarama config: %w", err)
 	}
 	return nil
 }
 
 func (cfg *PartitionConsumerConfig) validateExhaustedPolicy() error {
-	switch cfg.ExhaustedPolicy {
-	case "":
-		cfg.ExhaustedPolicy = ExhaustedPolicyBlock
-	case ExhaustedPolicyBlock, ExhaustedPolicyDLQCommit, ExhaustedPolicyStop:
-	default:
-		return fmt.Errorf("unsupported exhausted policy %q", cfg.ExhaustedPolicy)
-	}
-	return nil
+	return normalizeConsumeExhaustedPolicy(&cfg.ExhaustedPolicy)
 }
 
 func (cfg *PartitionConsumerConfig) normalizeAndValidateRetryConfig() error {
-	if cfg.RetryConfig == (RetryConfig{}) {
-		cfg.RetryConfig = cretry.DefaultConfig()
-	}
-	cfg.RetryConfig = cretry.NormalizeConfig(cfg.RetryConfig)
-	if err := cretry.ValidateConfig(cfg.RetryConfig); err != nil {
-		return err
-	}
-	return nil
+	return normalizeConsumeRetryConfig(&cfg.RetryConfig)
 }
 
 func (cfg *PartitionConsumerConfig) validateDLQ() error {

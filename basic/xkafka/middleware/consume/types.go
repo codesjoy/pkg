@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package consume provides consumer-side middleware types and composition helpers.
 package consume
 
 import (
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+
+	"github.com/codesjoy/pkg/basic/xkafka/internal/primitives/pipeline"
 )
 
 // ErrNilHandlerFunc indicates no final consumer message handler is provided.
@@ -45,6 +48,35 @@ func (f Func) Handle(ctx context.Context, msg *MessageContext, next Next) error 
 		return next(ctx, msg)
 	}
 	return f(ctx, msg, next)
+}
+
+// Compose builds a middleware chain around a final business handler.
+func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
+	if final == nil {
+		return func(context.Context, *MessageContext) error {
+			return ErrNilHandlerFunc
+		}
+	}
+
+	adapted := make(
+		[]func(context.Context, *MessageContext, func(context.Context, *MessageContext) error) error,
+		0,
+		len(handlers),
+	)
+	for _, handler := range handlers {
+		if handler == nil {
+			continue
+		}
+		current := handler
+		adapted = append(
+			adapted,
+			func(ctx context.Context, msg *MessageContext, next func(context.Context, *MessageContext) error) error {
+				return current.Handle(ctx, msg, Next(next))
+			},
+		)
+	}
+
+	return pipeline.ComposeError(adapted, final)
 }
 
 // MessageContext contains per-message metadata passed through handlers.

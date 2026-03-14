@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package xkafka provides Sarama-based Group/Partition consumers and producer
+// helpers with middleware pipelines, slog logging, sharded key ordering, and
+// at-least-once semantics.
 package xkafka
 
 import (
@@ -21,6 +24,7 @@ import (
 	"github.com/IBM/sarama"
 
 	pretry "github.com/codesjoy/pkg/basic/xkafka/internal/primitives/retry"
+	xstore "github.com/codesjoy/pkg/basic/xkafka/internal/store"
 	cconsume "github.com/codesjoy/pkg/basic/xkafka/middleware/consume/retry"
 	pproduce "github.com/codesjoy/pkg/basic/xkafka/middleware/produce/retry"
 )
@@ -122,6 +126,14 @@ type OffsetStore interface {
 		partition int32,
 	) (nextOffset int64, found bool, err error)
 	Save(ctx context.Context, topic string, partition int32, nextOffset int64) error
+}
+
+// MemoryOffsetStore keeps offsets in-process only.
+type MemoryOffsetStore = xstore.MemoryOffsetStore
+
+// NewMemoryOffsetStore creates default in-memory offset storage.
+func NewMemoryOffsetStore() *MemoryOffsetStore {
+	return xstore.NewMemoryOffsetStore()
 }
 
 // ProducerExhaustedPolicy controls action when finite retries are exhausted.

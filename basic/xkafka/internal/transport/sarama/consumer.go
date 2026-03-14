@@ -32,3 +32,12 @@ func NewConsumerGroup(
 	}
 	return group, nil
 }
+
+// NewConsumer creates a Sarama partition consumer client.
+func NewConsumer(brokers []string, cfg *ibmsarama.Config) (ibmsarama.Consumer, error) {
+	consumer, err := ibmsarama.NewConsumer(brokers, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create partition consumer: %w", err)
+	}
+	return consumer, nil
+}

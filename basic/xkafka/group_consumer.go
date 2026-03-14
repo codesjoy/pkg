@@ -26,7 +26,6 @@ import (
 	rtgroup "github.com/codesjoy/pkg/basic/xkafka/internal/runtime/group"
 	xsarama "github.com/codesjoy/pkg/basic/xkafka/internal/transport/sarama"
 	"github.com/codesjoy/pkg/basic/xkafka/middleware/consume"
-	clogger "github.com/codesjoy/pkg/basic/xkafka/middleware/consume/logger"
 	cretry "github.com/codesjoy/pkg/basic/xkafka/middleware/consume/retry"
 )
 
@@ -63,13 +62,10 @@ func NewGroupConsumer(cfg GroupConsumerConfig) (*GroupConsumer, error) {
 
 // Consume starts consuming in a rebalance-safe loop.
 func (c *GroupConsumer) Consume(ctx context.Context, business consume.HandlerFunc) error {
-	if c == nil {
-		return errors.New("group consumer is nil")
+	var err error
+	if ctx, err = prepareConsumeCall(c == nil, "group consumer is nil", ctx, business); err != nil {
+		return err
 	}
-	if business == nil {
-		return consume.ErrNilHandlerFunc
-	}
-	ctx = normalizeContext(ctx)
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -130,40 +126,29 @@ func (c *GroupConsumer) buildConsumeChain(
 }
 
 func (c *GroupConsumer) handlersForTopic(topic string) []consume.Handler {
-	handlers := make([]consume.Handler, 0, len(c.cfg.GlobalHandlers)+3)
-	if boolValue(c.cfg.LoggerHandlerEnabled, true) {
-		handlers = append(handlers, clogger.New(c.cfg.Logger))
-	}
-	handlers = append(handlers, cretry.New(
-		c.cfg.RetryConfig,
-		c.cfg.ExhaustedPolicy,
-		c.cfg.FailureHook,
-		c.cfg.Logger,
-		c.dlq,
-	))
-
 	selected := c.cfg.GlobalHandlers
 	if topicCfg, ok := c.cfg.TopicHandlers[topic]; ok {
-		if topicCfg.Mode == ChainModeReplace {
-			selected = topicCfg.Handlers
-		} else {
-			selected = append(append([]consume.Handler(nil), selected...), topicCfg.Handlers...)
-		}
+		selected = selectTopicHandlers(selected, topicCfg.Mode, topicCfg.Handlers)
 	}
 
+	handlers := baseConsumeHandlers(
+		c.cfg.Logger,
+		c.cfg.LoggerHandlerEnabled,
+		cretry.New(
+			c.cfg.RetryConfig,
+			c.cfg.ExhaustedPolicy,
+			c.cfg.FailureHook,
+			c.cfg.Logger,
+			c.dlq,
+		),
+		len(selected),
+	)
 	handlers = append(handlers, selected...)
 	return handlers
 }
 
 func (c *GroupConsumer) extractLogicalKey(msg *sarama.ConsumerMessage) (string, error) {
-	key, err := c.cfg.KeyExtractor(msg)
-	if err != nil {
-		return "", err
-	}
-	if key == "" {
-		return router.ConsumeFallbackKey(msg), nil
-	}
-	return key, nil
+	return extractConsumeLogicalKey(c.cfg.KeyExtractor, msg)
 }
 
 func (c *GroupConsumer) routeShard(logicalKey string) int {

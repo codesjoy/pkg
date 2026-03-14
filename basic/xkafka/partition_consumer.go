@@ -22,11 +22,9 @@ import (
 
 	"github.com/IBM/sarama"
 
-	"github.com/codesjoy/pkg/basic/xkafka/internal/primitives/router"
 	rtpartition "github.com/codesjoy/pkg/basic/xkafka/internal/runtime/partition"
 	xsarama "github.com/codesjoy/pkg/basic/xkafka/internal/transport/sarama"
 	"github.com/codesjoy/pkg/basic/xkafka/middleware/consume"
-	clogger "github.com/codesjoy/pkg/basic/xkafka/middleware/consume/logger"
 	cretry "github.com/codesjoy/pkg/basic/xkafka/middleware/consume/retry"
 )
 
@@ -63,13 +61,10 @@ func NewPartitionConsumer(cfg PartitionConsumerConfig) (*PartitionConsumer, erro
 
 // Consume starts partition-mode consume loop with auto reconnect.
 func (c *PartitionConsumer) Consume(ctx context.Context, business consume.HandlerFunc) error {
-	if c == nil {
-		return errors.New("partition consumer is nil")
+	var err error
+	if ctx, err = prepareConsumeCall(c == nil, "partition consumer is nil", ctx, business); err != nil {
+		return err
 	}
-	if business == nil {
-		return consume.ErrNilHandlerFunc
-	}
-	ctx = normalizeContext(ctx)
 
 	runner := rtpartition.NewRunner(c.consumer, rtpartition.Config{
 		Topic:                   c.cfg.Topic,
@@ -120,29 +115,23 @@ func (c *PartitionConsumer) buildConsumeChain(
 }
 
 func (c *PartitionConsumer) handlersForTopic(_ string) []consume.Handler {
-	handlers := make([]consume.Handler, 0, len(c.cfg.GlobalHandlers)+2)
-	if boolValue(c.cfg.LoggerHandlerEnabled, true) {
-		handlers = append(handlers, clogger.New(c.cfg.Logger))
-	}
-	handlers = append(handlers, cretry.New(
-		c.cfg.RetryConfig,
-		c.cfg.ExhaustedPolicy,
-		c.cfg.FailureHook,
+	handlers := baseConsumeHandlers(
 		c.cfg.Logger,
-		c.dlq,
-	))
+		c.cfg.LoggerHandlerEnabled,
+		cretry.New(
+			c.cfg.RetryConfig,
+			c.cfg.ExhaustedPolicy,
+			c.cfg.FailureHook,
+			c.cfg.Logger,
+			c.dlq,
+		),
+		len(c.cfg.GlobalHandlers),
+	)
 	return append(handlers, c.cfg.GlobalHandlers...)
 }
 
 func (c *PartitionConsumer) extractLogicalKey(msg *sarama.ConsumerMessage) (string, error) {
-	key, err := c.cfg.KeyExtractor(msg)
-	if err != nil {
-		return "", err
-	}
-	if key == "" {
-		return router.ConsumeFallbackKey(msg), nil
-	}
-	return key, nil
+	return extractConsumeLogicalKey(c.cfg.KeyExtractor, msg)
 }
 
 func (c *PartitionConsumer) String() string {

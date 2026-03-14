@@ -31,6 +31,17 @@ import (
 	pretry "github.com/codesjoy/pkg/basic/xkafka/middleware/produce/retry"
 )
 
+var (
+	// ErrProducerClosed indicates producer is already closed.
+	ErrProducerClosed = errors.New("producer is closed")
+	// ErrNilProducerMessage indicates produce message is nil.
+	ErrNilProducerMessage = errors.New("producer message is nil")
+	// ErrProducerTopicRequired indicates topic cannot be resolved.
+	ErrProducerTopicRequired = errors.New("producer topic is required")
+	// ErrProducerDropped indicates retry policy dropped one message.
+	ErrProducerDropped = pretry.ErrMessageDropped
+)
+
 // Producer wraps one Sarama SyncProducer with sync/batch/async capabilities.
 type Producer struct {
 	cfg ProducerConfig
@@ -209,11 +220,7 @@ func (p *Producer) handlersForTopic(topic string) []produce.Handler {
 
 	selected := p.cfg.GlobalHandlers
 	if topicCfg, ok := p.cfg.TopicHandlers[topic]; ok {
-		if topicCfg.Mode == ChainModeReplace {
-			selected = topicCfg.Handlers
-		} else {
-			selected = append(append([]produce.Handler(nil), selected...), topicCfg.Handlers...)
-		}
+		selected = selectTopicHandlers(selected, topicCfg.Mode, topicCfg.Handlers)
 	}
 
 	handlers = append(handlers, selected...)

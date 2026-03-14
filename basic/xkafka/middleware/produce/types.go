@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package produce provides producer-side middleware types and composition helpers.
 package produce
 
 import (
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+
+	"github.com/codesjoy/pkg/basic/xkafka/internal/primitives/pipeline"
 )
 
 // ErrNilHandlerFunc indicates no final message producer handler is provided.
@@ -82,4 +85,34 @@ func (f Func) Handle(
 		return next(ctx, msg)
 	}
 	return f(ctx, msg, next)
+}
+
+// Compose builds a middleware chain around a final business handler.
+func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
+	if final == nil {
+		return func(context.Context, *MessageContext) (*Result, error) {
+			return nil, ErrNilHandlerFunc
+		}
+	}
+
+	adapted := make(
+		[]func(context.Context, *MessageContext, func(context.Context, *MessageContext) (*Result, error)) (*Result, error),
+		0,
+		len(handlers),
+	)
+	for _, handler := range handlers {
+		if handler == nil {
+			continue
+		}
+		current := handler
+		adapted = append(adapted, func(
+			ctx context.Context,
+			msg *MessageContext,
+			next func(context.Context, *MessageContext) (*Result, error),
+		) (*Result, error) {
+			return current.Handle(ctx, msg, Next(next))
+		})
+	}
+
+	return pipeline.ComposeResult(adapted, final)
 }
