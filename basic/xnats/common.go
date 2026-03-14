@@ -15,11 +15,18 @@
 package xnats
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	pretry "github.com/codesjoy/pkg/basic/xnats/internal/primitives/retry"
+	"github.com/codesjoy/pkg/basic/xnats/middleware/consume"
 	cretry "github.com/codesjoy/pkg/basic/xnats/middleware/consume/retry"
 	pretrymw "github.com/codesjoy/pkg/basic/xnats/middleware/publish/retry"
 )
@@ -40,6 +47,37 @@ const (
 	DefaultPullMaxWait = 5 * time.Second
 	// DefaultPullIdleBackoff is the default idle wait when no messages arrive.
 	DefaultPullIdleBackoff = 200 * time.Millisecond
+	// DefaultConsumeShardQueueSize is the default queue size per ordered consume shard.
+	DefaultConsumeShardQueueSize = 1024
+)
+
+var (
+	// ErrNilPublishMessage indicates no message was supplied for publish.
+	ErrNilPublishMessage = errors.New("publish message is nil")
+	// ErrPublishSubjectRequired indicates a subject is required before publish.
+	ErrPublishSubjectRequired = errors.New("publish subject is required")
+	// ErrRequesterClosed indicates requester has been closed.
+	ErrRequesterClosed = errors.New("requester is closed")
+	// ErrPublisherClosed indicates publisher has been closed.
+	ErrPublisherClosed = errors.New("publisher is closed")
+	// ErrJetStreamPublisherClosed indicates JetStream publisher has been closed.
+	ErrJetStreamPublisherClosed = errors.New("jetstream publisher is closed")
+	// ErrSubscriberClosed indicates subscriber has been closed.
+	ErrSubscriberClosed = errors.New("subscriber is closed")
+	// ErrJetStreamConsumerClosed indicates JetStream consumer has been closed.
+	ErrJetStreamConsumerClosed = errors.New("jetstream consumer is closed")
+	// ErrSubscriberActive indicates one subscriber Consume call is already running.
+	ErrSubscriberActive = errors.New("subscriber consume is already running")
+	// ErrJetStreamConsumerActive indicates one consumer loop is already running.
+	ErrJetStreamConsumerActive = errors.New("jetstream consumer is already running")
+	// ErrJetStreamRequired indicates JetStream context is required.
+	ErrJetStreamRequired = errors.New("jetstream context is required")
+	// ErrPushConsumerRequiresDeliverSubject indicates the bound consumer is not push based.
+	ErrPushConsumerRequiresDeliverSubject = errors.New("push consumer requires deliver subject")
+	// ErrPullConsumerRequiresNoDeliverSubject indicates the bound consumer is not pull based.
+	ErrPullConsumerRequiresNoDeliverSubject = errors.New(
+		"pull consumer requires no deliver subject",
+	)
 )
 
 // ChainMode controls how subject handlers are combined with global handlers.
@@ -119,6 +157,9 @@ type ConsumeFailureEvent = cretry.Event
 // ConsumeFailureHook is called on consume retry/exhausted failure events.
 type ConsumeFailureHook = cretry.FailureHook
 
+// ConsumeKeyExtractor derives logical key for ordered consume shard routing.
+type ConsumeKeyExtractor func(*consume.MessageContext) (string, error)
+
 // JetStreamConsumerMode controls how a bound JetStream consumer is consumed.
 type JetStreamConsumerMode string
 
@@ -131,3 +172,103 @@ const (
 
 // PublishOption configures native NATS connection creation.
 type PublishOption = jetstream.PublishOpt
+
+func normalizeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func normalizeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func boolValue(value *bool, defaultValue bool) bool {
+	if value == nil {
+		return defaultValue
+	}
+	return *value
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func ensureLoggerHandlerEnabled(flag **bool) {
+	if *flag == nil {
+		enabled := true
+		*flag = &enabled
+	}
+}
+
+func ensureLogger(logger **slog.Logger) {
+	if *logger == nil {
+		*logger = slog.Default()
+	}
+}
+
+func normalizeChainMode(mode ChainMode) ChainMode {
+	if mode == "" {
+		return ChainModeAppend
+	}
+	return mode
+}
+
+func validateChainMode(kind string, subject string, mode ChainMode) error {
+	switch mode {
+	case ChainModeAppend, ChainModeReplace:
+		return nil
+	default:
+		return fmt.Errorf("%s subject %q uses unsupported chain mode %q", kind, subject, mode)
+	}
+}
+
+func connect(urls []string, opts []nats.Option) (*nats.Conn, error) {
+	normalized := normalizeStrings(urls)
+	if len(normalized) == 0 {
+		return nil, errors.New("nats URLs are required")
+	}
+	return nats.Connect(strings.Join(normalized, ","), opts...)
+}
+
+func newJetStream(conn *nats.Conn) (jetstream.JetStream, error) {
+	if conn == nil {
+		return nil, ErrJetStreamRequired
+	}
+	return jetstream.New(conn)
+}
+
+func drainConnection(conn *nats.Conn) error {
+	if conn == nil {
+		return nil
+	}
+	err := conn.Drain()
+	conn.Close()
+	return err
+}
+
+func drainSubscriptions(subs []*nats.Subscription) error {
+	var errs []error
+	for _, sub := range subs {
+		if sub == nil {
+			continue
+		}
+		if err := sub.Drain(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}

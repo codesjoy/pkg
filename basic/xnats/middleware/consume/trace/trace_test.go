@@ -31,9 +31,11 @@ func TestMiddlewareSuccess(t *testing.T) {
 	})
 
 	msg := &consume.MessageContext{
-		Transport: consume.TransportJetStream,
-		Subject:   "orders.created",
-		Attempt:   2,
+		Transport:  consume.TransportJetStream,
+		Subject:    "orders.created",
+		Attempt:    2,
+		LogicalKey: "order-1",
+		Shard:      3,
 		JetStream: &consume.JetStreamMetadata{
 			Stream:           "ORDERS",
 			Consumer:         "worker",
@@ -60,6 +62,8 @@ func TestMiddlewareSuccess(t *testing.T) {
 	require.Equal(t, "orders.created", attrString(span, "messaging.destination.name"))
 	require.Equal(t, "jetstream", attrString(span, "xnats.transport"))
 	require.Equal(t, int64(2), attrInt(span, "xnats.attempt"))
+	require.Equal(t, "order-1", attrString(span, "xnats.logical_key"))
+	require.Equal(t, int64(3), attrInt(span, "xnats.shard"))
 	require.Equal(t, "ORDERS", attrString(span, "xnats.stream"))
 	require.Equal(t, "worker", attrString(span, "xnats.consumer"))
 }

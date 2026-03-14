@@ -114,6 +114,8 @@ func spanAttrs(msg *consume.MessageContext) []attribute.KeyValue {
 	attrs = append(attrs,
 		attribute.String("xnats.transport", string(msg.Transport)),
 		attribute.Int("xnats.attempt", msg.Attempt),
+		attribute.String("xnats.logical_key", msg.LogicalKey),
+		attribute.Int("xnats.shard", msg.Shard),
 	)
 	if msg.JetStream != nil {
 		attrs = append(attrs,

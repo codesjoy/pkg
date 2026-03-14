@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +30,69 @@ import (
 	plogger "github.com/codesjoy/pkg/basic/xnats/middleware/publish/logger"
 	pretry "github.com/codesjoy/pkg/basic/xnats/middleware/publish/retry"
 )
+
+// JetStreamPublisherConfig configures JetStreamPublisher.
+type JetStreamPublisherConfig struct {
+	URLs           []string
+	Conn           *nats.Conn
+	JetStream      jetstream.JetStream
+	ConnectOptions []nats.Option
+	DefaultSubject string
+
+	GlobalHandlers  []publish.Handler
+	SubjectHandlers map[string]PublishSubjectHandlers
+
+	Logger               *slog.Logger
+	LoggerHandlerEnabled *bool
+
+	RetryConfig     RetryConfig
+	ExhaustedPolicy PublishExhaustedPolicy
+	FailureHook     PublishFailureHook
+}
+
+// Validate normalizes and validates JetStream publisher config.
+func (cfg *JetStreamPublisherConfig) Validate() error {
+	if cfg == nil {
+		return errors.New("jetstream publisher config is nil")
+	}
+
+	if cfg.SubjectHandlers == nil {
+		cfg.SubjectHandlers = make(map[string]PublishSubjectHandlers)
+	}
+	ensureLoggerHandlerEnabled(&cfg.LoggerHandlerEnabled)
+	cfg.URLs = normalizeStrings(cfg.URLs)
+	cfg.DefaultSubject = strings.TrimSpace(cfg.DefaultSubject)
+	ensureLogger(&cfg.Logger)
+	if len(cfg.URLs) == 0 && cfg.Conn == nil && cfg.JetStream == nil {
+		return errors.New("jetstream publisher URLs or injected JetStream are required")
+	}
+	if cfg.RetryConfig == (RetryConfig{}) {
+		cfg.RetryConfig = pretry.DefaultConfig()
+	}
+	cfg.RetryConfig = pretry.NormalizeConfig(cfg.RetryConfig)
+	if err := pretry.ValidateConfig(cfg.RetryConfig); err != nil {
+		return err
+	}
+	switch cfg.ExhaustedPolicy {
+	case "":
+		cfg.ExhaustedPolicy = PublishExhaustedPolicyBlock
+	case PublishExhaustedPolicyBlock, PublishExhaustedPolicyStop, PublishExhaustedPolicyDrop:
+	default:
+		return fmt.Errorf("unsupported publish exhausted policy %q", cfg.ExhaustedPolicy)
+	}
+	for subject, handlers := range cfg.SubjectHandlers {
+		name := strings.TrimSpace(subject)
+		if name == "" {
+			return errors.New("publish subject handlers contain empty subject")
+		}
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		cfg.SubjectHandlers[subject] = handlers
+		if err := validateChainMode("publish", name, handlers.Mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // JetStreamPublisher wraps JetStream publish with middleware-aware retry helpers.
 type JetStreamPublisher struct {

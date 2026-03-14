@@ -73,6 +73,8 @@ func logAttrs(msg *consume.MessageContext, duration time.Duration) []any {
 		slog.String("subject", msg.Subject),
 		slog.String("reply", msg.Reply),
 		slog.Int("attempt", msg.Attempt),
+		slog.String("logical_key", msg.LogicalKey),
+		slog.Int("shard", msg.Shard),
 	)
 	if msg.JetStream != nil {
 		attrs = append(attrs,

@@ -51,11 +51,10 @@ type PublisherConfig struct {
 }
 
 func defaultPublisherConfig() PublisherConfig {
-	enabled := true
 	return PublisherConfig{
 		SubjectHandlers:      make(map[string]PublishSubjectHandlers),
 		Logger:               slog.Default(),
-		LoggerHandlerEnabled: &enabled,
+		LoggerHandlerEnabled: boolPtr(true),
 		RetryConfig:          pretry.DefaultConfig(),
 		ExhaustedPolicy:      PublishExhaustedPolicyBlock,
 	}
@@ -88,10 +87,7 @@ func (cfg *PublisherConfig) applyDefaults() {
 	if cfg.SubjectHandlers == nil {
 		cfg.SubjectHandlers = make(map[string]PublishSubjectHandlers)
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	ensureLoggerHandlerEnabled(&cfg.LoggerHandlerEnabled)
 }
 
 func (cfg *PublisherConfig) normalizeInputs() {
@@ -107,9 +103,7 @@ func (cfg *PublisherConfig) validateRequiredFields() error {
 }
 
 func (cfg *PublisherConfig) ensureDependencies() error {
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
+	ensureLogger(&cfg.Logger)
 	return nil
 }
 
@@ -138,18 +132,10 @@ func (cfg *PublisherConfig) normalizeAndValidateSubjectHandlers() error {
 		if name == "" {
 			return errors.New("publish subject handlers contain empty subject")
 		}
-		if handlers.Mode == "" {
-			handlers.Mode = ChainModeAppend
-			cfg.SubjectHandlers[subject] = handlers
-		}
-		switch handlers.Mode {
-		case ChainModeAppend, ChainModeReplace:
-		default:
-			return fmt.Errorf(
-				"publish subject %q uses unsupported chain mode %q",
-				name,
-				handlers.Mode,
-			)
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		cfg.SubjectHandlers[subject] = handlers
+		if err := validateChainMode("publish", name, handlers.Mode); err != nil {
+			return err
 		}
 	}
 	return nil

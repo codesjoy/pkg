@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package consume defines middleware contracts for xnats consume paths.
 package consume
 
 import (
@@ -20,6 +21,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/codesjoy/pkg/basic/xnats/internal/primitives/pipeline"
 )
 
 // ErrNilHandlerFunc indicates no final consumer message handler is provided.
@@ -83,7 +86,39 @@ type MessageContext struct {
 	Subject    string
 	Reply      string
 	Attempt    int
+	LogicalKey string
+	Shard      int
 	ReceivedAt time.Time
 	JetStream  *JetStreamMetadata
 	Acker      Acknowledger
+}
+
+// Compose builds a middleware chain around a final business handler.
+func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
+	if final == nil {
+		return func(context.Context, *MessageContext) error {
+			return ErrNilHandlerFunc
+		}
+	}
+
+	adapted := make(
+		[]func(context.Context, *MessageContext, func(context.Context, *MessageContext) error) error,
+		0,
+		len(handlers),
+	)
+	for _, handler := range handlers {
+		if handler == nil {
+			continue
+		}
+		current := handler
+		adapted = append(adapted, func(
+			ctx context.Context,
+			msg *MessageContext,
+			next func(context.Context, *MessageContext) error,
+		) error {
+			return current.Handle(ctx, msg, Next(next))
+		})
+	}
+
+	return pipeline.ComposeError(adapted, final)
 }

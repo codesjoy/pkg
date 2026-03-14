@@ -52,11 +52,10 @@ type SubscriberConfig struct {
 }
 
 func defaultSubscriberConfig() SubscriberConfig {
-	enabled := true
 	return SubscriberConfig{
 		SubjectHandlers:      make(map[string]ConsumeSubjectHandlers),
 		Logger:               slog.Default(),
-		LoggerHandlerEnabled: &enabled,
+		LoggerHandlerEnabled: boolPtr(true),
 		RetryConfig:          cretry.DefaultConfig(),
 		ExhaustedPolicy:      ConsumeExhaustedPolicyBlock,
 	}
@@ -89,10 +88,7 @@ func (cfg *SubscriberConfig) applyDefaults() {
 	if cfg.SubjectHandlers == nil {
 		cfg.SubjectHandlers = make(map[string]ConsumeSubjectHandlers)
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	ensureLoggerHandlerEnabled(&cfg.LoggerHandlerEnabled)
 }
 
 func (cfg *SubscriberConfig) normalizeInputs() {
@@ -112,9 +108,7 @@ func (cfg *SubscriberConfig) validateRequiredFields() error {
 }
 
 func (cfg *SubscriberConfig) ensureDependencies() error {
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
-	}
+	ensureLogger(&cfg.Logger)
 	return nil
 }
 
@@ -143,18 +137,10 @@ func (cfg *SubscriberConfig) normalizeAndValidateSubjectHandlers() error {
 		if name == "" {
 			return errors.New("consume subject handlers contain empty subject")
 		}
-		if handlers.Mode == "" {
-			handlers.Mode = ChainModeAppend
-			cfg.SubjectHandlers[subject] = handlers
-		}
-		switch handlers.Mode {
-		case ChainModeAppend, ChainModeReplace:
-		default:
-			return fmt.Errorf(
-				"consume subject %q uses unsupported chain mode %q",
-				name,
-				handlers.Mode,
-			)
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		cfg.SubjectHandlers[subject] = handlers
+		if err := validateChainMode("consume", name, handlers.Mode); err != nil {
+			return err
 		}
 	}
 	return nil

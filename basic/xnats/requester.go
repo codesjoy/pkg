@@ -18,11 +18,37 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 
 	"github.com/codesjoy/pkg/basic/xnats/middleware/publish"
 )
+
+const defaultRequestTimeout = 5 * time.Second
+
+// RequesterConfig configures Requester.
+type RequesterConfig struct {
+	URLs           []string
+	Conn           *nats.Conn
+	ConnectOptions []nats.Option
+	Timeout        time.Duration
+}
+
+// Validate normalizes and validates requester config.
+func (cfg *RequesterConfig) Validate() error {
+	if cfg == nil {
+		return errors.New("requester config is nil")
+	}
+	cfg.URLs = normalizeStrings(cfg.URLs)
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = defaultRequestTimeout
+	}
+	if len(cfg.URLs) == 0 && cfg.Conn == nil {
+		return errors.New("requester URLs are required")
+	}
+	return nil
+}
 
 // Requester wraps NATS request/reply helpers.
 type Requester struct {

@@ -58,7 +58,10 @@ func NewLogger() *slog.Logger {
 }
 
 // WithTimeout applies timeout to parent context.
-func WithTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+func WithTimeout(
+	parent context.Context,
+	timeout time.Duration,
+) (context.Context, context.CancelFunc) {
 	if parent == nil {
 		parent = context.Background()
 	}
