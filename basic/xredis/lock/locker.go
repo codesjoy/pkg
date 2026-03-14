@@ -16,7 +16,11 @@ package lock
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
+	"fmt"
+	"math/big"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -163,4 +167,130 @@ func (l *Locker) prefixedKey(key string) string {
 
 func (l *Locker) retryDelay() time.Duration {
 	return l.cfg.RetryInterval + randomDuration(l.cfg.RetryJitter)
+}
+
+// AcquireOption customizes one acquire attempt.
+type AcquireOption func(*acquireConfig) error
+
+type acquireConfig struct {
+	autoRenew         bool
+	autoRenewInterval time.Duration
+	intervalSet       bool
+}
+
+// WithAutoRenew enables background auto-renew with the default interval `ttl / 3`.
+func WithAutoRenew() AcquireOption {
+	return func(cfg *acquireConfig) error {
+		if cfg == nil {
+			return nil
+		}
+		cfg.autoRenew = true
+		return nil
+	}
+}
+
+// WithAutoRenewInterval enables background auto-renew with an explicit interval.
+func WithAutoRenewInterval(interval time.Duration) AcquireOption {
+	return func(cfg *acquireConfig) error {
+		if cfg == nil {
+			return nil
+		}
+		cfg.autoRenew = true
+		cfg.autoRenewInterval = interval
+		cfg.intervalSet = true
+		return nil
+	}
+}
+
+func buildAcquireConfig(ttl time.Duration, opts []AcquireOption) (acquireConfig, error) {
+	cfg := acquireConfig{}
+
+	for idx, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(&cfg); err != nil {
+			return acquireConfig{}, fmt.Errorf("apply acquire option #%d: %w", idx, err)
+		}
+	}
+
+	if !cfg.autoRenew {
+		return cfg, nil
+	}
+
+	if !cfg.intervalSet {
+		cfg.autoRenewInterval = ttl / 3
+	}
+	if cfg.autoRenewInterval <= 0 || cfg.autoRenewInterval >= ttl {
+		return acquireConfig{}, ErrInvalidKeepAliveInterval
+	}
+
+	return cfg, nil
+}
+
+func isNilClient(client redis.UniversalClient) bool {
+	if client == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(client)
+	switch value.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Func, reflect.Map, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func newToken() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := cryptorand.Read(buf); err != nil {
+		return "", err
+	}
+	return hexEncodeToString(buf), nil
+}
+
+func randomDuration(max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+
+	n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(max.Nanoseconds()+1))
+	if err != nil {
+		return 0
+	}
+
+	return time.Duration(n.Int64())
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func hexEncodeToString(buf []byte) string {
+	const hex = "0123456789abcdef"
+
+	encoded := make([]byte, len(buf)*2)
+	for i, b := range buf {
+		encoded[i*2] = hex[b>>4]
+		encoded[i*2+1] = hex[b&0x0f]
+	}
+	return string(encoded)
 }

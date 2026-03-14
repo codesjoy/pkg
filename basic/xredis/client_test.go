@@ -228,6 +228,17 @@ func TestOptionFailureClosesClient(t *testing.T) {
 	require.ErrorContains(t, captured.Set(context.Background(), "k", "v", 0).Err(), "closed")
 }
 
+func TestWithHookNilHook(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	cfg := Config{UniversalOptions: redis.UniversalOptions{Addrs: []string{mr.Addr()}}}
+
+	var nilHook *recordHook
+	_, err := New(cfg, WithHook(nilHook))
+	require.ErrorIs(t, err, ErrNilHook)
+}
+
 type eventRecorder struct {
 	mu     sync.Mutex
 	events []string

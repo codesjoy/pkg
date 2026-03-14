@@ -23,6 +23,29 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const defaultSlowThreshold = 200 * time.Millisecond
+
+// Config controls logger middleware behavior.
+type Config struct {
+	// Logger is the slog logger instance.
+	Logger *slog.Logger
+	// SlowThreshold defines the duration above which commands are logged as slow.
+	SlowThreshold time.Duration
+	// LogArgs controls whether command args are included in logs.
+	LogArgs bool
+	// CommandFilter returns true to skip logging a command.
+	CommandFilter func(redis.Cmder) bool
+}
+
+// DefaultConfig returns the default logger middleware config.
+func DefaultConfig() Config {
+	return Config{
+		Logger:        slog.Default(),
+		SlowThreshold: defaultSlowThreshold,
+		LogArgs:       false,
+	}
+}
+
 type hook struct {
 	logger        *slog.Logger
 	slowThreshold time.Duration
@@ -172,4 +195,15 @@ func commandName(cmd redis.Cmder) string {
 		return cmd.Name()
 	}
 	return fmt.Sprintf("%T", cmd)
+}
+
+func normalizeConfig(cfg Config) Config {
+	normalized := cfg
+	if normalized.Logger == nil {
+		normalized.Logger = slog.Default()
+	}
+	if normalized.SlowThreshold <= 0 {
+		normalized.SlowThreshold = defaultSlowThreshold
+	}
+	return normalized
 }

@@ -20,7 +20,41 @@ import (
 
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// Config controls OpenTelemetry instrumentation for redis clients.
+type Config struct {
+	EnableTracing bool
+	EnableMetrics bool
+
+	DBSystem   string
+	Attributes []attribute.KeyValue
+
+	TracerProvider trace.TracerProvider
+	MeterProvider  metric.MeterProvider
+
+	DBStatement   bool
+	CallerEnabled bool
+	DialTracing   bool
+
+	CommandFilter  func(redis.Cmder) bool
+	CommandsFilter func([]redis.Cmder) bool
+}
+
+// DefaultConfig returns default OpenTelemetry middleware config.
+func DefaultConfig() Config {
+	return Config{
+		EnableTracing: false,
+		EnableMetrics: false,
+		DBSystem:      "redis",
+		DBStatement:   false,
+		CallerEnabled: false,
+		DialTracing:   false,
+	}
+}
 
 // Apply configures trace/metrics instrumentation to a redis.UniversalClient.
 func Apply(client redis.UniversalClient, cfg Config) error {
@@ -84,4 +118,12 @@ func buildMetricsOptions(cfg Config) []redisotel.MetricsOption {
 	}
 
 	return opts
+}
+
+func normalizeConfig(cfg Config) Config {
+	normalized := cfg
+	if normalized.DBSystem == "" {
+		normalized.DBSystem = "redis"
+	}
+	return normalized
 }

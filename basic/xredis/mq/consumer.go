@@ -59,26 +59,15 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 	if handler == nil {
 		return ErrNilHandlerFunc
 	}
+
 	ctx = normalizeContext(ctx)
 	bindings := consumerBindings(c.cfg)
 	bindingIndex := bindingByStream(bindings)
 
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return ErrConsumerClosed
+	if err := c.activate(); err != nil {
+		return err
 	}
-	if c.active {
-		c.mu.Unlock()
-		return ErrConsumerActive
-	}
-	c.active = true
-	c.mu.Unlock()
-	defer func() {
-		c.mu.Lock()
-		c.active = false
-		c.mu.Unlock()
-	}()
+	defer c.deactivate()
 
 	if c.cfg.AutoCreateGroup {
 		if err := c.ensureGroups(ctx, bindings); err != nil {
@@ -86,18 +75,9 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 		}
 	}
 
-	var runtime *consumeRuntime
-	if queueIDs := c.runtimeQueueIDs(); len(queueIDs) > 1 || c.orderedMode() {
-		runtime = newConsumeRuntime(ctx, c.client, queueIDs, c.cfg.ShardQueueSize, handler)
+	runtime := c.newRuntime(ctx, handler)
+	if runtime != nil {
 		defer runtime.shutdown()
-
-		go func() {
-			select {
-			case <-c.closedCh:
-				runtime.cancel()
-			case <-runtime.ctx.Done():
-			}
-		}()
 	}
 
 	for {
@@ -107,24 +87,12 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 		case <-c.closedCh:
 			return ErrConsumerClosed
 		case <-runtimeDone(runtime):
-			if err := runtime.fatal(); err != nil {
-				return err
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if c.isClosed() {
-				return ErrConsumerClosed
-			}
-			return runtime.ctx.Err()
+			return c.runtimeDoneErr(ctx, runtime)
 		default:
 		}
 
 		claimed, err := c.claimPending(ctx, bindings)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
 			return err
 		}
 		if len(claimed) > 0 {
@@ -134,58 +102,11 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 			continue
 		}
 
-		readCtx := ctx
-		if runtime != nil {
-			readCtx = runtime.ctx
-		}
-		streams, err := c.client.XReadGroup(readCtx, &redis.XReadGroupArgs{
-			Group:    c.cfg.Group,
-			Consumer: c.cfg.Consumer,
-			Streams:  readGroupStreams(bindings),
-			Count:    c.cfg.Count,
-			Block:    c.cfg.Block,
-		}).Result()
+		deliveries, err := c.readDeliveries(ctx, bindings, bindingIndex, runtime)
 		if err != nil {
-			if runtime != nil && errors.Is(err, context.Canceled) {
-				if fatalErr := runtime.fatal(); fatalErr != nil {
-					return fatalErr
-				}
-				if c.isClosed() {
-					return ErrConsumerClosed
-				}
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-			}
-			if errors.Is(err, redis.Nil) {
-				if err := sleepContext(ctx, c.cfg.IdleBackoff); err != nil {
-					return err
-				}
-				continue
-			}
 			return err
 		}
-
-		if len(streams) == 0 {
-			if err := sleepContext(ctx, c.cfg.IdleBackoff); err != nil {
-				return err
-			}
-			continue
-		}
-		deliveries := make([]queuedDelivery, 0, len(streams))
-		for _, stream := range streams {
-			binding, ok := bindingIndex[stream.Stream]
-			if !ok {
-				continue
-			}
-			for _, msg := range stream.Messages {
-				deliveries = append(deliveries, queuedDelivery{binding: binding, raw: msg})
-			}
-		}
 		if len(deliveries) == 0 {
-			if err := sleepContext(ctx, c.cfg.IdleBackoff); err != nil {
-				return err
-			}
 			continue
 		}
 		if err := c.handleMessages(ctx, handler, deliveries, false, runtime); err != nil {
@@ -245,12 +166,66 @@ func (c *Consumer) ensureGroups(ctx context.Context, bindings []streamBinding) e
 	return nil
 }
 
+func (c *Consumer) activate() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return ErrConsumerClosed
+	}
+	if c.active {
+		return ErrConsumerActive
+	}
+
+	c.active = true
+	return nil
+}
+
+func (c *Consumer) deactivate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.active = false
+}
+
+func (c *Consumer) newRuntime(ctx context.Context, handler HandlerFunc) *consumeRuntime {
+	queueIDs := c.runtimeQueueIDs()
+	if len(queueIDs) <= 1 && !c.orderedMode() {
+		return nil
+	}
+
+	runtime := newConsumeRuntime(ctx, c.client, queueIDs, c.cfg.ShardQueueSize, handler)
+	go func() {
+		select {
+		case <-c.closedCh:
+			runtime.cancel()
+		case <-runtime.ctx.Done():
+		}
+	}()
+	return runtime
+}
+
+func (c *Consumer) runtimeDoneErr(ctx context.Context, runtime *consumeRuntime) error {
+	if err := runtime.fatal(); err != nil {
+		return err
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if c.isClosed() {
+		return ErrConsumerClosed
+	}
+	return runtime.ctx.Err()
+}
+
 type queuedDelivery struct {
 	binding streamBinding
 	raw     redis.XMessage
 }
 
-func (c *Consumer) claimPending(ctx context.Context, bindings []streamBinding) ([]queuedDelivery, error) {
+func (c *Consumer) claimPending(
+	ctx context.Context,
+	bindings []streamBinding,
+) ([]queuedDelivery, error) {
 	deliveries := make([]queuedDelivery, 0)
 	for _, binding := range bindings {
 		result, _, err := c.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
@@ -274,6 +249,50 @@ func (c *Consumer) claimPending(ctx context.Context, bindings []streamBinding) (
 	return deliveries, nil
 }
 
+func (c *Consumer) readDeliveries(
+	ctx context.Context,
+	bindings []streamBinding,
+	bindingIndex map[string]streamBinding,
+	runtime *consumeRuntime,
+) ([]queuedDelivery, error) {
+	streams, err := c.client.XReadGroup(c.readContext(ctx, runtime), &redis.XReadGroupArgs{
+		Group:    c.cfg.Group,
+		Consumer: c.cfg.Consumer,
+		Streams:  readGroupStreams(bindings),
+		Count:    c.cfg.Count,
+		Block:    c.cfg.Block,
+	}).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, c.waitForMore(ctx)
+		}
+		if runtime != nil && errors.Is(err, context.Canceled) {
+			if runtimeErr := c.runtimeDoneErr(ctx, runtime); runtimeErr != nil {
+				return nil, runtimeErr
+			}
+		}
+		return nil, err
+	}
+	if len(streams) == 0 {
+		return nil, c.waitForMore(ctx)
+	}
+
+	deliveries := make([]queuedDelivery, 0, len(streams))
+	for _, stream := range streams {
+		binding, ok := bindingIndex[stream.Stream]
+		if !ok {
+			continue
+		}
+		for _, msg := range stream.Messages {
+			deliveries = append(deliveries, queuedDelivery{binding: binding, raw: msg})
+		}
+	}
+	if len(deliveries) == 0 {
+		return nil, c.waitForMore(ctx)
+	}
+	return deliveries, nil
+}
+
 func (c *Consumer) handleMessages(
 	ctx context.Context,
 	handler HandlerFunc,
@@ -290,27 +309,13 @@ func (c *Consumer) handleMessages(
 			if err := handler(ctx, msgCtx); err != nil {
 				return err
 			}
-			if err := c.client.XAck(
-				ctx,
-				delivery.binding.ShardStream,
-				c.cfg.Group,
-				delivery.raw.ID,
-			).Err(); err != nil {
+			if err := c.ackDelivery(ctx, delivery); err != nil {
 				return err
 			}
 			continue
 		}
 		if err := runtime.enqueue(&queuedMessage{msgCtx: msgCtx}); err != nil {
-			if fatalErr := runtime.fatal(); fatalErr != nil {
-				return fatalErr
-			}
-			if c.isClosed() {
-				return ErrConsumerClosed
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return err
+			return c.runtimeEnqueueErr(ctx, runtime, err)
 		}
 	}
 	return nil
@@ -352,6 +357,43 @@ func (c *Consumer) buildMessageContext(
 
 func (c *Consumer) logicalKey(message *Message, fallback string) string {
 	return resolveLogicalKey(messageHeaders(message), c.cfg.OrderKeyHeader, fallback)
+}
+
+func (c *Consumer) ackDelivery(ctx context.Context, delivery queuedDelivery) error {
+	return c.client.XAck(
+		ctx,
+		delivery.binding.ShardStream,
+		c.cfg.Group,
+		delivery.raw.ID,
+	).Err()
+}
+
+func (c *Consumer) readContext(ctx context.Context, runtime *consumeRuntime) context.Context {
+	if runtime == nil {
+		return ctx
+	}
+	return runtime.ctx
+}
+
+func (c *Consumer) waitForMore(ctx context.Context) error {
+	return sleepContext(ctx, c.cfg.IdleBackoff)
+}
+
+func (c *Consumer) runtimeEnqueueErr(
+	ctx context.Context,
+	runtime *consumeRuntime,
+	err error,
+) error {
+	if fatalErr := runtime.fatal(); fatalErr != nil {
+		return fatalErr
+	}
+	if c.isClosed() {
+		return ErrConsumerClosed
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
 }
 
 func runtimeDone(runtime *consumeRuntime) <-chan struct{} {

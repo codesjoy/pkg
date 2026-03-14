@@ -50,10 +50,13 @@ func TestConsumerAutoCreateGroupAndAck(t *testing.T) {
 	require.NoError(t, err)
 
 	var captured *MessageContext
-	err = consumer.Consume(context.Background(), func(_ context.Context, msg *MessageContext) error {
-		captured = msg
-		return consumer.Close()
-	})
+	err = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *MessageContext) error {
+			captured = msg
+			return consumer.Close()
+		},
+	)
 	require.ErrorIs(t, err, ErrConsumerClosed)
 	require.NotNil(t, captured)
 	require.Equal(t, "jobs", captured.BaseStream)
@@ -168,7 +171,8 @@ func TestConsumerAutoClaimReclaimsPending(t *testing.T) {
 	require.Equal(t, shard, captured.Shard)
 	require.GreaterOrEqual(t, captured.DeliveryCount, int64(2))
 
-	pending, err := client.XPending(context.Background(), shardStreamName("jobs", "", shard), "workers").Result()
+	pending, err := client.XPending(context.Background(), shardStreamName("jobs", "", shard), "workers").
+		Result()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pending.Count)
 }
@@ -205,9 +209,13 @@ func TestConsumerRejectsConcurrentConsume(t *testing.T) {
 	}()
 
 	<-started
-	require.ErrorIs(t, consumer.Consume(context.Background(), func(context.Context, *MessageContext) error {
-		return nil
-	}), ErrConsumerActive)
+	require.ErrorIs(
+		t,
+		consumer.Consume(context.Background(), func(context.Context, *MessageContext) error {
+			return nil
+		}),
+		ErrConsumerActive,
+	)
 
 	close(release)
 	require.ErrorIs(t, <-errCh, ErrConsumerClosed)
@@ -297,13 +305,16 @@ func TestConsumerShardCountOneKeepsSerialBehavior(t *testing.T) {
 	require.NoError(t, err)
 
 	var payloads []string
-	err = consumer.Consume(context.Background(), func(_ context.Context, msg *MessageContext) error {
-		payloads = append(payloads, string(msg.Message.Payload))
-		if len(payloads) == 2 {
-			return consumer.Close()
-		}
-		return nil
-	})
+	err = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *MessageContext) error {
+			payloads = append(payloads, string(msg.Message.Payload))
+			if len(payloads) == 2 {
+				return consumer.Close()
+			}
+			return nil
+		},
+	)
 	require.ErrorIs(t, err, ErrConsumerClosed)
 	require.Equal(t, []string{"first", "second"}, payloads)
 }
@@ -347,16 +358,19 @@ func TestConsumerSameKeyPreservesOrderAcrossShards(t *testing.T) {
 	var mu sync.Mutex
 	var orderOne []string
 	seen := 0
-	err = consumer.Consume(context.Background(), func(_ context.Context, msg *MessageContext) error {
-		mu.Lock()
-		defer mu.Unlock()
-		orderOne = append(orderOne, string(msg.Message.Payload))
-		seen++
-		if seen == 3 {
-			return consumer.Close()
-		}
-		return nil
-	})
+	err = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *MessageContext) error {
+			mu.Lock()
+			defer mu.Unlock()
+			orderOne = append(orderOne, string(msg.Message.Payload))
+			seen++
+			if seen == 3 {
+				return consumer.Close()
+			}
+			return nil
+		},
+	)
 	require.ErrorIs(t, err, ErrConsumerClosed)
 	require.Equal(t, []string{"a1", "a2", "a3"}, orderOne)
 }
@@ -391,13 +405,16 @@ func TestConsumerOwnedShardsOnlyConsumeAssignedStreams(t *testing.T) {
 	require.NoError(t, err)
 
 	var seen []string
-	err = consumer.Consume(context.Background(), func(_ context.Context, msg *MessageContext) error {
-		seen = append(seen, string(msg.Message.Payload))
-		if len(seen) == 1 {
-			return consumer.Close()
-		}
-		return nil
-	})
+	err = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *MessageContext) error {
+			seen = append(seen, string(msg.Message.Payload))
+			if len(seen) == 1 {
+				return consumer.Close()
+			}
+			return nil
+		},
+	)
 	require.ErrorIs(t, err, ErrConsumerClosed)
 	require.Equal(t, []string{keyOne}, seen)
 }
@@ -494,19 +511,25 @@ func TestConsumerMissingOrderHeaderFallsBackToBaseStreamShard(t *testing.T) {
 
 	var logicalKeys []string
 	var shardStreams []string
-	err = consumer.Consume(context.Background(), func(_ context.Context, msg *MessageContext) error {
-		logicalKeys = append(logicalKeys, msg.LogicalKey)
-		shardStreams = append(shardStreams, msg.ShardStream)
-		if len(logicalKeys) == 2 {
-			return consumer.Close()
-		}
-		return nil
-	})
+	err = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *MessageContext) error {
+			logicalKeys = append(logicalKeys, msg.LogicalKey)
+			shardStreams = append(shardStreams, msg.ShardStream)
+			if len(logicalKeys) == 2 {
+				return consumer.Close()
+			}
+			return nil
+		},
+	)
 	require.ErrorIs(t, err, ErrConsumerClosed)
 	require.Equal(t, []string{"jobs", "jobs"}, logicalKeys)
 	require.Equal(
 		t,
-		[]string{shardStreamName("jobs", "", expectedShard), shardStreamName("jobs", "", expectedShard)},
+		[]string{
+			shardStreamName("jobs", "", expectedShard),
+			shardStreamName("jobs", "", expectedShard),
+		},
 		shardStreams,
 	)
 }

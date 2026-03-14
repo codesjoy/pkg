@@ -15,9 +15,17 @@
 package xredis
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
+)
+
+var (
+	// ErrEmptyAddrs indicates redis.UniversalOptions.Addrs is empty.
+	ErrEmptyAddrs = errors.New("redis universal options addrs is empty")
+	// ErrNilHook indicates one hook is nil.
+	ErrNilHook = errors.New("redis hook is nil")
 )
 
 // Config contains client construction settings.

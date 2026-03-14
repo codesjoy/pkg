@@ -118,7 +118,12 @@ func TestDecodeMessageConvertsBasicTypes(t *testing.T) {
 		defaultHeaderPrefix + "k": []byte("v"),
 	}
 
-	msg := decodeMessage("jobs", defaultHeaderPrefix, defaultPayloadField, redis.XMessage{Values: raw})
+	msg := decodeMessage(
+		"jobs",
+		defaultHeaderPrefix,
+		defaultPayloadField,
+		redis.XMessage{Values: raw},
+	)
 
 	require.Equal(t, "jobs", msg.Stream)
 	require.Equal(t, []byte("42"), msg.Payload)

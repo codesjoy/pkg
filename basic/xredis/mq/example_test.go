@@ -73,10 +73,13 @@ func Example_publishAndConsume() {
 		panic(err)
 	}
 
-	_ = consumer.Consume(context.Background(), func(_ context.Context, msg *mq.MessageContext) error {
-		fmt.Printf("%s %s\n", msg.Message.Payload, msg.Message.Headers["kind"])
-		return consumer.Close()
-	})
+	_ = consumer.Consume(
+		context.Background(),
+		func(_ context.Context, msg *mq.MessageContext) error {
+			fmt.Printf("%s %s\n", msg.Message.Payload, msg.Message.Headers["kind"])
+			return consumer.Close()
+		},
+	)
 
 	// Output:
 	// send-email welcome

@@ -16,8 +16,12 @@ package xredis
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/redis/go-redis/v9"
+
+	logmiddleware "github.com/codesjoy/pkg/basic/xredis/middleware/logger"
+	otelmiddleware "github.com/codesjoy/pkg/basic/xredis/middleware/otel"
 )
 
 // Client wraps redis.UniversalClient and keeps native command style.
@@ -58,6 +62,50 @@ func MustNew(cfg Config, opts ...Option) *Client {
 	return client
 }
 
+// Option customizes a client after it is constructed.
+//
+// Options are applied in the exact order they are passed to New.
+type Option func(*Client) error
+
+// WithHook appends hooks in the same order as arguments.
+func WithHook(hooks ...redis.Hook) Option {
+	return func(client *Client) error {
+		if !clientReady(client) {
+			return nil
+		}
+		for idx, hook := range hooks {
+			if isNilHook(hook) {
+				return fmt.Errorf("%w at index %d", ErrNilHook, idx)
+			}
+			client.AddHook(hook)
+		}
+		return nil
+	}
+}
+
+// WithLogger appends slog logger middleware hook.
+func WithLogger(cfg logmiddleware.Config) Option {
+	copied := cfg
+	return func(client *Client) error {
+		if !clientReady(client) {
+			return nil
+		}
+		client.AddHook(logmiddleware.New(copied))
+		return nil
+	}
+}
+
+// WithOpenTelemetry appends OpenTelemetry middleware.
+func WithOpenTelemetry(cfg otelmiddleware.Config) Option {
+	copied := cfg
+	return func(client *Client) error {
+		if !clientReady(client) {
+			return nil
+		}
+		return otelmiddleware.Apply(client.UniversalClient, copied)
+	}
+}
+
 func closeClientOnError(client redis.UniversalClient, err error) error {
 	if client == nil {
 		return err
@@ -78,4 +126,22 @@ func applyOptions(client *Client, opts []Option) error {
 		}
 	}
 	return nil
+}
+
+func clientReady(client *Client) bool {
+	return client != nil && client.UniversalClient != nil
+}
+
+func isNilHook(hook redis.Hook) bool {
+	if hook == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(hook)
+	switch value.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Func, reflect.Map, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }

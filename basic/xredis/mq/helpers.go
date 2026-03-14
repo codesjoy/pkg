@@ -16,7 +16,6 @@ package mq
 
 import (
 	"context"
-	"fmt"
 	"hash/fnv"
 	"reflect"
 	"strings"
@@ -67,34 +66,9 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func asBytes(value interface{}) []byte {
-	switch typed := value.(type) {
-	case nil:
-		return nil
-	case string:
-		return []byte(typed)
-	case []byte:
-		return append([]byte(nil), typed...)
-	default:
-		return []byte(fmt.Sprint(typed))
-	}
-}
-
-func asString(value interface{}) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case []byte:
-		return string(typed)
-	default:
-		return fmt.Sprint(typed)
-	}
-}
-
 func isBusyGroupError(err error) bool {
-	return err != nil && len(err.Error()) >= len("BUSYGROUP") && err.Error()[:len("BUSYGROUP")] == "BUSYGROUP"
+	return err != nil && len(err.Error()) >= len("BUSYGROUP") &&
+		err.Error()[:len("BUSYGROUP")] == "BUSYGROUP"
 }
 
 func shardForKey(key string, shardCount int) int {

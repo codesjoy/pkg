@@ -136,7 +136,11 @@ func TestMQPublishFailAndAutoClaimAck(t *testing.T) {
 	require.True(t, captured.Claimed)
 	require.Equal(t, "c2", captured.Consumer)
 	require.Equal(t, "it:mq:jobs", captured.BaseStream)
-	require.Equal(t, shardStreamNameForTest("it:mq:jobs", "", shardFor("order-1", 4)), captured.ShardStream)
+	require.Equal(
+		t,
+		shardStreamNameForTest("it:mq:jobs", "", shardFor("order-1", 4)),
+		captured.ShardStream,
+	)
 	require.Equal(t, "order-1", captured.LogicalKey)
 	require.Equal(t, []byte("hello"), captured.Message.Payload)
 	require.Equal(t, map[string]string{

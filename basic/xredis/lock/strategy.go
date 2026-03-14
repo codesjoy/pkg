@@ -14,10 +14,194 @@
 
 package lock
 
-import "context"
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
 
 type lockStrategy interface {
 	tryAcquire(context.Context, *Lease) error
 	release(context.Context, *Lease) error
 	refresh(context.Context, *Lease) error
 }
+
+type singleNodeStrategy struct {
+	client redis.UniversalClient
+}
+
+func (s *singleNodeStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
+	obtained, err := s.client.SetNX(ctx, lease.fullKey, lease.token, lease.ttl).Result()
+	if err != nil {
+		return err
+	}
+	if !obtained {
+		return ErrNotObtained
+	}
+	return nil
+}
+
+func (s *singleNodeStrategy) release(ctx context.Context, lease *Lease) error {
+	deleted, err := releaseScript.Run(ctx, s.client, []string{lease.fullKey}, lease.token).Int64()
+	if err != nil {
+		return err
+	}
+	if deleted == 0 {
+		return ErrLockNotHeld
+	}
+	return nil
+}
+
+func (s *singleNodeStrategy) refresh(ctx context.Context, lease *Lease) error {
+	extended, err := refreshScript.Run(
+		ctx,
+		s.client,
+		[]string{lease.fullKey},
+		lease.token,
+		lease.ttl.Milliseconds(),
+	).Int64()
+	if err != nil {
+		return err
+	}
+	if extended == 0 {
+		return ErrLockNotHeld
+	}
+	return nil
+}
+
+type redlockStrategy struct {
+	nodes          []redis.UniversalClient
+	quorum         int
+	perNodeTimeout time.Duration
+	clockDrift     time.Duration
+}
+
+func newRedlockStrategy(primary redis.UniversalClient, cfg RedlockConfig) *redlockStrategy {
+	nodes := make([]redis.UniversalClient, 0, 1+len(cfg.Peers))
+	nodes = append(nodes, primary)
+	nodes = append(nodes, cfg.Peers...)
+
+	return &redlockStrategy{
+		nodes:          nodes,
+		quorum:         len(nodes)/2 + 1,
+		perNodeTimeout: cfg.PerNodeTimeout,
+		clockDrift:     cfg.ClockDrift,
+	}
+}
+
+func (s *redlockStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
+	startedAt := time.Now()
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			ok, err := client.SetNX(opCtx, lease.fullKey, lease.token, lease.ttl).Result()
+			return err == nil && ok
+		},
+	)
+	elapsed := time.Since(startedAt)
+	validity := lease.ttl - elapsed - s.clockDrift
+
+	if successCount >= s.quorum && validity > 0 {
+		return nil
+	}
+
+	s.cleanupAcquire(lease)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return ErrNotObtained
+}
+
+func (s *redlockStrategy) release(ctx context.Context, lease *Lease) error {
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).
+				Int64()
+			return err == nil && deleted == 1
+		},
+	)
+	if successCount < s.quorum {
+		return ErrLockNotHeld
+	}
+	return nil
+}
+
+func (s *redlockStrategy) refresh(ctx context.Context, lease *Lease) error {
+	successCount := s.countSuccesses(
+		ctx,
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			extended, err := refreshScript.Run(
+				opCtx,
+				client,
+				[]string{lease.fullKey},
+				lease.token,
+				lease.ttl.Milliseconds(),
+			).Int64()
+			return err == nil && extended == 1
+		},
+	)
+	if successCount < s.quorum {
+		return ErrLockNotHeld
+	}
+	return nil
+}
+
+func (s *redlockStrategy) cleanupAcquire(lease *Lease) {
+	s.countSuccesses(
+		context.Background(),
+		func(opCtx context.Context, client redis.UniversalClient) bool {
+			deleted, err := releaseScript.Run(opCtx, client, []string{lease.fullKey}, lease.token).
+				Int64()
+			return err == nil && deleted == 1
+		},
+	)
+}
+
+func (s *redlockStrategy) countSuccesses(
+	ctx context.Context,
+	fn func(context.Context, redis.UniversalClient) bool,
+) int {
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		success int
+	)
+
+	for _, node := range s.nodes {
+		wg.Add(1)
+		go func(client redis.UniversalClient) {
+			defer wg.Done()
+
+			opCtx, cancel := context.WithTimeout(ctx, s.perNodeTimeout)
+			defer cancel()
+
+			if !fn(opCtx, client) {
+				return
+			}
+
+			mu.Lock()
+			success++
+			mu.Unlock()
+		}(node)
+	}
+
+	wg.Wait()
+	return success
+}
+
+var releaseScript = redis.NewScript(`
+if redis.call("get", KEYS[1]) == ARGV[1] then
+	return redis.call("del", KEYS[1])
+end
+return 0
+`)
+
+var refreshScript = redis.NewScript(`
+if redis.call("get", KEYS[1]) == ARGV[1] then
+	return redis.call("pexpire", KEYS[1], ARGV[2])
+end
+return 0
+`)
