@@ -39,9 +39,12 @@ type JetStreamConsumerConfig struct {
 	Consumer string
 	Mode     JetStreamConsumerMode
 
-	PullBatchSize int
-	PullMaxWait   time.Duration
-	IdleBackoff   time.Duration
+	PullBatchSize  int
+	PullMaxWait    time.Duration
+	IdleBackoff    time.Duration
+	ShardCount     int
+	ShardQueueSize int
+	KeyExtractor   ConsumeKeyExtractor
 
 	GlobalHandlers  []consume.Handler
 	SubjectHandlers map[string]ConsumeSubjectHandlers
@@ -63,10 +66,7 @@ func (cfg *JetStreamConsumerConfig) Validate() error {
 	if cfg.SubjectHandlers == nil {
 		cfg.SubjectHandlers = make(map[string]ConsumeSubjectHandlers)
 	}
-	if cfg.LoggerHandlerEnabled == nil {
-		enabled := true
-		cfg.LoggerHandlerEnabled = &enabled
-	}
+	ensureLoggerHandlerEnabled(&cfg.LoggerHandlerEnabled)
 	cfg.URLs = normalizeStrings(cfg.URLs)
 	cfg.Stream = strings.TrimSpace(cfg.Stream)
 	cfg.Consumer = strings.TrimSpace(cfg.Consumer)
@@ -82,9 +82,13 @@ func (cfg *JetStreamConsumerConfig) Validate() error {
 	if cfg.IdleBackoff <= 0 {
 		cfg.IdleBackoff = DefaultPullIdleBackoff
 	}
-	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
+	if cfg.ShardCount == 0 {
+		cfg.ShardCount = 1
 	}
+	if cfg.ShardQueueSize == 0 {
+		cfg.ShardQueueSize = DefaultConsumeShardQueueSize
+	}
+	ensureLogger(&cfg.Logger)
 	if len(cfg.URLs) == 0 && cfg.Conn == nil && cfg.JetStream == nil {
 		return errors.New("jetstream consumer URLs or injected JetStream are required")
 	}
@@ -108,6 +112,15 @@ func (cfg *JetStreamConsumerConfig) Validate() error {
 	if cfg.IdleBackoff <= 0 {
 		return fmt.Errorf("idle backoff must be > 0, got %s", cfg.IdleBackoff)
 	}
+	if cfg.ShardCount <= 0 {
+		return fmt.Errorf("consume shard count must be > 0, got %d", cfg.ShardCount)
+	}
+	if cfg.ShardQueueSize <= 0 {
+		return fmt.Errorf("consume shard queue size must be > 0, got %d", cfg.ShardQueueSize)
+	}
+	if cfg.ShardCount > 1 && cfg.KeyExtractor == nil {
+		return errors.New("ordered consume requires key extractor when shard count > 1")
+	}
 	if cfg.RetryConfig == (RetryConfig{}) {
 		cfg.RetryConfig = cretry.DefaultConfig()
 	}
@@ -127,18 +140,10 @@ func (cfg *JetStreamConsumerConfig) Validate() error {
 		if name == "" {
 			return errors.New("consume subject handlers contain empty subject")
 		}
-		if handlers.Mode == "" {
-			handlers.Mode = ChainModeAppend
-			cfg.SubjectHandlers[subject] = handlers
-		}
-		switch handlers.Mode {
-		case ChainModeAppend, ChainModeReplace:
-		default:
-			return fmt.Errorf(
-				"consume subject %q uses unsupported chain mode %q",
-				name,
-				handlers.Mode,
-			)
+		handlers.Mode = normalizeChainMode(handlers.Mode)
+		cfg.SubjectHandlers[subject] = handlers
+		if err := validateChainMode("consume", name, handlers.Mode); err != nil {
+			return err
 		}
 	}
 	return nil

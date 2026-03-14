@@ -162,7 +162,12 @@ func waitForPushBound(
 					info.Config.DeliverSubject,
 				)
 			}
-			t.Fatalf("timed out waiting for push bind stream=%s consumer=%s: %v", stream, consumer, err)
+			t.Fatalf(
+				"timed out waiting for push bind stream=%s consumer=%s: %v",
+				stream,
+				consumer,
+				err,
+			)
 		case <-ticker.C:
 		}
 	}
@@ -184,7 +189,12 @@ func waitForPushBoundOrConsumeError(
 	for {
 		select {
 		case err := <-errCh:
-			t.Fatalf("push consume exited before bind stream=%s consumer=%s: %v", stream, consumer, err)
+			t.Fatalf(
+				"push consume exited before bind stream=%s consumer=%s: %v",
+				stream,
+				consumer,
+				err,
+			)
 		default:
 		}
 
@@ -195,7 +205,12 @@ func waitForPushBoundOrConsumeError(
 
 		select {
 		case err := <-errCh:
-			t.Fatalf("push consume exited before bind stream=%s consumer=%s: %v", stream, consumer, err)
+			t.Fatalf(
+				"push consume exited before bind stream=%s consumer=%s: %v",
+				stream,
+				consumer,
+				err,
+			)
 		case <-ctx.Done():
 			if info != nil {
 				t.Fatalf(
@@ -206,7 +221,12 @@ func waitForPushBoundOrConsumeError(
 					info.Config.DeliverSubject,
 				)
 			}
-			t.Fatalf("timed out waiting for push bind stream=%s consumer=%s: %v", stream, consumer, err)
+			t.Fatalf(
+				"timed out waiting for push bind stream=%s consumer=%s: %v",
+				stream,
+				consumer,
+				err,
+			)
 		case <-ticker.C:
 		}
 	}

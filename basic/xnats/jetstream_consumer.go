@@ -17,6 +17,7 @@ package xnats
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -24,9 +25,18 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/codesjoy/pkg/basic/xnats/internal/primitives/backoff"
+	jetstreamrt "github.com/codesjoy/pkg/basic/xnats/internal/runtime/jetstream"
 	"github.com/codesjoy/pkg/basic/xnats/middleware/consume"
 	clogger "github.com/codesjoy/pkg/basic/xnats/middleware/consume/logger"
 	cretry "github.com/codesjoy/pkg/basic/xnats/middleware/consume/retry"
+)
+
+type consumeAckPolicy uint8
+
+const (
+	consumeAckPolicyExplicit consumeAckPolicy = iota
+	consumeAckPolicyAll
+	consumeAckPolicyNone
 )
 
 // JetStreamConsumer wraps a bound JetStream consumer with middleware-aware handling.
@@ -159,6 +169,13 @@ func (c *JetStreamConsumer) consumePull(ctx context.Context, business consume.Ha
 	if info.Config.DeliverSubject != "" {
 		return ErrPullConsumerRequiresNoDeliverSubject
 	}
+	ackPolicy := ackPolicyFromJetStreamInfo(info)
+	if err := c.validateOrderedConsumeAckPolicy(ackPolicy); err != nil {
+		return err
+	}
+	if c.orderedMode() {
+		return c.consumePullOrdered(ctx, business, consumerRef, ackPolicy)
+	}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -176,14 +193,9 @@ func (c *JetStreamConsumer) consumePull(ctx context.Context, business consume.Ha
 			continue
 		}
 
-		msgCtx := consumeContextFromJetStreamMessage(jsMsg)
-		if err := c.buildConsumeChain(msgCtx.Subject, business)(ctx, msgCtx); err != nil {
+		msgCtx := consumeContextFromJetStreamMessage(jsMsg, ackPolicy)
+		if err := c.handleConsumedMessage(ctx, business, msgCtx, ackPolicy); err != nil {
 			return err
-		}
-		if msgCtx.Acker != nil && !msgCtx.Acker.Handled() {
-			if err := msgCtx.Acker.Ack(); err != nil {
-				return err
-			}
 		}
 	}
 }
@@ -203,6 +215,10 @@ func (c *JetStreamConsumer) consumePush(ctx context.Context, business consume.Ha
 	}
 	if info == nil || info.Config.DeliverSubject == "" {
 		return ErrPushConsumerRequiresDeliverSubject
+	}
+	ackPolicy := ackPolicyFromLegacyInfo(info)
+	if err := c.validateOrderedConsumeAckPolicy(ackPolicy); err != nil {
+		return err
 	}
 	subject := info.Config.FilterSubject
 	if subject == "" && len(info.Config.FilterSubjects) > 0 {
@@ -246,6 +262,10 @@ func (c *JetStreamConsumer) consumePush(ctx context.Context, business consume.Ha
 		_ = drainSubscriptions([]*nats.Subscription{sub})
 	}()
 
+	if c.orderedMode() {
+		return c.consumePushOrdered(ctx, business, sub, ackPolicy)
+	}
+
 	for {
 		select {
 		case <-c.closedCh:
@@ -267,14 +287,14 @@ func (c *JetStreamConsumer) consumePush(ctx context.Context, business consume.Ha
 			return err
 		}
 
-		msgCtx := consumeContextFromRawMessage(msg, consume.TransportJetStream, &rawAcker{msg: msg})
-		if err := c.buildConsumeChain(msg.Subject, business)(ctx, msgCtx); err != nil {
+		msgCtx := consumeContextFromRawMessage(
+			msg,
+			consume.TransportJetStream,
+			&rawAcker{msg: msg},
+			ackPolicy,
+		)
+		if err := c.handleConsumedMessage(ctx, business, msgCtx, ackPolicy); err != nil {
 			return err
-		}
-		if msgCtx.Acker != nil && !msgCtx.Acker.Handled() {
-			if err := msgCtx.Acker.Ack(); err != nil {
-				return err
-			}
 		}
 	}
 }
@@ -298,6 +318,20 @@ func (c *JetStreamConsumer) buildConsumeChain(
 	business consume.HandlerFunc,
 ) consume.HandlerFunc {
 	return consume.Compose(c.handlersForSubject(subject), business)
+}
+
+func (c *JetStreamConsumer) orderedMode() bool {
+	return c.cfg.ShardCount > 1
+}
+
+func (c *JetStreamConsumer) validateOrderedConsumeAckPolicy(ackPolicy consumeAckPolicy) error {
+	if !c.orderedMode() {
+		return nil
+	}
+	if ackPolicy == consumeAckPolicyAll {
+		return fmt.Errorf("ordered consume does not support jetstream ack policy %q", ackPolicy)
+	}
+	return nil
 }
 
 func (c *JetStreamConsumer) handlersForSubject(subject string) []consume.Handler {
@@ -328,13 +362,14 @@ func consumeContextFromRawMessage(
 	msg *nats.Msg,
 	transport consume.Transport,
 	acker consume.Acknowledger,
+	ackPolicy consumeAckPolicy,
 ) *consume.MessageContext {
 	ctx := &consume.MessageContext{
 		Message:    msg,
 		Transport:  transport,
 		Attempt:    0,
 		ReceivedAt: time.Now(),
-		Acker:      acker,
+		Acker:      wrapAcknowledger(acker, ackPolicy),
 	}
 	if msg != nil {
 		ctx.Subject = msg.Subject
@@ -355,7 +390,10 @@ func consumeContextFromRawMessage(
 	return ctx
 }
 
-func consumeContextFromJetStreamMessage(msg jetstream.Msg) *consume.MessageContext {
+func consumeContextFromJetStreamMessage(
+	msg jetstream.Msg,
+	ackPolicy consumeAckPolicy,
+) *consume.MessageContext {
 	if msg == nil {
 		return &consume.MessageContext{
 			Transport:  consume.TransportJetStream,
@@ -378,7 +416,7 @@ func consumeContextFromJetStreamMessage(msg jetstream.Msg) *consume.MessageConte
 		Subject:    raw.Subject,
 		Reply:      raw.Reply,
 		ReceivedAt: time.Now(),
-		Acker:      &jetStreamAcker{msg: msg},
+		Acker:      wrapAcknowledger(&jetStreamAcker{msg: msg}, ackPolicy),
 	}
 	if meta, err := msg.Metadata(); err == nil {
 		ctx.JetStream = &consume.JetStreamMetadata{
@@ -393,6 +431,253 @@ func consumeContextFromJetStreamMessage(msg jetstream.Msg) *consume.MessageConte
 		}
 	}
 	return ctx
+}
+
+func (c *JetStreamConsumer) handleConsumedMessage(
+	ctx context.Context,
+	business consume.HandlerFunc,
+	msgCtx *consume.MessageContext,
+	ackPolicy consumeAckPolicy,
+) error {
+	if err := c.buildConsumeChain(msgCtx.Subject, business)(ctx, msgCtx); err != nil {
+		return err
+	}
+	return autoAckMessage(msgCtx, ackPolicy)
+}
+
+func (c *JetStreamConsumer) prepareOrderedMessage(msgCtx *consume.MessageContext) error {
+	if !c.orderedMode() || msgCtx == nil {
+		return nil
+	}
+
+	logicalKey, err := c.cfg.KeyExtractor(msgCtx)
+	if err != nil {
+		return fmt.Errorf("extract logical key: %w", err)
+	}
+	msgCtx.LogicalKey = logicalKey
+	msgCtx.Shard = jetstreamrt.ShardForKey(logicalKey, c.cfg.ShardCount)
+	return nil
+}
+
+func (c *JetStreamConsumer) consumePullOrdered(
+	ctx context.Context,
+	business consume.HandlerFunc,
+	consumerRef jetstream.Consumer,
+	ackPolicy consumeAckPolicy,
+) error {
+	rt := jetstreamrt.New(ctx, c.cfg.ShardCount, c.cfg.ShardQueueSize, func(
+		workerCtx context.Context,
+		msgCtx *consume.MessageContext,
+	) error {
+		return c.handleConsumedMessage(workerCtx, business, msgCtx, ackPolicy)
+	})
+	defer rt.Shutdown()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if fatalErr := rt.FatalErr(); fatalErr != nil {
+			return fatalErr
+		}
+
+		batch, err := consumerRef.Fetch(
+			c.cfg.PullBatchSize,
+			jetstream.FetchMaxWait(c.cfg.PullMaxWait),
+		)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if fatalErr := rt.FatalErr(); fatalErr != nil {
+				return fatalErr
+			}
+			if waitErr := backoff.Wait(ctx, c.cfg.IdleBackoff); waitErr != nil {
+				return waitErr
+			}
+			continue
+		}
+
+		count := 0
+		for jsMsg := range batch.Messages() {
+			count++
+			msgCtx := consumeContextFromJetStreamMessage(jsMsg, ackPolicy)
+			if err := c.prepareOrderedMessage(msgCtx); err != nil {
+				return jetstreamrt.ErrorOr(rt, err)
+			}
+			if err := rt.Enqueue(msgCtx); err != nil {
+				return jetstreamrt.ErrorOr(rt, err)
+			}
+		}
+
+		if err := batch.Error(); err != nil {
+			return jetstreamrt.ErrorOr(rt, err)
+		}
+		if fatalErr := rt.FatalErr(); fatalErr != nil {
+			return fatalErr
+		}
+		if count == 0 {
+			if err := backoff.Wait(ctx, c.cfg.IdleBackoff); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (c *JetStreamConsumer) consumePushOrdered(
+	ctx context.Context,
+	business consume.HandlerFunc,
+	sub *nats.Subscription,
+	ackPolicy consumeAckPolicy,
+) error {
+	rt := jetstreamrt.New(ctx, c.cfg.ShardCount, c.cfg.ShardQueueSize, func(
+		workerCtx context.Context,
+		msgCtx *consume.MessageContext,
+	) error {
+		return c.handleConsumedMessage(workerCtx, business, msgCtx, ackPolicy)
+	})
+	defer rt.Shutdown()
+
+	for {
+		select {
+		case <-c.closedCh:
+			return ErrJetStreamConsumerClosed
+		default:
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if fatalErr := rt.FatalErr(); fatalErr != nil {
+			return fatalErr
+		}
+
+		msg, err := sub.NextMsg(c.cfg.PullMaxWait)
+		if err != nil {
+			if errors.Is(err, nats.ErrTimeout) {
+				if fatalErr := rt.FatalErr(); fatalErr != nil {
+					return fatalErr
+				}
+				if err := backoff.Wait(ctx, c.cfg.IdleBackoff); err != nil {
+					return err
+				}
+				continue
+			}
+			return jetstreamrt.ErrorOr(rt, err)
+		}
+
+		msgCtx := consumeContextFromRawMessage(
+			msg,
+			consume.TransportJetStream,
+			&rawAcker{msg: msg},
+			ackPolicy,
+		)
+		if err := c.prepareOrderedMessage(msgCtx); err != nil {
+			return jetstreamrt.ErrorOr(rt, err)
+		}
+		if err := rt.Enqueue(msgCtx); err != nil {
+			return jetstreamrt.ErrorOr(rt, err)
+		}
+	}
+}
+
+func autoAckMessage(msgCtx *consume.MessageContext, ackPolicy consumeAckPolicy) error {
+	if ackPolicy != consumeAckPolicyExplicit || msgCtx == nil || msgCtx.Acker == nil ||
+		msgCtx.Acker.Handled() {
+		return nil
+	}
+	return msgCtx.Acker.Ack()
+}
+
+func ackPolicyFromJetStreamInfo(info *jetstream.ConsumerInfo) consumeAckPolicy {
+	if info == nil {
+		return consumeAckPolicyExplicit
+	}
+	switch info.Config.AckPolicy {
+	case jetstream.AckNonePolicy:
+		return consumeAckPolicyNone
+	case jetstream.AckAllPolicy:
+		return consumeAckPolicyAll
+	default:
+		return consumeAckPolicyExplicit
+	}
+}
+
+func ackPolicyFromLegacyInfo(info *nats.ConsumerInfo) consumeAckPolicy {
+	if info == nil {
+		return consumeAckPolicyExplicit
+	}
+	switch info.Config.AckPolicy {
+	case nats.AckNonePolicy:
+		return consumeAckPolicyNone
+	case nats.AckAllPolicy:
+		return consumeAckPolicyAll
+	default:
+		return consumeAckPolicyExplicit
+	}
+}
+
+func (p consumeAckPolicy) String() string {
+	switch p {
+	case consumeAckPolicyNone:
+		return "AckNone"
+	case consumeAckPolicyAll:
+		return "AckAll"
+	default:
+		return "AckExplicit"
+	}
+}
+
+type policyAcknowledger struct {
+	inner   consume.Acknowledger
+	policy  consumeAckPolicy
+	handled bool
+}
+
+func wrapAcknowledger(acker consume.Acknowledger, ackPolicy consumeAckPolicy) consume.Acknowledger {
+	if acker == nil {
+		return nil
+	}
+	return &policyAcknowledger{inner: acker, policy: ackPolicy}
+}
+
+func (a *policyAcknowledger) Ack() error {
+	if a == nil {
+		return nil
+	}
+	if a.policy == consumeAckPolicyNone {
+		a.handled = true
+		return nil
+	}
+	if err := a.inner.Ack(); err != nil {
+		return err
+	}
+	a.handled = true
+	return nil
+}
+
+func (a *policyAcknowledger) Nak() error {
+	if a == nil {
+		return nil
+	}
+	if a.policy == consumeAckPolicyNone {
+		a.handled = true
+		return nil
+	}
+	if err := a.inner.Nak(); err != nil {
+		return err
+	}
+	a.handled = true
+	return nil
+}
+
+func (a *policyAcknowledger) Handled() bool {
+	if a == nil {
+		return false
+	}
+	if a.handled {
+		return true
+	}
+	return a.inner.Handled()
 }
 
 type rawAcker struct {
