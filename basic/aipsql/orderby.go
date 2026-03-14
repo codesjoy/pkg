@@ -12,25 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// This file provides a parser for AIP-132 order by clauses, with advanced
-// field path support along the lines of AIP-161 (for map fields).
-// Only maps with string keys, not integer keys, are supported, however.
-//
-// Both field paths and the "desc" keyword are case-sensitive.
-//
-// order_by_list = order_by_clause {[spaces] "," order_by_clause} [spaces]
-// order_by_clause = field_path order
-// field_path = [spaces] segment {"." segment}
-// order = [spaces "desc"]
-// segment = string | quoted_string;
-// integer = ["-"] digit {digit};
-// string = (letter | "_") {letter | "_" | digit}
-// quoted_string = "`" { utf8-no-backtick | "`" "`" } "`"
-// spaces = " " { " " }
-//
-// No validation is performed to test that the field paths are valid for
-// a particular protocol buffer message.
-
 package aipsql
 
 import (
@@ -93,11 +74,11 @@ func NewFieldPath(segments ...string) FieldPath {
 		}
 		if isStringLiteral(segment) {
 			builder.WriteString(segment)
-		} else {
-			builder.WriteString("`")
-			builder.WriteString(strings.ReplaceAll(segment, "`", "``"))
-			builder.WriteString("`")
+			continue
 		}
+		builder.WriteString("`")
+		builder.WriteString(strings.ReplaceAll(segment, "`", "``"))
+		builder.WriteString("`")
 	}
 	return FieldPath{
 		segments:  segments,
@@ -121,7 +102,6 @@ func (f FieldPath) String() string {
 // syntax is correct and each identifier appears at most once, but
 // it does not validate the identifiers themselves are valid.
 func ParseOrderBy(text string) ([]OrderBy, error) {
-	// Empty order_by list.
 	if strings.Trim(text, " ") == "" {
 		return nil, nil
 	}
@@ -166,6 +146,116 @@ func trackUniqueOrderByField(seen map[string]struct{}, fieldPath FieldPath) erro
 	}
 	seen[key] = struct{}{}
 	return nil
+}
+
+// MergeWithDefaultOrder merges the specified order with the given
+// defaultOrder. The merge occurs as follows:
+//   - Ordering specified in `order` takes precedence.
+//   - For columns not specified in the `order` that appear in `defaultOrder`,
+//     ordering is applied in the order they apply in defaultOrder.
+func MergeWithDefaultOrder(defaultOrder []OrderBy, order []OrderBy) []OrderBy {
+	result := make([]OrderBy, 0, len(order)+len(defaultOrder))
+	seenColumns := make(map[string]struct{})
+	for _, entry := range order {
+		result = append(result, entry)
+		seenColumns[entry.FieldPath.String()] = struct{}{}
+	}
+	for _, entry := range defaultOrder {
+		if _, ok := seenColumns[entry.FieldPath.String()]; ok {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+// OrderByClause returns a Standard SQL Order by clause, including
+// "ORDER BY" and trailing new line (if an order is specified).
+// If no order is specified, returns "".
+//
+// The returned order clause is safe against SQL injection; only
+// strings appearing from Table appear in the output.
+func (t *Table) OrderByClause(order []OrderBy) (string, error) {
+	return t.orderByClause(order, SQLDialectGeneric)
+}
+
+// OrderByClauseWithDialect returns a SQL ORDER BY fragment while validating the
+// provided dialect value.
+func (t *Table) OrderByClauseWithDialect(order []OrderBy, dialect SQLDialect) (string, error) {
+	normalizedDialect, err := normalizeSQLDialect(dialect)
+	if err != nil {
+		return "", err
+	}
+	return t.orderByClause(order, normalizedDialect)
+}
+
+func (t *Table) orderByClause(order []OrderBy, dialect SQLDialect) (string, error) {
+	// Dialect is currently validated for forward compatibility.
+	_ = dialect
+	if len(order) == 0 {
+		return "", nil
+	}
+
+	seenColumns := make(map[string]struct{})
+	var result strings.Builder
+	for i, entry := range order {
+		if i > 0 {
+			result.WriteString(", ")
+		}
+		clause, err := t.buildOrderByFieldClause(entry, seenColumns)
+		if err != nil {
+			return "", err
+		}
+		result.WriteString(clause)
+	}
+	return result.String(), nil
+}
+
+func (t *Table) buildOrderByFieldClause(
+	order OrderBy,
+	seenColumns map[string]struct{},
+) (string, error) {
+	column, err := t.SortableColumnByFieldPath(order.FieldPath)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := seenColumns[column.databaseName]; ok {
+		return "", fmt.Errorf(
+			"field appears in order_by multiple times: %q",
+			order.FieldPath.String(),
+		)
+	}
+	seenColumns[column.databaseName] = struct{}{}
+
+	var clause strings.Builder
+	clause.WriteString(column.databaseName)
+	if order.Descending {
+		clause.WriteString(" DESC")
+	}
+	return clause.String(), nil
+}
+
+// findMatchingOrderByIndex finds a composite index that matches the ORDER BY fields.
+// A matching index is one where the ORDER BY fields form a prefix of the index columns.
+func findMatchingOrderByIndex(fields []OrderByField, indexes []CompositeIndex) *CompositeIndex {
+	for i := range indexes {
+		if indexMatchesOrderBy(fields, indexes[i]) {
+			return &indexes[i]
+		}
+	}
+	return nil
+}
+
+func indexMatchesOrderBy(fields []OrderByField, index CompositeIndex) bool {
+	if len(fields) > len(index.Columns) {
+		return false
+	}
+	for i, field := range fields {
+		if field.Column.databaseName != index.Columns[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func isStringLiteral(segment string) bool {
@@ -224,14 +314,11 @@ type segment struct {
 
 func (s *segment) Value() string {
 	if s.QuotedString != nil {
-		// Remove the outer backticks and replace all occurrences
-		// of double backticks with single backticks.
 		unquotedString := (*s.QuotedString)[1 : len(*s.QuotedString)-1]
 		return strings.ReplaceAll(unquotedString, "``", "`")
 	}
 	if s.StringValue != nil {
 		return *s.StringValue
 	}
-	// Should never happen if parsing succeeds.
 	panic("invalid syntax")
 }

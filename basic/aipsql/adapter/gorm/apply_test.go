@@ -65,8 +65,7 @@ func TestApplyWhere(t *testing.T) {
 		Order("id ASC").
 		Find(&rows).Error
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, int64(1), rows[0].ID)
+	assertOrderIDs(t, rows, 1)
 	assert.Equal(t, "Alice", rows[0].Name)
 }
 
@@ -86,9 +85,7 @@ func TestApplyPlan(t *testing.T) {
 	var rows []orderRecord
 	err := ApplyPlan(db.Model(&orderRecord{}), plan).Find(&rows).Error
 	require.NoError(t, err)
-	require.Len(t, rows, 2)
-	assert.Equal(t, int64(3), rows[0].ID)
-	assert.Equal(t, int64(1), rows[1].ID)
+	assertOrderIDs(t, rows, 3, 1)
 }
 
 func TestApplyWhereEmptyClauseNoop(t *testing.T) {
@@ -141,4 +138,13 @@ func setupOrderDB(t *testing.T) *gorm.DB {
 	}
 
 	return db
+}
+
+func assertOrderIDs(t *testing.T, rows []orderRecord, expected ...int64) {
+	t.Helper()
+
+	require.Len(t, rows, len(expected))
+	for i, id := range expected {
+		assert.Equal(t, id, rows[i].ID)
+	}
 }

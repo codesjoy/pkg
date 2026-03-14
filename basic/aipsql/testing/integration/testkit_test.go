@@ -226,7 +226,9 @@ type itemRow struct {
 
 func buildListSQL(selectClause, fromClause string, plan *aip.QueryPlan) string {
 	var b strings.Builder
-	b.Grow(len(selectClause) + len(fromClause) + len(plan.WhereClause) + len(plan.OrderByClause) + 64)
+	b.Grow(
+		len(selectClause) + len(fromClause) + len(plan.WhereClause) + len(plan.OrderByClause) + 64,
+	)
 	b.WriteString("SELECT ")
 	b.WriteString(selectClause)
 	b.WriteString(" FROM ")

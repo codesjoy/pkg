@@ -32,24 +32,21 @@ func TestNamedArgs(t *testing.T) {
 
 	args := NamedArgs(params)
 	require.Len(t, args, 3)
-
-	first, ok := args[0].(sql.NamedArg)
-	require.True(t, ok)
-	assert.Equal(t, "p_0", first.Name)
-	assert.Equal(t, "active", first.Value)
-
-	second, ok := args[1].(sql.NamedArg)
-	require.True(t, ok)
-	assert.Equal(t, "p_1", second.Name)
-	assert.Equal(t, 42, second.Value)
-
-	third, ok := args[2].(sql.NamedArg)
-	require.True(t, ok)
-	assert.Equal(t, "p_2", third.Name)
-	assert.Nil(t, third.Value)
+	assertNamedArg(t, args[0], "p_0", "active")
+	assertNamedArg(t, args[1], "p_1", 42)
+	assertNamedArg(t, args[2], "p_2", nil)
 }
 
 func TestNamedArgsEmpty(t *testing.T) {
 	assert.Empty(t, NamedArgs(nil))
 	assert.Empty(t, NamedArgs([]aip.QueryParameter{}))
+}
+
+func assertNamedArg(t *testing.T, arg any, name string, value any) {
+	t.Helper()
+
+	namedArg, ok := arg.(sql.NamedArg)
+	require.True(t, ok)
+	assert.Equal(t, name, namedArg.Name)
+	assert.Equal(t, value, namedArg.Value)
 }
