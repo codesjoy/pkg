@@ -94,88 +94,101 @@ func NewLogger(
 // by returning a new instance instead of modifying the existing one.
 func (l *Logger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	newLogger := *l
-	newLogger.config = &LoggerConfig{
-		Logger:                    l.config.Logger,
-		LogLevel:                  level,
-		SlowThreshold:             l.config.SlowThreshold,
-		IgnoreRecordNotFoundError: l.config.IgnoreRecordNotFoundError,
-	}
+	newLogger.config = l.config.cloneWithLevel(level)
 	return &newLogger
 }
 
 // Info logs a message at Info level.
 func (l *Logger) Info(ctx context.Context, msg string, data ...any) {
-	if l.config.LogLevel >= gormlogger.Info {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		l.config.Logger.Log(ctx, slog.LevelInfo, msg, data...)
-	}
+	l.log(ctx, gormlogger.Info, slog.LevelInfo, msg, data...)
 }
 
 // Warn logs a message at Warn level.
 func (l *Logger) Warn(ctx context.Context, msg string, data ...any) {
-	if l.config.LogLevel >= gormlogger.Warn {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		l.config.Logger.Log(ctx, slog.LevelWarn, msg, data...)
-	}
+	l.log(ctx, gormlogger.Warn, slog.LevelWarn, msg, data...)
 }
 
 // Error logs a message at Error level.
 func (l *Logger) Error(ctx context.Context, msg string, data ...any) {
-	if l.config.LogLevel >= gormlogger.Error {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		l.config.Logger.Log(ctx, slog.LevelError, msg, data...)
-	}
+	l.log(ctx, gormlogger.Error, slog.LevelError, msg, data...)
 }
 
 // Trace logs SQL query execution with timing and error information.
 // This implements the core logging logic for GORM operations.
 func (l *Logger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
-	// Check if we should log at all based on log level
 	if l.config.LogLevel <= gormlogger.Silent {
 		return
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Execute the callback to get SQL and rows affected
+	ctx = ensureContext(ctx)
 	sql, rows := fc()
-
-	// Calculate duration
 	elapsed := time.Since(begin)
-
-	// Determine log level and message
-	var level slog.Level
-	var msg string
-
-	switch {
-	case err != nil && l.config.LogLevel >= gormlogger.Error:
-		// Check if we should ignore this error
-		if l.config.IgnoreRecordNotFoundError && errors.Is(err, gorm.ErrRecordNotFound) {
-			return
-		}
-		level = slog.LevelError
-		msg = "sql query failed"
-
-	case elapsed > l.config.SlowThreshold && l.config.SlowThreshold > 0 && l.config.LogLevel >= gormlogger.Warn:
-		level = slog.LevelWarn
-		msg = "slow sql query"
-
-	case l.config.LogLevel >= gormlogger.Info:
-		level = slog.LevelInfo
-		msg = "sql query"
-
-	default:
+	level, msg, ok := l.traceDecision(elapsed, err)
+	if !ok {
 		return
 	}
+	l.config.Logger.LogAttrs(ctx, level, msg, l.buildTraceAttrs(ctx, elapsed, sql, rows, err)...)
+}
 
-	// Build attributes using a fixed array to minimize allocations in hot paths.
+// GetConfig returns the current logger configuration.
+// This is useful for inspection and testing.
+func (l *Logger) GetConfig() *LoggerConfig {
+	return l.config
+}
+
+func (c *LoggerConfig) cloneWithLevel(level gormlogger.LogLevel) *LoggerConfig {
+	return &LoggerConfig{
+		Logger:                    c.Logger,
+		LogLevel:                  level,
+		SlowThreshold:             c.SlowThreshold,
+		IgnoreRecordNotFoundError: c.IgnoreRecordNotFoundError,
+	}
+}
+
+func (l *Logger) log(
+	ctx context.Context,
+	minLevel gormlogger.LogLevel,
+	level slog.Level,
+	msg string,
+	data ...any,
+) {
+	if l.config.LogLevel < minLevel {
+		return
+	}
+	l.config.Logger.Log(ensureContext(ctx), level, msg, data...)
+}
+
+func ensureContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+func (l *Logger) traceDecision(elapsed time.Duration, err error) (slog.Level, string, bool) {
+	switch {
+	case err != nil && l.config.LogLevel >= gormlogger.Error:
+		if l.config.IgnoreRecordNotFoundError && errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, "", false
+		}
+		return slog.LevelError, "sql query failed", true
+	case elapsed > l.config.SlowThreshold &&
+		l.config.SlowThreshold > 0 &&
+		l.config.LogLevel >= gormlogger.Warn:
+		return slog.LevelWarn, "slow sql query", true
+	case l.config.LogLevel >= gormlogger.Info:
+		return slog.LevelInfo, "sql query", true
+	default:
+		return 0, "", false
+	}
+}
+
+func (l *Logger) buildTraceAttrs(
+	ctx context.Context,
+	elapsed time.Duration,
+	sql string,
+	rows int64,
+	err error,
+) []slog.Attr {
 	var attrs [6]slog.Attr
 	n := 0
 	attrs[n] = slog.Duration("duration", elapsed)
@@ -185,7 +198,6 @@ func (l *Logger) Trace(ctx context.Context, begin time.Time, fc func() (string, 
 	attrs[n] = slog.Int64("rows", rows)
 	n++
 
-	// Add file:line if available (from GORM's context)
 	if v, ok := ctx.Value("file").(string); ok {
 		attrs[n] = slog.String("file", v)
 		n++
@@ -194,18 +206,9 @@ func (l *Logger) Trace(ctx context.Context, begin time.Time, fc func() (string, 
 		attrs[n] = slog.Int("line", v)
 		n++
 	}
-
-	// Add error if present
 	if err != nil {
 		attrs[n] = slog.String("error", err.Error())
 		n++
 	}
-
-	l.config.Logger.LogAttrs(ctx, level, msg, attrs[:n]...)
-}
-
-// GetConfig returns the current logger configuration.
-// This is useful for inspection and testing.
-func (l *Logger) GetConfig() *LoggerConfig {
-	return l.config
+	return attrs[:n]
 }

@@ -20,6 +20,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// contextKeyType is a type-safe context key type.
+// Using a private struct type prevents context key collisions.
+type contextKeyType struct{}
+
+// Transaction context key for storing GORM transaction in context.
+var txKey contextKeyType
+
 // Transaction defines transaction lifecycle helpers backed by GORM.
 type Transaction interface {
 	Begin(ctx context.Context) context.Context
@@ -38,54 +45,82 @@ func NewTransaction(db *gorm.DB) Transaction {
 	return &transaction{db: db}
 }
 
+// WithTransaction adds a transaction to the context.
+// This is used internally by Transaction.Begin() and external helpers.
+func WithTransaction(ctx context.Context, tx *gorm.DB) context.Context {
+	return context.WithValue(ctx, txKey, tx)
+}
+
+// TransactionFromContext retrieves the transaction from the context.
+// Returns nil if no transaction is found in the context.
+func TransactionFromContext(ctx context.Context) *gorm.DB {
+	if tx, ok := ctx.Value(txKey).(*gorm.DB); ok {
+		return tx
+	}
+	return nil
+}
+
+// HasTransaction checks if a transaction exists in the context.
+func HasTransaction(ctx context.Context) bool {
+	value := ctx.Value(txKey)
+	return value != nil
+}
+
 func (t *transaction) Begin(ctx context.Context) context.Context {
-	// Check if transaction already exists in context
-	if tx := TransactionFromContext(ctx); tx != nil {
+	if TransactionFromContext(ctx) != nil {
 		return ctx
 	}
 
-	// Begin new transaction
-	tx := t.db.WithContext(ctx).Begin()
-	return WithTransaction(ctx, tx)
+	return WithTransaction(ctx, t.db.WithContext(ctx).Begin())
 }
 
 func (t *transaction) Commit(ctx context.Context) error {
-	return t.runWithTransaction(ctx, "commit", func(tx *gorm.DB) error {
+	return t.runWithActiveTransaction(ctx, "commit", func(tx *gorm.DB) error {
 		return tx.WithContext(ctx).Commit().Error
 	})
 }
 
 func (t *transaction) Rollback(ctx context.Context) error {
-	return t.runWithTransaction(ctx, "rollback", func(tx *gorm.DB) error {
+	return t.runWithActiveTransaction(ctx, "rollback", func(tx *gorm.DB) error {
 		return tx.WithContext(ctx).Rollback().Error
 	})
 }
 
 func (t *transaction) GetTx(ctx context.Context) *gorm.DB {
+	return t.txFromContextOrBase(ctx)
+}
+
+func (t *transaction) Transaction(ctx context.Context, fx func(tx *gorm.DB) error) error {
+	if err := t.txFromContextOrBase(ctx).Transaction(fx); err != nil {
+		return NewTransactionError("transaction", err)
+	}
+	return nil
+}
+
+func (t *transaction) txFromContextOrBase(ctx context.Context) *gorm.DB {
 	if tx := TransactionFromContext(ctx); tx != nil {
 		return tx
 	}
 	return t.db
 }
 
-func (t *transaction) Transaction(ctx context.Context, fx func(tx *gorm.DB) error) error {
-	tx := t.GetTx(ctx)
-	if err := tx.Transaction(fx); err != nil {
-		return NewTransactionError("transaction", err)
+func (t *transaction) activeTransaction(ctx context.Context) (*gorm.DB, error) {
+	tx := TransactionFromContext(ctx)
+	if tx == nil {
+		return nil, ErrTransactionNotActive
 	}
-	return nil
+	return tx, nil
 }
 
-func (t *transaction) runWithTransaction(
+func (t *transaction) runWithActiveTransaction(
 	ctx context.Context,
 	action string,
 	fn func(*gorm.DB) error,
 ) error {
-	tx := TransactionFromContext(ctx)
-	if tx == nil {
-		return ErrTransactionNotActive
+	tx, err := t.activeTransaction(ctx)
+	if err != nil {
+		return err
 	}
-
 	if err := fn(tx); err != nil {
 		return NewTransactionError(action, err)
 	}

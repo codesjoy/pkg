@@ -115,7 +115,10 @@ func TestPostgresIntegration_ShardingRouting(t *testing.T) {
 
 	require.NoError(
 		t,
-		shardingDB.Model(&shardedOrder{}).Where("user_id = ?", int64(5)).Update("product", "u5-updated").Error,
+		shardingDB.Model(&shardedOrder{}).
+			Where("user_id = ?", int64(5)).
+			Update("product", "u5-updated").
+			Error,
 	)
 
 	var updated shardedOrder
@@ -167,7 +170,10 @@ func TestPostgresIntegration_ShardingAndDBResolverCombined(t *testing.T) {
 	var readOrder shardedOrder
 	require.NoError(
 		t,
-		combinedDB.Model(&shardedOrder{}).Where("user_id = ?", targetUserID).First(&readOrder).Error,
+		combinedDB.Model(&shardedOrder{}).
+			Where("user_id = ?", targetUserID).
+			First(&readOrder).
+			Error,
 	)
 	assert.Equal(t, "replica-product", readOrder.Product)
 
@@ -180,8 +186,14 @@ func TestPostgresIntegration_ShardingAndDBResolverCombined(t *testing.T) {
 
 	var sourceOrder shardedOrder
 	var replicaOrder shardedOrder
-	require.NoError(t, sourceDB.Table(targetTable).Where("id = ?", targetID).First(&sourceOrder).Error)
-	require.NoError(t, replicaDB.Table(targetTable).Where("id = ?", targetID).First(&replicaOrder).Error)
+	require.NoError(
+		t,
+		sourceDB.Table(targetTable).Where("id = ?", targetID).First(&sourceOrder).Error,
+	)
+	require.NoError(
+		t,
+		replicaDB.Table(targetTable).Where("id = ?", targetID).First(&replicaOrder).Error,
+	)
 	assert.Equal(t, "source-updated", sourceOrder.Product)
 	assert.Equal(t, "replica-product", replicaOrder.Product)
 }

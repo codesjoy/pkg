@@ -30,6 +30,20 @@ import (
 // It follows the functional options pattern for flexible configuration.
 type Option func(*Config)
 
+func ensureLoggerForOption(cfg *Config) *Logger {
+	if cfg.Logger == nil {
+		cfg.Logger = NewLogger(nil, gormlogger.Info, 200*time.Millisecond, false)
+	}
+	return cfg.Logger
+}
+
+func newDBResolverRule(config dbresolver.Config, datas []any) dbResolverRule {
+	return dbResolverRule{
+		Config: config,
+		Datas:  append([]any(nil), datas...),
+	}
+}
+
 // WithLoggerConfig creates a GORM logger with the specified configuration.
 // This replaces the old WithLogger, WithLogLevel, and WithSlowThreshold options.
 //
@@ -67,12 +81,11 @@ func WithLoggerConfig(
 //	)
 func WithSlogLogger(logger *slog.Logger) Option {
 	return func(cfg *Config) {
-		// Update the existing logger with the custom slog logger
-		if cfg.Logger != nil {
-			cfg.Logger.config.Logger = logger
-		} else {
+		if cfg.Logger == nil {
 			cfg.Logger = NewLogger(logger, gormlogger.Info, 200*time.Millisecond, false)
+			return
 		}
+		ensureLoggerForOption(cfg).config.Logger = logger
 	}
 }
 
@@ -205,11 +218,7 @@ func WithSharding(config sharding.Config, tables ...any) Option {
 // It uses gorm.io/plugin/dbresolver as the underlying plugin.
 func WithDBResolver(config dbresolver.Config, datas ...any) Option {
 	return func(cfg *Config) {
-		rule := dbResolverRule{
-			Config: config,
-			Datas:  append([]any(nil), datas...),
-		}
-		cfg.dbResolverRules = append(cfg.dbResolverRules, rule)
+		cfg.dbResolverRules = append(cfg.dbResolverRules, newDBResolverRule(config, datas))
 	}
 }
 

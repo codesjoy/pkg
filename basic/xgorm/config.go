@@ -124,36 +124,15 @@ func New(dialector gorm.Dialector, opts ...Option) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	db, err := gorm.Open(dialector, gormConfig)
+	db, cleanup, err := openConfiguredDB(dialector, gormConfig, cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-	configureConnectionPool(sqlDB, cfg)
-
-	cleanup := func() {
-		_ = CloseMetrics(db)
-		_ = sqlDB.Close()
-	}
-
-	if err := registerSharding(db, cfg); err != nil {
+	if err := registerConfiguredPlugins(db, cfg); err != nil {
 		cleanup()
 		return nil, err
 	}
-	if err := registerDBResolver(db, cfg); err != nil {
-		cleanup()
-		return nil, err
-	}
-
-	if err := registerMetrics(db, cfg); err != nil {
-		cleanup()
-		return nil, err
-	}
-	if err := registerTracer(db, cfg); err != nil {
+	if err := registerConfiguredInstrumentation(db, cfg); err != nil {
 		cleanup()
 		return nil, err
 	}
@@ -196,16 +175,46 @@ func applyOptions(cfg *Config, opts []Option) {
 	}
 }
 
+func openConfiguredDB(
+	dialector gorm.Dialector,
+	gormConfig *gorm.Config,
+	cfg *Config,
+) (*gorm.DB, func(), error) {
+	db, err := gorm.Open(dialector, gormConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, nil, err
+	}
+	configureConnectionPool(sqlDB, cfg)
+
+	cleanup := func() {
+		_ = CloseMetrics(db)
+		_ = sqlDB.Close()
+	}
+	return db, cleanup, nil
+}
+
 func buildGORMConfig(cfg *Config) *gorm.Config {
 	gormConfig := &gorm.Config{
 		DryRun:                 cfg.DryRun,
 		SkipDefaultTransaction: cfg.SkipDefaultTransaction,
 		Logger:                 cfg.Logger,
 	}
-	for _, mutate := range cfg.gormConfigMutators {
+	applyGORMConfigMutators(gormConfig, cfg.gormConfigMutators)
+	return gormConfig
+}
+
+func applyGORMConfigMutators(
+	gormConfig *gorm.Config,
+	mutators []func(*gorm.Config),
+) {
+	for _, mutate := range mutators {
 		mutate(gormConfig)
 	}
-	return gormConfig
 }
 
 func validateConfigCompatibility(cfg *Config, gormConfig *gorm.Config) error {
@@ -231,6 +240,20 @@ func configureConnectionPool(sqlDB *sql.DB, cfg *Config) {
 	}
 }
 
+func registerConfiguredPlugins(db *gorm.DB, cfg *Config) error {
+	if err := registerSharding(db, cfg); err != nil {
+		return err
+	}
+	return registerDBResolver(db, cfg)
+}
+
+func registerConfiguredInstrumentation(db *gorm.DB, cfg *Config) error {
+	if err := registerMetrics(db, cfg); err != nil {
+		return err
+	}
+	return registerTracer(db, cfg)
+}
+
 func registerSharding(db *gorm.DB, cfg *Config) error {
 	if cfg.ShardingConfig == nil {
 		return nil
@@ -246,12 +269,7 @@ func registerDBResolver(db *gorm.DB, cfg *Config) error {
 		return nil
 	}
 
-	first := cfg.dbResolverRules[0]
-	resolver := dbresolver.Register(first.Config, first.Datas...)
-	for i := 1; i < len(cfg.dbResolverRules); i++ {
-		rule := cfg.dbResolverRules[i]
-		resolver = resolver.Register(rule.Config, rule.Datas...)
-	}
+	resolver := buildDBResolver(cfg.dbResolverRules)
 	if cfg.dbResolverConnPool != nil {
 		resolver = resolver.
 			SetMaxIdleConns(cfg.dbResolverConnPool.MaxIdleConns).
@@ -260,6 +278,15 @@ func registerDBResolver(db *gorm.DB, cfg *Config) error {
 			SetConnMaxIdleTime(cfg.dbResolverConnPool.ConnMaxIdleTime)
 	}
 	return db.Use(resolver)
+}
+
+func buildDBResolver(rules []dbResolverRule) *dbresolver.DBResolver {
+	first := rules[0]
+	resolver := dbresolver.Register(first.Config, first.Datas...)
+	for _, rule := range rules[1:] {
+		resolver = resolver.Register(rule.Config, rule.Datas...)
+	}
+	return resolver
 }
 
 func registerMetrics(db *gorm.DB, cfg *Config) error {
