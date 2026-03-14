@@ -10,6 +10,7 @@ go-redis/v9 native-style client builder with middleware-based observability.
 - Explicit opt-in observability (`WithLogger`, `WithOpenTelemetry`)
 - `Config.Validate` trims addresses and drops blank entries
 - Distributed lock subpackage via `github.com/codesjoy/pkg/basic/xredis/lock`
+- Redis Streams MQ subpackage via `github.com/codesjoy/pkg/basic/xredis/mq`
 
 ## Installation
 
@@ -142,6 +143,86 @@ func main() {
 
 `WithAutoRenew()` and `WithAutoRenewInterval(...)` work for the default single-client lock path.
 Sentinel and Cluster clients are also supported in this single-client mode.
+
+## Redis MQ
+
+```go
+import (
+	"context"
+	"time"
+
+	"github.com/codesjoy/pkg/basic/xredis"
+	"github.com/codesjoy/pkg/basic/xredis/mq"
+	"github.com/redis/go-redis/v9"
+)
+
+func main() {
+	client, err := xredis.New(
+		xredis.Config{
+			UniversalOptions: redis.UniversalOptions{
+				Addrs: []string{"127.0.0.1:6379"},
+			},
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer client.Close()
+
+	publisher, err := mq.NewPublisher(client, mq.PublisherConfig{
+		DefaultStream:     "jobs",
+		OrderedShardCount: 8,
+		OrderKeyHeader:    "x-order-key",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	consumer, err := mq.NewConsumer(client, mq.ConsumerConfig{
+		Stream:            "jobs",
+		Group:             "workers",
+		Consumer:          "worker-1",
+		AutoCreateGroup:   true,
+		OrderedShardCount: 8,
+		OwnedShards:       []int{0, 1, 2, 3},
+		OrderKeyHeader:    "x-order-key",
+		Block:             time.Second,
+		AutoClaimMinIdle:  30 * time.Second,
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer consumer.Close()
+
+	if _, err := publisher.Publish(context.Background(), &mq.Message{
+		Payload: []byte("send-email"),
+		Headers: map[string]string{
+			"kind":        "welcome",
+			"x-order-key": "user-42",
+		},
+	}); err != nil {
+		panic(err)
+	}
+
+	go func() {
+		err := consumer.Consume(context.Background(), func(ctx context.Context, msg *mq.MessageContext) error {
+			if string(msg.Message.Payload) == "send-email" {
+				return consumer.Close()
+			}
+			return nil
+		})
+		if err != nil && err != mq.ErrConsumerClosed {
+			panic(err)
+		}
+	}()
+}
+```
+
+`mq.Consumer` uses Redis Streams consumer groups with auto-ack on successful handler return.
+Set `PublisherConfig.OrderedShardCount` to route same-key messages into stable shard streams, then let each
+consumer instance claim a disjoint `OwnedShards` set. That combination gives group-wide same-key ordering.
+When a handler returns an error, the message stays in pending and can be recovered by a later `XAUTOCLAIM`
+on the same shard stream.
 
 ## Redlock
 
