@@ -622,7 +622,9 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 		formatFuncName := messageResourceFormatNameFuncName(resource)
 		formatWithPatternFuncName := messageResourceFormatNameWithPatternFuncName(resource)
 		compatFormatFuncName := messageResourceCompatFormatNameFuncName(resource)
-		compatFormatWithPatternFuncName := messageResourceCompatFormatNameWithPatternFuncName(resource)
+		compatFormatWithPatternFuncName := messageResourceCompatFormatNameWithPatternFuncName(
+			resource,
+		)
 
 		g.P(
 			"// ", parseFuncName, " parses a ", resource.goName,
@@ -772,7 +774,11 @@ func generateMessageResourceMethods(g *protogen.GeneratedFile, resources []messa
 				".",
 			)
 			g.P(
-				"func (x *", resource.goName, ") FillNameFromParts(parts ", namePartsTypeName, ") error {",
+				"func (x *",
+				resource.goName,
+				") FillNameFromParts(parts ",
+				namePartsTypeName,
+				") error {",
 			)
 			g.P(
 				"\treturn x.FillNameWithPatternFromParts(",

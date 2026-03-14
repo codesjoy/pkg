@@ -169,7 +169,11 @@ func TestGenerateFilesCreatesPerProtoOutputs(t *testing.T) {
 		"// Deprecated: Use FillNameFromParts instead.",
 	)
 	assert.Contains(t, publisherContent, "formatted, err := formatPublisherNameFromMap(values)")
-	assert.Contains(t, publisherContent, "func formatPublisherNameFromMap(values map[string]string) (string, error)")
+	assert.Contains(
+		t,
+		publisherContent,
+		"func formatPublisherNameFromMap(values map[string]string) (string, error)",
+	)
 	assert.Contains(
 		t,
 		publisherContent,
