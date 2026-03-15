@@ -1,0 +1,13 @@
+version: v2
+
+inputs:
+  - directory: proto
+
+plugins:
+  - local: protoc-gen-go
+    out: ./protogen
+    opt: paths=source_relative
+
+  - local: ["sh", "-c", "cd .. && GOWORK=off go run -modfile=go.mod ."]
+    out: ./protogen
+    opt: paths=source_relative

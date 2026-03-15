@@ -1,0 +1,15 @@
+version: v2
+
+modules:
+  - path: proto
+
+deps:
+  - buf.build/codesjoy/ddd
+
+lint:
+  use:
+    - STANDARD
+
+breaking:
+  use:
+    - FILE

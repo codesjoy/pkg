@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package codesjoy.example.order.v1;
+
+import "codesjoy/ddd/event/v1/event.proto";
+
+option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example/protogen/codesjoy/example/order/v1;orderv1";
+
+message OrderCreated {
+  option (codesjoy.ddd.event.v1.event) = {};
+
+  string id = 1 [(codesjoy.ddd.event.v1.event_id) = true];
+  string order_id = 2 [(codesjoy.ddd.event.v1.partition_key) = true];
+  string user_id = 3;
+}
+
+message AuditPing {
+  option (codesjoy.ddd.event.v1.event) = {
+    event_type: "audit.ping"
+  };
+
+  string actor = 1;
+}
