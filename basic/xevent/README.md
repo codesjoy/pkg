@@ -121,6 +121,7 @@ not support generic methods.
 `xevent` stays transport-neutral. Adapter modules are documented separately.
 
 - Kafka adapter: `github.com/codesjoy/pkg/basic/xevent/kafka`
+- NATS/JetStream adapter: `github.com/codesjoy/pkg/basic/xevent/nats`
 
 Use transport adapters to translate transport-native messages into
 `xevent.Message` values and route them through a bound dispatcher.

@@ -17,7 +17,7 @@ The repository is organized by responsibility:
 | `basic/xgorm` | Enhanced GORM utilities (pagination, transaction context, plugins) | [basic/xgorm/README.md](./basic/xgorm/README.md) |
 | `basic/aipsql` | AIP-160 filtering + AIP-132 sorting + seek pagination + SQL planning | [basic/aipsql/README.md](./basic/aipsql/README.md) |
 | `basic/snowflake` | Distributed Snowflake ID generation with static/GORM workers | [basic/snowflake/README.md](./basic/snowflake/README.md) |
-| `basic/xevent` | Transport-agnostic domain events with typed dispatch and Kafka adapters | [basic/xevent/README.md](./basic/xevent/README.md) |
+| `basic/xevent` | Transport-agnostic domain events with typed dispatch plus Kafka and JetStream adapters | [basic/xevent/README.md](./basic/xevent/README.md) |
 | `basic/xerror` | Framework-agnostic domain errors with reason + canonical code matching | [basic/xerror/README.md](./basic/xerror/README.md) |
 | `basic/xkafka` | Sarama-based Group/Partition consumers plus Sync/Batch/Async producer with middleware chain (logger/retry/trace), shard ordering, and at-least-once semantics | [basic/xkafka/README.md](./basic/xkafka/README.md) |
 | `basic/xnats` | NATS and JetStream extension library with publisher/subscriber/request/reply and middleware support | [basic/xnats/README.md](./basic/xnats/README.md) |
@@ -46,6 +46,7 @@ go get github.com/codesjoy/pkg/basic/xgorm
 go get github.com/codesjoy/pkg/basic/aipsql
 go get github.com/codesjoy/pkg/basic/snowflake
 go get github.com/codesjoy/pkg/basic/xevent
+go get github.com/codesjoy/pkg/basic/xevent/nats
 go get github.com/codesjoy/pkg/basic/xerror
 go get github.com/codesjoy/pkg/basic/xkafka
 go get github.com/codesjoy/pkg/basic/xnats
