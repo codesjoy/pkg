@@ -17,16 +17,20 @@ The repository is organized by responsibility:
 | `basic/xgorm` | Enhanced GORM utilities (pagination, transaction context, plugins) | [basic/xgorm/README.md](./basic/xgorm/README.md) |
 | `basic/aipsql` | AIP-160 filtering + AIP-132 sorting + seek pagination + SQL planning | [basic/aipsql/README.md](./basic/aipsql/README.md) |
 | `basic/snowflake` | Distributed Snowflake ID generation with static/GORM workers | [basic/snowflake/README.md](./basic/snowflake/README.md) |
+| `basic/xevent` | Transport-agnostic domain events with typed dispatch and Kafka adapters | [basic/xevent/README.md](./basic/xevent/README.md) |
 | `basic/xerror` | Framework-agnostic domain errors with reason + canonical code matching | [basic/xerror/README.md](./basic/xerror/README.md) |
 | `basic/xkafka` | Sarama-based Group/Partition consumers plus Sync/Batch/Async producer with middleware chain (logger/retry/trace), shard ordering, and at-least-once semantics | [basic/xkafka/README.md](./basic/xkafka/README.md) |
+| `basic/xnats` | NATS and JetStream extension library with publisher/subscriber/request/reply and middleware support | [basic/xnats/README.md](./basic/xnats/README.md) |
 | `basic/xredis` | go-redis native-style client builder with middleware wiring for slog and OpenTelemetry | [basic/xredis/README.md](./basic/xredis/README.md) |
 | `basic/xjwt` | JWT-oriented key generation (RSA/ECDSA/Ed25519/X25519/JWK) | [basic/xjwt/README.md](./basic/xjwt/README.md) |
 | `utils` | Utility module with `base62`, `xcrypto`, `cookie`, `xemail`, `xgo`, `xmap`, `xnet`, `xsync` | [utils/README.md](./utils/README.md) |
+| `proto` | Stable shared protobuf option definitions and generated annotation packages | N/A | Imported by business protobufs that use repository-owned proto extensions |
 
 ## Tools
 
 | Tool | Purpose | Docs | Typical use |
 | --- | --- | --- | --- |
+| `tools/protoc-gen-codesjoy-ddd` | Protoc plugin for generating `xevent.Event` implementations from annotated protobuf messages | [tools/protoc-gen-codesjoy-ddd/README.md](./tools/protoc-gen-codesjoy-ddd/README.md) | Generate `EventType` / `EventID` / `PartitionKey` / protobuf payload helpers for domain events |
 | `tools/protoc-gen-google-aip` | Protoc plugin for generating Google AIP helpers for resources, field behavior, and method signatures | [tools/protoc-gen-google-aip/README.md](./tools/protoc-gen-google-aip/README.md) | Generate resource-name parsing/formatting and annotation metadata accessors |
 | `tools/protoc-gen-codesjoy-reason` | Protoc plugin for generating enum reason helpers (`Reason`/`Domain`/`Code`) | [tools/protoc-gen-codesjoy-reason/README.md](./tools/protoc-gen-codesjoy-reason/README.md) | Generate reason helper methods for proto enums |
 | `tools/codesjoy-modelgen` | Introspect MySQL/PostgreSQL schema and generate GORM models + `aipsql.Table` builders | [tools/codesjoy-modelgen/README.md](./tools/codesjoy-modelgen/README.md) | Bootstrap model layer and AIP filter schema from existing tables |
@@ -41,8 +45,10 @@ Install only what you need:
 go get github.com/codesjoy/pkg/basic/xgorm
 go get github.com/codesjoy/pkg/basic/aipsql
 go get github.com/codesjoy/pkg/basic/snowflake
+go get github.com/codesjoy/pkg/basic/xevent
 go get github.com/codesjoy/pkg/basic/xerror
 go get github.com/codesjoy/pkg/basic/xkafka
+go get github.com/codesjoy/pkg/basic/xnats
 go get github.com/codesjoy/pkg/basic/xredis
 go get github.com/codesjoy/pkg/basic/xjwt
 go get github.com/codesjoy/pkg/utils
@@ -55,10 +61,12 @@ Install the tools you need:
 ```bash
 go install github.com/codesjoy/pkg/tools/protoc-gen-google-aip@latest
 go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason@latest
+go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd@latest
 go install github.com/codesjoy/pkg/tools/codesjoy-modelgen@latest
 ```
 
 Then follow:
+- [Plugin docs](./tools/protoc-gen-codesjoy-ddd/README.md)
 - [Plugin docs](./tools/protoc-gen-codesjoy-reason/README.md)
 
 ## Development
