@@ -76,30 +76,33 @@ func (s *Subscriber) Subscribe(ctx context.Context) error {
 		return err
 	}
 
-	return s.consumer.Consume(ctx, func(handlerCtx context.Context, msg *consume.MessageContext) error {
-		if msg == nil || msg.Message == nil {
-			return xevent.ErrNilMessage
-		}
+	return s.consumer.Consume(
+		ctx,
+		func(handlerCtx context.Context, msg *consume.MessageContext) error {
+			if msg == nil || msg.Message == nil {
+				return xevent.ErrNilMessage
+			}
 
-		eventType := ""
-		if msg.Message.Header != nil {
-			eventType = msg.Message.Header.Get(s.eventTypeHeader)
-		}
-		if eventType == "" {
-			eventType = msg.Subject
-		}
-		if eventType == "" {
-			eventType = msg.Message.Subject
-		}
-		if eventType == "" {
-			return xevent.ErrEventTypeRequired
-		}
+			eventType := ""
+			if msg.Message.Header != nil {
+				eventType = msg.Message.Header.Get(s.eventTypeHeader)
+			}
+			if eventType == "" {
+				eventType = msg.Subject
+			}
+			if eventType == "" {
+				eventType = msg.Message.Subject
+			}
+			if eventType == "" {
+				return xevent.ErrEventTypeRequired
+			}
 
-		return s.dispatcher.Handle(handlerCtx, &xevent.Message{
-			EventType: eventType,
-			Payload:   cloneBytes(msg.Message.Data),
-		})
-	})
+			return s.dispatcher.Handle(handlerCtx, &xevent.Message{
+				EventType: eventType,
+				Payload:   cloneBytes(msg.Message.Data),
+			})
+		},
+	)
 }
 
 // Close releases the wrapped JetStream consumer.

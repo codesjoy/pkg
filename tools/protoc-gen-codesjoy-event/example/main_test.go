@@ -167,7 +167,10 @@ func TestBufGenerateMatchesCommittedOutput(t *testing.T) {
 	assertSameFile(
 		t,
 		filepath.Join(exampleDir, "protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go"),
-		filepath.Join(tmpToolDir, "example/protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go"),
+		filepath.Join(
+			tmpToolDir,
+			"example/protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go",
+		),
 	)
 }
 

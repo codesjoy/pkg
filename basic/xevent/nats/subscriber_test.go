@@ -58,6 +58,7 @@ func (*testOrderCreated) PartitionKey() string { return "" }
 func (e *testOrderCreated) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
 }
+
 func (e *testOrderCreated) UnmarshalPayload(data []byte) error {
 	if err := json.Unmarshal(data, e); err != nil {
 		return err
