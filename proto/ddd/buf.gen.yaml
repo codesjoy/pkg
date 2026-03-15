@@ -1,0 +1,12 @@
+version: v2
+
+managed:
+  enabled: true
+
+plugins:
+  - local: protoc-gen-go
+    out: ..
+    opt:
+      - module=github.com/codesjoy/pkg/proto
+  - local: [ "sh", "-c", "cd ../codesjoy/ddd && [ -f go.mod ] || go mod init github.com/codesjoy/pkg/proto/codesjoy/ddd && go mod tidy" ]
+    out: ..
