@@ -128,7 +128,7 @@ Use transport adapters to translate transport-native messages into
 
 ## Generate Event Methods From Protobuf
 
-If your events are defined in protobuf, `tools/protoc-gen-codesjoy-ddd` can
+If your events are defined in protobuf, `tools/protoc-gen-codesjoy-event` can
 generate the `xevent.Event` methods for you:
 
 ```proto
@@ -153,7 +153,7 @@ plugins:
     out: ./gen
     opt: paths=source_relative
 
-  - local: protoc-gen-codesjoy-ddd
+  - local: protoc-gen-codesjoy-event
     out: ./gen
     opt: paths=source_relative
 ```

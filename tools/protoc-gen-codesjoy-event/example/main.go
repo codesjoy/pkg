@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/codesjoy/pkg/basic/xevent"
-	orderv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example/protogen/codesjoy/example/order/v1"
+	orderv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event/example/protogen/codesjoy/example/order/v1"
 )
 
 func main() {

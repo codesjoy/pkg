@@ -1,7 +1,7 @@
-# Example: protoc-gen-codesjoy-ddd
+# Example: protoc-gen-codesjoy-event
 
 This module shows how to annotate protobuf event messages and generate
-`xevent.Event` helpers with `protoc-gen-codesjoy-ddd`.
+`xevent.Event` helpers with `protoc-gen-codesjoy-event`.
 
 The demo sends a generated `OrderCreated` protobuf message through
 `xevent.Dispatcher` using the generated `OnOrderCreated(...)` helper, without
@@ -12,7 +12,7 @@ writing manual marshal or metadata methods, and also includes an explicit
 
 - `proto/codesjoy/example/order/v1/order.proto`: sample annotated event messages.
 - `protogen/codesjoy/example/order/v1/order.pb.go`: `protoc-gen-go` output.
-- `protogen/codesjoy/example/order/v1/order_event.pb.go`: `protoc-gen-codesjoy-ddd` output.
+- `protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go`: `protoc-gen-codesjoy-event` output.
 - `main.go`: runnable demo.
 
 ## Install Tools
@@ -32,7 +32,7 @@ buf --version
 
 ## Regenerate (Buf)
 
-From this directory (`tools/protoc-gen-codesjoy-ddd/example`):
+From this directory (`tools/protoc-gen-codesjoy-event/example`):
 
 ```bash
 buf generate

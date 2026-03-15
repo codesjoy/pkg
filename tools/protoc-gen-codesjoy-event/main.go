@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package protoc-gen-codesjoy-ddd is a protoc plugin that generates
+// Package protoc-gen-codesjoy-event is a protoc plugin that generates
 // xevent.Event implementations for annotated protobuf messages.
 package main
 

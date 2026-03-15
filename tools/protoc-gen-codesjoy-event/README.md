@@ -1,6 +1,6 @@
-# protoc-gen-codesjoy-ddd
+# protoc-gen-codesjoy-event
 
-`protoc-gen-codesjoy-ddd` is a protoc plugin that generates
+`protoc-gen-codesjoy-event` is a protoc plugin that generates
 `github.com/codesjoy/pkg/basic/xevent.Event` implementations for protobuf
 messages annotated with `codesjoy.ddd.event.v1` options.
 
@@ -14,7 +14,7 @@ depends on the stable proto module rather than this tool module.
 ## Install
 
 ```bash
-go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd@latest
+go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event@latest
 ```
 
 ## Event Proto Extensions
@@ -57,7 +57,7 @@ or message changes the default `EventType()` value.
 ```bash
 protoc \
   --go_out=. --go_opt=paths=source_relative \
-  --codesjoy-xevent_out=. --codesjoy-xevent_opt=paths=source_relative \
+  --codesjoy-event_out=. --codesjoy-event_opt=paths=source_relative \
   your/event.proto
 ```
 
@@ -71,7 +71,7 @@ plugins:
     out: ./gen
     opt: paths=source_relative
 
-  - local: protoc-gen-codesjoy-ddd
+  - local: protoc-gen-codesjoy-event
     out: ./gen
     opt: paths=source_relative
 ```

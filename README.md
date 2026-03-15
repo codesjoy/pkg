@@ -30,7 +30,7 @@ The repository is organized by responsibility:
 
 | Tool | Purpose | Docs | Typical use |
 | --- | --- | --- | --- |
-| `tools/protoc-gen-codesjoy-ddd` | Protoc plugin for generating `xevent.Event` implementations from annotated protobuf messages | [tools/protoc-gen-codesjoy-ddd/README.md](./tools/protoc-gen-codesjoy-ddd/README.md) | Generate `EventType` / `EventID` / `PartitionKey` / protobuf payload helpers for domain events |
+| `tools/protoc-gen-codesjoy-event` | Protoc plugin for generating `xevent.Event` implementations from annotated protobuf messages | [tools/protoc-gen-codesjoy-event/README.md](./tools/protoc-gen-codesjoy-event/README.md) | Generate `EventType` / `EventID` / `PartitionKey` / protobuf payload helpers for domain events |
 | `tools/protoc-gen-google-aip` | Protoc plugin for generating Google AIP helpers for resources, field behavior, and method signatures | [tools/protoc-gen-google-aip/README.md](./tools/protoc-gen-google-aip/README.md) | Generate resource-name parsing/formatting and annotation metadata accessors |
 | `tools/protoc-gen-codesjoy-reason` | Protoc plugin for generating enum reason helpers (`Reason`/`Domain`/`Code`) | [tools/protoc-gen-codesjoy-reason/README.md](./tools/protoc-gen-codesjoy-reason/README.md) | Generate reason helper methods for proto enums |
 | `tools/codesjoy-modelgen` | Introspect MySQL/PostgreSQL schema and generate GORM models + `aipsql.Table` builders | [tools/codesjoy-modelgen/README.md](./tools/codesjoy-modelgen/README.md) | Bootstrap model layer and AIP filter schema from existing tables |
@@ -62,12 +62,12 @@ Install the tools you need:
 ```bash
 go install github.com/codesjoy/pkg/tools/protoc-gen-google-aip@latest
 go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason@latest
-go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd@latest
+go install github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event@latest
 go install github.com/codesjoy/pkg/tools/codesjoy-modelgen@latest
 ```
 
 Then follow:
-- [Plugin docs](./tools/protoc-gen-codesjoy-ddd/README.md)
+- [Plugin docs](./tools/protoc-gen-codesjoy-event/README.md)
 - [Plugin docs](./tools/protoc-gen-codesjoy-reason/README.md)
 
 ## Development

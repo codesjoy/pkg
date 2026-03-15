@@ -138,7 +138,7 @@ const file_codesjoy_example_order_v1_order_proto_rawDesc = "" +
 	"\tAuditPing\x12\x14\n" +
 	"\x05actor\x18\x01 \x01(\tR\x05actor:\x0f\xb2E\f\n" +
 	"\n" +
-	"audit.pingBjZhgithub.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example/protogen/codesjoy/example/order/v1;orderv1b\x06proto3"
+	"audit.pingBlZjgithub.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event/example/protogen/codesjoy/example/order/v1;orderv1b\x06proto3"
 
 var (
 	file_codesjoy_example_order_v1_order_proto_rawDescOnce sync.Once

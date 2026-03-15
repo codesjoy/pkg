@@ -4,7 +4,7 @@ package codesjoy.example.order.v1;
 
 import "codesjoy/ddd/event/v1/event.proto";
 
-option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example/protogen/codesjoy/example/order/v1;orderv1";
+option go_package = "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event/example/protogen/codesjoy/example/order/v1;orderv1";
 
 message OrderCreated {
   option (codesjoy.ddd.event.v1.event) = {};

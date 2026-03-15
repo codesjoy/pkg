@@ -1,4 +1,4 @@
-module github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example
+module github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event/example
 
 go 1.25.7
 

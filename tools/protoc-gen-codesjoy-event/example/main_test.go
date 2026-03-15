@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/codesjoy/pkg/basic/xevent"
-	orderv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-ddd/example/protogen/codesjoy/example/order/v1"
+	orderv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event/example/protogen/codesjoy/example/order/v1"
 )
 
 func TestGeneratedMessageDispatchRoundTrip(t *testing.T) {
@@ -140,7 +140,7 @@ func TestBufGenerateMatchesCommittedOutput(t *testing.T) {
 	toolDir := filepath.Dir(exampleDir)
 	repoRoot := filepath.Dir(filepath.Dir(toolDir))
 	tmpRoot := t.TempDir()
-	tmpToolDir := filepath.Join(tmpRoot, "tools", "protoc-gen-codesjoy-ddd")
+	tmpToolDir := filepath.Join(tmpRoot, "tools", "protoc-gen-codesjoy-event")
 
 	if err := copyDir(toolDir, tmpToolDir); err != nil {
 		t.Fatalf("copyDir() error = %v", err)
@@ -166,8 +166,8 @@ func TestBufGenerateMatchesCommittedOutput(t *testing.T) {
 	)
 	assertSameFile(
 		t,
-		filepath.Join(exampleDir, "protogen/codesjoy/example/order/v1/order_event.pb.go"),
-		filepath.Join(tmpToolDir, "example/protogen/codesjoy/example/order/v1/order_event.pb.go"),
+		filepath.Join(exampleDir, "protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go"),
+		filepath.Join(tmpToolDir, "example/protogen/codesjoy/example/order/v1/order_codesjoy_event.pb.go"),
 	)
 }
 
