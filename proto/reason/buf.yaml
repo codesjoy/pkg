@@ -4,6 +4,9 @@ modules:
   - path: .
     name: buf.build/codesjoy/reason
 
+deps:
+  - buf.build/googleapis/googleapis
+
 lint:
   use:
     - STANDARD
@@ -11,6 +14,3 @@ lint:
 breaking:
   use:
     - FILE
-
-deps:
-  - buf.build/googleapis/googleapis

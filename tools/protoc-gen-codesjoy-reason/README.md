@@ -4,7 +4,7 @@
 reason-based error classification.
 
 It works with the extension definitions in:
-`proto/codesjoy/reason/v1/reason.proto`.
+`proto/reason/codesjoy/reason/v1/reason.proto`.
 
 ## Install
 

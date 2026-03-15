@@ -73,8 +73,8 @@ const file_codesjoy_reason_v1_reason_proto_rawDesc = "" +
 	"\n" +
 	"\x1fcodesjoy/reason/v1/reason.proto\x12\x12codesjoy.reason.v1\x1a google/protobuf/descriptor.proto\x1a\x15google/rpc/code.proto:D\n" +
 	"\x0edefault_reason\x12\x1c.google.protobuf.EnumOptions\x18\xd4\b \x01(\x05R\rdefaultReason:H\n" +
-	"\x04code\x12!.google.protobuf.EnumValueOptions\x18\xd5\b \x01(\x0e2\x10.google.rpc.CodeR\x04codeB\xeb\x01\n" +
-	"\x16com.codesjoy.reason.v1B\vReasonProtoP\x01ZZgithub.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/proto/codesjoy/reason/v1;reasonv1\xa2\x02\x03CRX\xaa\x02\x12Codesjoy.Reason.V1\xca\x02\x12Codesjoy\\Reason\\V1\xe2\x02\x1eCodesjoy\\Reason\\V1\\GPBMetadata\xea\x02\x14Codesjoy::Reason::V1b\x06proto3"
+	"\x04code\x12!.google.protobuf.EnumValueOptions\x18\xd5\b \x01(\x0e2\x10.google.rpc.CodeR\x04codeB\xca\x01\n" +
+	"\x16com.codesjoy.reason.v1B\vReasonProtoP\x01Z9github.com/codesjoy/pkg/proto/codesjoy/reason/v1;reasonv1\xa2\x02\x03CRX\xaa\x02\x12Codesjoy.Reason.V1\xca\x02\x12Codesjoy\\Reason\\V1\xe2\x02\x1eCodesjoy\\Reason\\V1\\GPBMetadata\xea\x02\x14Codesjoy::Reason::V1b\x06proto3"
 
 var file_codesjoy_reason_v1_reason_proto_goTypes = []any{
 	(*descriptorpb.EnumOptions)(nil),      // 0: google.protobuf.EnumOptions

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	reasonv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/proto/codesjoy/reason/v1"
+	reasonv1 "github.com/codesjoy/pkg/proto/codesjoy/reason/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/code"

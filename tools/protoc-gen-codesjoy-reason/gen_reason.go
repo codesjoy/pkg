@@ -17,7 +17,7 @@ package main
 import (
 	"fmt"
 
-	reasonv1 "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/proto/codesjoy/reason/v1"
+	reasonv1 "github.com/codesjoy/pkg/proto/codesjoy/reason/v1"
 	"google.golang.org/genproto/googleapis/rpc/code"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"

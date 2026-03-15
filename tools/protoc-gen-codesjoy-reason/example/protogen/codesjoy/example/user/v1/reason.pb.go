@@ -7,7 +7,7 @@
 package userv1
 
 import (
-	_ "github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-reason/proto/codesjoy/reason/v1"
+	_ "github.com/codesjoy/pkg/proto/codesjoy/reason/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
