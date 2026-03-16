@@ -2,14 +2,9 @@ module github.com/codesjoy/pkg/basic/xevent/nats
 
 go 1.25.7
 
-replace (
-	github.com/codesjoy/pkg/basic/xevent => ../
-	github.com/codesjoy/pkg/basic/xnats => ../../xnats
-)
-
 require (
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-00010101000000-000000000000
-	github.com/codesjoy/pkg/basic/xnats v0.0.0-00010101000000-000000000000
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260315175100-21ea1546c9c2
+	github.com/codesjoy/pkg/basic/xnats v0.0.0-20260315175100-21ea1546c9c2
 	github.com/nats-io/nats.go v1.49.0
 )
 

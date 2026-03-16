@@ -95,6 +95,10 @@ make go.work.drift
 make sync
 ```
 
+For cross-module development inside this repository, rely on `go.work` to wire local modules together.
+Published modules should not carry local `replace` directives in their `go.mod`, because external consumers must be able to resolve versioned dependencies without local filesystem paths.
+Example modules may keep local `replace` directives when they are only intended for in-repo development and demonstration.
+
 ### 6. Daily Diagnostics and Fast Troubleshooting
 
 Use `doctor` to quickly verify local environment consistency, and `modules.print` to inspect module filtering decisions:

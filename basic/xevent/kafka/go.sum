@@ -1,5 +1,9 @@
 github.com/IBM/sarama v1.47.0 h1:GcQFEd12+KzfPYeLgN69Fh7vLCtYRhVIx0rO4TZO318=
 github.com/IBM/sarama v1.47.0/go.mod h1:7gLLIU97nznOmA6TX++Qds+DRxH89P2XICY2KAQUzAY=
+github.com/codesjoy/pkg/basic/xevent v0.0.0-20260315175100-21ea1546c9c2 h1:Kms6YjVTfnKLHbv4xp0Ke5SEmlqiOsmf2in23p7pglo=
+github.com/codesjoy/pkg/basic/xevent v0.0.0-20260315175100-21ea1546c9c2/go.mod h1:Fndy91E2Lbw1j7Bw63Cv827z4eWG5s1sNcC8WgW8mss=
+github.com/codesjoy/pkg/basic/xkafka v0.0.0-20260315175100-21ea1546c9c2 h1:JMvYfViBVLMbW4+o7iYAL0HU/HsNIDOW5+T81BmgaZU=
+github.com/codesjoy/pkg/basic/xkafka v0.0.0-20260315175100-21ea1546c9c2/go.mod h1:bBoeLTwZDV0Vgm969ynXic2zPug4300yvqe0urdqftw=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
