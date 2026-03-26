@@ -17,13 +17,12 @@ package outbox
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/codesjoy/pkg/basic/xevent"
+	"github.com/google/uuid"
 )
 
 const (
@@ -34,12 +33,11 @@ const (
 	defaultMaxAttempts  = 3
 )
 
-var relayCounter atomic.Uint64
-
 // RelayConfig configures one local outbox relay loop.
 type RelayConfig struct {
 	Store        Store
 	Sender       xevent.Sender
+	Owner        string
 	PollInterval time.Duration
 	BatchSize    int
 	ClaimTTL     time.Duration
@@ -95,8 +93,10 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.Owner == "" {
+		cfg.Owner = uuid.NewString()
+	}
 
-	id := relayCounter.Add(1)
 	return &Relay{
 		store:        cfg.Store,
 		sender:       cfg.Sender,
@@ -107,7 +107,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 		maxAttempts:  cfg.MaxAttempts,
 		now:          cfg.Now,
 		logger:       cfg.Logger,
-		owner:        fmt.Sprintf("relay-%d", id),
+		owner:        cfg.Owner,
 		wakeCh:       make(chan struct{}, 1),
 	}, nil
 }

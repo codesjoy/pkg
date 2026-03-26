@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/codesjoy/pkg/basic/xevent"
+	"github.com/google/uuid"
 )
 
 type fakeSender struct {
@@ -59,6 +60,52 @@ func TestNewRelayRejectsNilDependencies(t *testing.T) {
 	}
 	if err.Error() != "xevent outbox sender is nil" {
 		t.Fatalf("unexpected nil sender error: %v", err)
+	}
+}
+
+func TestNewRelayGeneratesUUIDOwnerByDefault(t *testing.T) {
+	first, err := NewRelay(RelayConfig{
+		Store:  NewMemoryStore(),
+		Sender: &fakeSender{},
+	})
+	if err != nil {
+		t.Fatalf("first NewRelay returned error: %v", err)
+	}
+
+	second, err := NewRelay(RelayConfig{
+		Store:  NewMemoryStore(),
+		Sender: &fakeSender{},
+	})
+	if err != nil {
+		t.Fatalf("second NewRelay returned error: %v", err)
+	}
+
+	if first.owner == "" {
+		t.Fatal("expected first relay owner to be set")
+	}
+	if _, err := uuid.Parse(first.owner); err != nil {
+		t.Fatalf("expected first relay owner to be a UUID, got %q: %v", first.owner, err)
+	}
+	if _, err := uuid.Parse(second.owner); err != nil {
+		t.Fatalf("expected second relay owner to be a UUID, got %q: %v", second.owner, err)
+	}
+	if first.owner == second.owner {
+		t.Fatalf("expected unique relay owners, both were %q", first.owner)
+	}
+}
+
+func TestNewRelayUsesConfiguredOwner(t *testing.T) {
+	relay, err := NewRelay(RelayConfig{
+		Store:  NewMemoryStore(),
+		Sender: &fakeSender{},
+		Owner:  "relay-owner-explicit",
+	})
+	if err != nil {
+		t.Fatalf("NewRelay returned error: %v", err)
+	}
+
+	if relay.owner != "relay-owner-explicit" {
+		t.Fatalf("expected configured relay owner, got %q", relay.owner)
 	}
 }
 
@@ -106,6 +153,7 @@ func TestRelayProcessOnceTransitionsRecords(t *testing.T) {
 	relay, err := NewRelay(RelayConfig{
 		Store:       store,
 		Sender:      sender,
+		Owner:       "relay-owner",
 		RetryDelay:  5 * time.Minute,
 		MaxAttempts: 2,
 		Now:         func() time.Time { return now },
@@ -165,6 +213,7 @@ func TestRelayRunWakeProcessesRecordImmediately(t *testing.T) {
 	relay, err := NewRelay(RelayConfig{
 		Store:        store,
 		Sender:       sender,
+		Owner:        "relay-owner",
 		PollInterval: time.Hour,
 	})
 	if err != nil {

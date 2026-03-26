@@ -65,6 +65,11 @@ go func() {
 }()
 ```
 
+`RelayConfig.Owner` identifies one relay instance for claim ownership. When it
+is left empty, `NewRelay` generates a UUID automatically. If application code
+sets `Owner` explicitly, it must remain globally unique across live relay
+instances.
+
 `Wake()` is the entry point for:
 
 - transaction-commit driven immediate scans
