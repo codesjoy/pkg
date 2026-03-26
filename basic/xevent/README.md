@@ -83,11 +83,41 @@ func main() {
 ## API Overview
 
 - `Event`: event identity, partition key, and payload encode/decode contract
+- `Outbound`: transport-neutral outbound event payload
 - `Message`: transport-level input shape (`eventType + payload`)
 - `Handler`: transport-level message handler
 - `Dispatcher`: routes one `Message` into bound typed handlers
 - `Publisher`: transport-facing publish abstraction over an `Event`
+- `Sender`: transport-facing send abstraction over an `Outbound`
 - `Subscriber`: transport-facing lifecycle abstraction for consumption
+
+## Outbound Encoding and Sending
+
+If you need to persist an event before publishing it, convert it into an
+`Outbound` first:
+
+```go
+outbound, err := xevent.Encode(&OrderCreated{
+	ID:      "evt_1",
+	OrderID: "o_123",
+	UserID:  "u_1",
+})
+if err != nil {
+	panic(err)
+}
+```
+
+Existing publishers can be adapted into `Sender` values:
+
+```go
+sender := xevent.SenderFromPublisher(publisher)
+if err := sender.Send(context.Background(), outbound); err != nil {
+	panic(err)
+}
+```
+
+This is the transport-neutral path used by the `xevent/outbox` package and its
+optional storage adapters.
 
 ## Typed Dispatch
 
@@ -116,10 +146,12 @@ _ = dispatcher.Handle(context.Background(), &xevent.Message{
 `xevent.On[T](dispatcher, handler)` is a package-level function because Go does
 not support generic methods.
 
-## Transport Adapters
+## Optional Adapters
 
 `xevent` stays transport-neutral. Adapter modules are documented separately.
 
+- Outbox core: `github.com/codesjoy/pkg/basic/xevent/outbox`
+- Outbox GORM adapter: `github.com/codesjoy/pkg/basic/xevent/outbox/gorm`
 - Kafka adapter: `github.com/codesjoy/pkg/basic/xevent/kafka`
 - NATS/JetStream adapter: `github.com/codesjoy/pkg/basic/xevent/nats`
 

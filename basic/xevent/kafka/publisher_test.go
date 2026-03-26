@@ -109,6 +109,41 @@ func TestPublisherPublishMapsEventToKafkaMessage(t *testing.T) {
 	}
 }
 
+func TestPublisherSendMapsOutboundToKafkaMessage(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType:    "order.created",
+		EventID:      "evt_2",
+		PartitionKey: "order-2",
+		Payload:      []byte(`{"id":"evt_2"}`),
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if producer.last == nil {
+		t.Fatal("expected produce message")
+	}
+	if producer.last.Topic != "orders" {
+		t.Fatalf("unexpected topic: %q", producer.last.Topic)
+	}
+	if string(producer.last.Key) != "order-2" {
+		t.Fatalf("unexpected key: %q", string(producer.last.Key))
+	}
+	if got := recordHeaderValue(producer.last.Headers, defaultEventTypeHeader); got != "order.created" {
+		t.Fatalf("unexpected event type header: %q", got)
+	}
+	if got := recordHeaderValue(producer.last.Headers, defaultEventIDHeader); got != "evt_2" {
+		t.Fatalf("unexpected event id header: %q", got)
+	}
+}
+
 func TestPublisherPublishWithoutPartitionKeyOrEventID(t *testing.T) {
 	producer := &fakeProducer{}
 	publisher := &Publisher{
@@ -145,6 +180,11 @@ func TestPublisherPublishNilEventAndErrors(t *testing.T) {
 	err := publisher.Publish(context.Background(), nil)
 	if !errors.Is(err, xevent.ErrNilEvent) {
 		t.Fatalf("expected xevent.ErrNilEvent, got %v", err)
+	}
+
+	err = publisher.Send(context.Background(), nil)
+	if !errors.Is(err, xevent.ErrNilOutbound) {
+		t.Fatalf("expected xevent.ErrNilOutbound, got %v", err)
 	}
 
 	producer.err = errors.New("produce failed")

@@ -107,6 +107,36 @@ func TestPublisherPublishMapsEventToJetStreamMessage(t *testing.T) {
 	}
 }
 
+func TestPublisherSendMapsOutboundToJetStreamMessage(t *testing.T) {
+	publisherImpl := &fakePublisher{}
+	publisher := &Publisher{
+		publisher:       publisherImpl,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_2",
+		Payload:   []byte(`{"id":"evt_2"}`),
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if publisherImpl.last == nil {
+		t.Fatal("expected publish message")
+	}
+	if publisherImpl.last.Subject != "order.created" {
+		t.Fatalf("unexpected subject: %q", publisherImpl.last.Subject)
+	}
+	if got := publisherImpl.last.Header.Get(defaultEventTypeHeader); got != "order.created" {
+		t.Fatalf("unexpected event type header: %q", got)
+	}
+	if got := publisherImpl.last.Header.Get(defaultEventIDHeader); got != "evt_2" {
+		t.Fatalf("unexpected event id header: %q", got)
+	}
+}
+
 func TestPublisherPublishWithoutEventIDAndWithCopiedPayload(t *testing.T) {
 	publisherImpl := &fakePublisher{}
 	publisher := &Publisher{
@@ -145,6 +175,11 @@ func TestPublisherPublishNilEventAndErrors(t *testing.T) {
 	err := publisher.Publish(context.Background(), nil)
 	if !errors.Is(err, xevent.ErrNilEvent) {
 		t.Fatalf("expected xevent.ErrNilEvent, got %v", err)
+	}
+
+	err = publisher.Send(context.Background(), nil)
+	if !errors.Is(err, xevent.ErrNilOutbound) {
+		t.Fatalf("expected xevent.ErrNilOutbound, got %v", err)
 	}
 
 	err = publisher.Publish(context.Background(), &testMarshalErrorEvent{})

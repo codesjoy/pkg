@@ -57,27 +57,34 @@ func NewPublisher(cfg PublisherConfig) (*Publisher, error) {
 
 // Publish publishes one xevent.Event to JetStream.
 func (p *Publisher) Publish(ctx context.Context, event xevent.Event) error {
-	if p == nil || p.publisher == nil {
-		return ErrNilPublisher
-	}
-	if event == nil {
-		return xevent.ErrNilEvent
-	}
-
-	payload, err := event.MarshalPayload()
+	outbound, err := xevent.Encode(event)
 	if err != nil {
 		return err
 	}
+	return p.Send(ctx, outbound)
+}
+
+// Send publishes one xevent.Outbound to JetStream.
+func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
+	if p == nil || p.publisher == nil {
+		return ErrNilPublisher
+	}
+	if outbound == nil {
+		return xevent.ErrNilOutbound
+	}
+	if outbound.EventType == "" {
+		return xevent.ErrEventTypeRequired
+	}
 
 	header := make(natsio.Header, 2)
-	header.Add(p.eventTypeHeader, event.EventType())
-	if eventID := event.EventID(); eventID != "" {
+	header.Add(p.eventTypeHeader, outbound.EventType)
+	if eventID := outbound.EventID; eventID != "" {
 		header.Add(p.eventIDHeader, eventID)
 	}
 
-	_, err = p.publisher.Publish(ctx, &publish.Message{
-		Subject: event.EventType(),
-		Data:    cloneBytes(payload),
+	_, err := p.publisher.Publish(ctx, &publish.Message{
+		Subject: outbound.EventType,
+		Data:    cloneBytes(outbound.Payload),
 		Header:  header,
 	})
 	return err

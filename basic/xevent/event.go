@@ -52,6 +52,8 @@ type Subscriber interface {
 var (
 	// ErrNilEvent indicates the event value is nil.
 	ErrNilEvent = errors.New("event is nil")
+	// ErrNilOutbound indicates the outbound value is nil.
+	ErrNilOutbound = errors.New("event outbound is nil")
 	// ErrNilMessage indicates the message is nil.
 	ErrNilMessage = errors.New("event message is nil")
 	// ErrEventTypeRequired indicates the event type is empty.

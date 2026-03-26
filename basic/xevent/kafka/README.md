@@ -19,6 +19,7 @@ This module depends on:
 ## What This Module Provides
 
 - `Publisher`: maps an `xevent.Event` onto a Kafka message
+- `Publisher.Send`: maps an `xevent.Outbound` onto a Kafka message
 - `Subscriber`: consumes Kafka messages and dispatches them through a bound
   `xevent.Dispatcher`
 
@@ -172,6 +173,22 @@ func main() {
 - `Subscriber.Close()` is idempotent.
 - `NewSubscriber` requires a dispatcher up front; typed handlers are registered
   on that dispatcher before consumption starts.
+
+## Use As Outbox Sender
+
+`Publisher` also implements `xevent.Sender`, so it can be used directly by
+`xevent/outbox`:
+
+```go
+relay, err := outbox.NewRelay(outbox.RelayConfig{
+	Store:  store,
+	Sender: publisher,
+})
+if err != nil {
+	panic(err)
+}
+_ = relay
+```
 
 ## Relationship To `xevent`
 

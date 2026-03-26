@@ -87,10 +87,46 @@ func (testValueEvent) PartitionKey() string            { return "" }
 func (testValueEvent) MarshalPayload() ([]byte, error) { return nil, nil }
 func (testValueEvent) UnmarshalPayload([]byte) error   { return nil }
 
+type testEmptyTypeEvent struct{}
+
+func (*testEmptyTypeEvent) EventType() string               { return "" }
+func (*testEmptyTypeEvent) EventID() string                 { return "evt-empty" }
+func (*testEmptyTypeEvent) PartitionKey() string            { return "" }
+func (*testEmptyTypeEvent) MarshalPayload() ([]byte, error) { return []byte("payload"), nil }
+func (*testEmptyTypeEvent) UnmarshalPayload([]byte) error   { return nil }
+
+type testFailMarshalEvent struct {
+	err error
+}
+
+func (*testFailMarshalEvent) EventType() string { return "marshal.failed" }
+func (*testFailMarshalEvent) EventID() string   { return "evt-fail" }
+func (*testFailMarshalEvent) PartitionKey() string {
+	return ""
+}
+
+func (e *testFailMarshalEvent) MarshalPayload() ([]byte, error) {
+	return nil, e.err
+}
+
+func (*testFailMarshalEvent) UnmarshalPayload([]byte) error {
+	return nil
+}
+
 type testSubscriber struct{}
 
 func (testSubscriber) Subscribe(context.Context) error { return nil }
 func (testSubscriber) Close() error                    { return nil }
+
+type testPublisher struct {
+	last Event
+	err  error
+}
+
+func (p *testPublisher) Publish(_ context.Context, event Event) error {
+	p.last = event
+	return p.err
+}
 
 var _ Subscriber = testSubscriber{}
 
@@ -130,6 +166,138 @@ func TestEventPartitionKeyMayBeEmpty(t *testing.T) {
 	if event.EventID() != "evt_2" {
 		t.Fatalf("unexpected event id: %q", event.EventID())
 	}
+}
+
+func TestEncodeCopiesOutboundFields(t *testing.T) {
+	event := &testOrderCreated{
+		ID:      "evt_4",
+		OrderID: "o_999",
+		UserID:  "u_9",
+	}
+
+	outbound, err := Encode(event)
+	if err != nil {
+		t.Fatalf("Encode returned error: %v", err)
+	}
+	if outbound.EventType != "order.created" {
+		t.Fatalf("unexpected event type: %q", outbound.EventType)
+	}
+	if outbound.EventID != "evt_4" {
+		t.Fatalf("unexpected event id: %q", outbound.EventID)
+	}
+	if outbound.PartitionKey != "o_999" {
+		t.Fatalf("unexpected partition key: %q", outbound.PartitionKey)
+	}
+	if len(outbound.Payload) == 0 {
+		t.Fatal("expected outbound payload")
+	}
+
+	payload, err := event.MarshalPayload()
+	if err != nil {
+		t.Fatalf("MarshalPayload returned error: %v", err)
+	}
+	payload[0] = '['
+	if string(outbound.Payload) == string(payload) {
+		t.Fatal("expected Encode to copy payload")
+	}
+}
+
+func TestEncodeValidationAndMarshalErrors(t *testing.T) {
+	t.Run("nil event", func(t *testing.T) {
+		var event *testOrderCreated
+		_, err := Encode(event)
+		if !errors.Is(err, ErrNilEvent) {
+			t.Fatalf("expected ErrNilEvent, got %v", err)
+		}
+	})
+
+	t.Run("empty event type", func(t *testing.T) {
+		_, err := Encode(&testEmptyTypeEvent{})
+		if !errors.Is(err, ErrEventTypeRequired) {
+			t.Fatalf("expected ErrEventTypeRequired, got %v", err)
+		}
+	})
+
+	t.Run("marshal error", func(t *testing.T) {
+		want := errors.New("marshal failed")
+		_, err := Encode(&testFailMarshalEvent{err: want})
+		if !errors.Is(err, want) {
+			t.Fatalf("expected marshal error, got %v", err)
+		}
+	})
+}
+
+func TestSenderFromPublisherPublishesOutbound(t *testing.T) {
+	publisher := &testPublisher{}
+	sender := SenderFromPublisher(publisher)
+
+	outbound := &Outbound{
+		EventType:    "order.created",
+		EventID:      "evt_5",
+		PartitionKey: "o_555",
+		Payload:      []byte(`{"id":"evt_5","order_id":"o_555"}`),
+	}
+	if err := sender.Send(context.Background(), outbound); err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if publisher.last == nil {
+		t.Fatal("expected publisher event")
+	}
+	if publisher.last.EventType() != outbound.EventType {
+		t.Fatalf("unexpected event type: %q", publisher.last.EventType())
+	}
+	if publisher.last.EventID() != outbound.EventID {
+		t.Fatalf("unexpected event id: %q", publisher.last.EventID())
+	}
+	if publisher.last.PartitionKey() != outbound.PartitionKey {
+		t.Fatalf("unexpected partition key: %q", publisher.last.PartitionKey())
+	}
+	payload, err := publisher.last.MarshalPayload()
+	if err != nil {
+		t.Fatalf("MarshalPayload returned error: %v", err)
+	}
+	if string(payload) != string(outbound.Payload) {
+		t.Fatalf("unexpected payload: %s", payload)
+	}
+
+	outbound.Payload[0] = '['
+	if string(payload) == string(outbound.Payload) {
+		t.Fatal("expected payload copy inside sender adapter")
+	}
+}
+
+func TestSenderFromPublisherValidationAndErrorPropagation(t *testing.T) {
+	t.Run("nil outbound", func(t *testing.T) {
+		err := SenderFromPublisher(&testPublisher{}).Send(context.Background(), nil)
+		if !errors.Is(err, ErrNilOutbound) {
+			t.Fatalf("expected ErrNilOutbound, got %v", err)
+		}
+	})
+
+	t.Run("empty event type", func(t *testing.T) {
+		err := SenderFromPublisher(&testPublisher{}).Send(context.Background(), &Outbound{})
+		if !errors.Is(err, ErrEventTypeRequired) {
+			t.Fatalf("expected ErrEventTypeRequired, got %v", err)
+		}
+	})
+
+	t.Run("nil publisher", func(t *testing.T) {
+		err := SenderFromPublisher(nil).Send(context.Background(), &Outbound{EventType: "evt"})
+		if !errors.Is(err, ErrInvalidEventBinding) {
+			t.Fatalf("expected ErrInvalidEventBinding, got %v", err)
+		}
+	})
+
+	t.Run("publisher error", func(t *testing.T) {
+		want := errors.New("publish failed")
+		err := SenderFromPublisher(&testPublisher{err: want}).Send(context.Background(), &Outbound{
+			EventType: "evt",
+			Payload:   []byte("payload"),
+		})
+		if !errors.Is(err, want) {
+			t.Fatalf("expected publisher error, got %v", err)
+		}
+	})
 }
 
 func TestSubscriberLifecycleErrors(t *testing.T) {
@@ -281,6 +449,11 @@ func TestDispatcherHandleValidation(t *testing.T) {
 	if !errors.Is(err, ErrEventTypeRequired) {
 		t.Fatalf("expected ErrEventTypeRequired, got %v", err)
 	}
+
+	err = (*Dispatcher)(nil).Handle(context.Background(), &Message{EventType: "evt"})
+	if !errors.Is(err, ErrInvalidEventBinding) {
+		t.Fatalf("expected ErrInvalidEventBinding, got %v", err)
+	}
 }
 
 func TestDispatcherOnInvalidGenericBinding(t *testing.T) {
@@ -291,6 +464,86 @@ func TestDispatcherOnInvalidGenericBinding(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidEventBinding) {
 		t.Fatalf("expected ErrInvalidEventBinding, got %v", err)
+	}
+}
+
+func TestDispatcherOnValidation(t *testing.T) {
+	err := On[*testOrderCreated](nil, func(context.Context, *testOrderCreated) error { return nil })
+	if !errors.Is(err, ErrInvalidEventBinding) {
+		t.Fatalf("expected ErrInvalidEventBinding for nil dispatcher, got %v", err)
+	}
+
+	var handler func(context.Context, *testOrderCreated) error
+	err = On[*testOrderCreated](newTestDispatcher(), handler)
+	if !errors.Is(err, ErrInvalidEventBinding) {
+		t.Fatalf("expected ErrInvalidEventBinding for nil handler, got %v", err)
+	}
+
+	err = On[*testEmptyTypeEvent](
+		newTestDispatcher(),
+		func(context.Context, *testEmptyTypeEvent) error {
+			return nil
+		},
+	)
+	if !errors.Is(err, ErrEventTypeRequired) {
+		t.Fatalf("expected ErrEventTypeRequired, got %v", err)
+	}
+}
+
+func TestDispatcherHandleRejectsNilBoundEvent(t *testing.T) {
+	dispatcher := NewDispatcher()
+	dispatcher.bindings["broken"] = eventBinding{
+		newEvent: func() Event { return nil },
+		handlers: []dispatchFunc{func(context.Context, Event) error { return nil }},
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "broken",
+		Payload:   []byte("payload"),
+	})
+	if !errors.Is(err, ErrNilEvent) {
+		t.Fatalf("expected ErrNilEvent, got %v", err)
+	}
+}
+
+func TestInternalHelpers(t *testing.T) {
+	if !isNilValue((*testOrderCreated)(nil)) {
+		t.Fatal("expected typed nil pointer to be nil")
+	}
+	if !isNilValue([]byte(nil)) {
+		t.Fatal("expected nil slice to be nil")
+	}
+	if isNilValue(testValueEvent{}) {
+		t.Fatal("expected value event to be non-nil")
+	}
+	if cloneBytes(nil) != nil {
+		t.Fatal("expected nil clone to stay nil")
+	}
+
+	src := []byte("payload")
+	cloned := cloneBytes(src)
+	src[0] = 'P'
+	if string(cloned) != "payload" {
+		t.Fatalf("expected cloned payload copy, got %q", cloned)
+	}
+
+	event := outboundEvent{payload: []byte("payload")}
+	if err := event.UnmarshalPayload([]byte("updated")); err != nil {
+		t.Fatalf("UnmarshalPayload returned error: %v", err)
+	}
+
+	payload, err := event.MarshalPayload()
+	if err != nil {
+		t.Fatalf("MarshalPayload returned error: %v", err)
+	}
+	payload[0] = 'P'
+
+	again, err := event.MarshalPayload()
+	if err != nil {
+		t.Fatalf("MarshalPayload returned error: %v", err)
+	}
+	if string(again) != "updated" {
+		t.Fatalf("expected MarshalPayload to clone bytes, got %q", again)
 	}
 }
 

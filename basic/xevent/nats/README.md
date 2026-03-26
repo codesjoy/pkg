@@ -19,6 +19,7 @@ This module depends on:
 ## What This Module Provides
 
 - `Publisher`: maps an `xevent.Event` onto a JetStream message
+- `Publisher.Send`: maps an `xevent.Outbound` onto a JetStream message
 - `Subscriber`: consumes JetStream messages and dispatches them through a bound
   `xevent.Dispatcher`
 
@@ -174,6 +175,22 @@ func main() {
 - Consumer mode selection stays in `xnats.JetStreamConsumerConfig`; `Pull` is
   the default operational recommendation, and `Push` is still available through
   the wrapped `xnats` consumer
+
+## Use As Outbox Sender
+
+`Publisher` also implements `xevent.Sender`, so it can be passed directly to
+`xevent/outbox`:
+
+```go
+relay, err := outbox.NewRelay(outbox.RelayConfig{
+	Store:  store,
+	Sender: publisher,
+})
+if err != nil {
+	panic(err)
+}
+_ = relay
+```
 
 ## Relationship To `xevent`
 

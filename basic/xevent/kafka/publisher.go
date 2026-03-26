@@ -66,35 +66,42 @@ func NewPublisher(cfg PublisherConfig) (*Publisher, error) {
 
 // Publish publishes one xevent.Event to Kafka.
 func (p *Publisher) Publish(ctx context.Context, event xevent.Event) error {
+	outbound, err := xevent.Encode(event)
+	if err != nil {
+		return err
+	}
+	return p.Send(ctx, outbound)
+}
+
+// Send publishes one xevent.Outbound to Kafka.
+func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
 	if p == nil || p.producer == nil {
 		return ErrNilProducer
 	}
-	if event == nil {
-		return xevent.ErrNilEvent
+	if outbound == nil {
+		return xevent.ErrNilOutbound
 	}
-
-	payload, err := event.MarshalPayload()
-	if err != nil {
-		return err
+	if outbound.EventType == "" {
+		return xevent.ErrEventTypeRequired
 	}
 
 	msg := &produce.Message{
 		Topic: p.topic,
-		Value: cloneBytes(payload),
+		Value: cloneBytes(outbound.Payload),
 		Headers: []sarama.RecordHeader{
-			{Key: []byte(p.eventTypeHeader), Value: []byte(event.EventType())},
+			{Key: []byte(p.eventTypeHeader), Value: []byte(outbound.EventType)},
 		},
 	}
-	if partitionKey := event.PartitionKey(); partitionKey != "" {
+	if partitionKey := outbound.PartitionKey; partitionKey != "" {
 		msg.Key = []byte(partitionKey)
 	}
-	if eventID := event.EventID(); eventID != "" {
+	if eventID := outbound.EventID; eventID != "" {
 		msg.Headers = append(msg.Headers, sarama.RecordHeader{
 			Key:   []byte(p.eventIDHeader),
 			Value: []byte(eventID),
 		})
 	}
 
-	_, err = p.producer.Produce(ctx, msg)
+	_, err := p.producer.Produce(ctx, msg)
 	return err
 }
