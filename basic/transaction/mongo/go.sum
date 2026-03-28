@@ -1,3 +1,5 @@
+github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1 h1:gxPUoluTO9U4FTd9+gpXV4W3bWJEMMSQx8j5tzkQfSo=
+github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1/go.mod h1:faXXGLSAR8zYnNNm+iQY5oBWR4He2pB0GMm5fzmTS2g=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=

@@ -1,3 +1,5 @@
+github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1 h1:gxPUoluTO9U4FTd9+gpXV4W3bWJEMMSQx8j5tzkQfSo=
+github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1/go.mod h1:faXXGLSAR8zYnNNm+iQY5oBWR4He2pB0GMm5fzmTS2g=
 github.com/jinzhu/inflection v1.0.0 h1:K317FqzuhWc8YvSVlFMCCUb36O/S9MCKRDI7QkRKD/E=
 github.com/jinzhu/inflection v1.0.0/go.mod h1:h+uFLlag+Qp1Va5pdKtLDYj+kHp5pxUVkryuEj+Srlc=
 github.com/jinzhu/now v1.1.5 h1:/o9tlHleP7gOFmsnYNz3RGnqzefHA47wQpKrrdTIwXQ=

@@ -3,7 +3,7 @@ module github.com/codesjoy/pkg/basic/transaction/mongo
 go 1.25
 
 require (
-	github.com/codesjoy/pkg/basic/transaction v0.0.0
+	github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 )
 
@@ -17,5 +17,3 @@ require (
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )
-
-replace github.com/codesjoy/pkg/basic/transaction => ..
