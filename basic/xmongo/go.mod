@@ -3,7 +3,7 @@ module github.com/codesjoy/pkg/basic/xmongo
 go 1.25.0
 
 require (
-	github.com/codesjoy/pkg/basic/transaction/mongo v0.0.0
+	github.com/codesjoy/pkg/basic/transaction/mongo v0.0.0-20260328013517-15736fbea914
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.40.0
@@ -22,6 +22,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/codesjoy/pkg/basic/transaction v0.0.0-20260328004042-4fe9c8f63de1 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
@@ -74,7 +75,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/codesjoy/pkg/basic/transaction/mongo => ../transaction/mongo
-
-replace github.com/codesjoy/pkg/basic/transaction => ../transaction
