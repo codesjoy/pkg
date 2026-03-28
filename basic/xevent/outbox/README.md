@@ -38,7 +38,7 @@ a specific time.
 ```go
 store, err := outbox.NewGORMStore(outbox.GORMStoreConfig{
 	DB:                 db,
-	SessionFromContext: xgorm.TransactionFromContext,
+	SessionFromContext: gormtx.DB,
 })
 if err != nil {
 	panic(err)

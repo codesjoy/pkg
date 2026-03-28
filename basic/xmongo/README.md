@@ -13,7 +13,7 @@ Native-style MongoDB Go driver v2 client builder with optional monitor-based obs
 - Optional default database helpers via `DB()` and `Collection(...)`
 - Explicit readiness check helper via `PingPrimary(ctx)`
 - Lightweight health snapshots via `WithHealthTracking`
-- Explicit transaction helper via `RunTransaction(...)`
+- Transaction integration via `github.com/codesjoy/pkg/basic/transaction/mongo`
 - `Config.Validate` trims the URI, rejects empty URI, rejects nil native options, and validates merged driver options
 
 ## Installation
@@ -164,9 +164,14 @@ snapshot := client.HealthSnapshot()
 _ = snapshot
 ```
 
-## Transaction Helper
+## Transaction Integration
 
 ```go
+import (
+	"github.com/codesjoy/pkg/basic/transaction"
+	mongotx "github.com/codesjoy/pkg/basic/transaction/mongo"
+)
+
 client, err := xmongo.New(xmongo.Config{
 	URI:             "mongodb://127.0.0.1:27017",
 	DefaultDatabase: "app",
@@ -180,9 +185,18 @@ if err != nil {
 	panic(err)
 }
 
-err = client.RunTransaction(context.Background(), xmongo.TransactionConfig{}, func(txCtx xmongo.SessionContext) error {
+runner := mongotx.New(client.Raw())
+
+err = runner.Within(context.Background(), func(txCtx context.Context) error {
 	_, err := widgets.InsertOne(txCtx, bson.D{{Key: "_id", Value: "widget-1"}})
-	return err
+	if err != nil {
+		return err
+	}
+
+	return transaction.AfterCommit(txCtx, func(context.Context) error {
+		// Trigger follow-up work after commit.
+		return nil
+	})
 })
 if err != nil {
 	panic(err)

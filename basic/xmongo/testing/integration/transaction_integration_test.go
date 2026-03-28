@@ -22,13 +22,14 @@ import (
 	"testing"
 	"time"
 
+	mongotx "github.com/codesjoy/pkg/basic/transaction/mongo"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/codesjoy/pkg/basic/xmongo"
 )
 
-func TestRunTransactionCommit(t *testing.T) {
+func TestTransactionRunnerCommit(t *testing.T) {
 	ctx, cancel := integrationContext(t)
 	defer cancel()
 
@@ -48,14 +49,11 @@ func TestRunTransactionCommit(t *testing.T) {
 	_, err = collection.DeleteMany(ctx, bson.D{})
 	require.NoError(t, err)
 
-	err = client.RunTransaction(
-		ctx,
-		xmongo.TransactionConfig{},
-		func(txCtx xmongo.SessionContext) error {
-			_, err := collection.InsertOne(txCtx, bson.D{{Key: "_id", Value: "tx-commit-1"}})
-			return err
-		},
-	)
+	runner := mongotx.New(client.Raw())
+	err = runner.Within(ctx, func(txCtx context.Context) error {
+		_, err := collection.InsertOne(txCtx, bson.D{{Key: "_id", Value: "tx-commit-1"}})
+		return err
+	})
 	require.NoError(t, err)
 
 	count, err := collection.CountDocuments(ctx, bson.D{{Key: "_id", Value: "tx-commit-1"}})
@@ -63,7 +61,7 @@ func TestRunTransactionCommit(t *testing.T) {
 	require.EqualValues(t, 1, count)
 }
 
-func TestRunTransactionRollback(t *testing.T) {
+func TestTransactionRunnerRollback(t *testing.T) {
 	ctx, cancel := integrationContext(t)
 	defer cancel()
 
@@ -84,15 +82,12 @@ func TestRunTransactionRollback(t *testing.T) {
 	require.NoError(t, err)
 
 	sentinel := errors.New("rollback")
-	err = client.RunTransaction(
-		ctx,
-		xmongo.TransactionConfig{},
-		func(txCtx xmongo.SessionContext) error {
-			_, err := collection.InsertOne(txCtx, bson.D{{Key: "_id", Value: "tx-rollback-1"}})
-			require.NoError(t, err)
-			return sentinel
-		},
-	)
+	runner := mongotx.New(client.Raw())
+	err = runner.Within(ctx, func(txCtx context.Context) error {
+		_, err := collection.InsertOne(txCtx, bson.D{{Key: "_id", Value: "tx-rollback-1"}})
+		require.NoError(t, err)
+		return sentinel
+	})
 	require.ErrorIs(t, err, sentinel)
 
 	count, err := collection.CountDocuments(ctx, bson.D{{Key: "_id", Value: "tx-rollback-1"}})

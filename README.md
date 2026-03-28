@@ -17,6 +17,7 @@ The repository is organized by responsibility:
 | `basic/xgorm` | Enhanced GORM utilities (pagination, transaction context, plugins) | [basic/xgorm/README.md](./basic/xgorm/README.md) |
 | `basic/aipsql` | AIP-160 filtering + AIP-132 sorting + seek pagination + SQL planning | [basic/aipsql/README.md](./basic/aipsql/README.md) |
 | `basic/snowflake` | Distributed Snowflake ID generation with static/GORM workers | [basic/snowflake/README.md](./basic/snowflake/README.md) |
+| `basic/transaction` | Callback-first transaction orchestration with after-commit hooks and adapter guides for GORM and MongoDB | [basic/transaction/README.md](./basic/transaction/README.md) |
 | `basic/xevent` | Transport-agnostic domain events with typed dispatch plus Kafka and JetStream adapters | [basic/xevent/README.md](./basic/xevent/README.md) |
 | `basic/xerror` | Framework-agnostic domain errors with reason + canonical code matching | [basic/xerror/README.md](./basic/xerror/README.md) |
 | `basic/xkafka` | Sarama-based Group/Partition consumers plus Sync/Batch/Async producer with middleware chain (logger/retry/trace), shard ordering, and at-least-once semantics | [basic/xkafka/README.md](./basic/xkafka/README.md) |
@@ -46,6 +47,7 @@ Install only what you need:
 go get github.com/codesjoy/pkg/basic/xgorm
 go get github.com/codesjoy/pkg/basic/aipsql
 go get github.com/codesjoy/pkg/basic/snowflake
+go get github.com/codesjoy/pkg/basic/transaction
 go get github.com/codesjoy/pkg/basic/xevent
 go get github.com/codesjoy/pkg/basic/xevent/nats
 go get github.com/codesjoy/pkg/basic/xerror
@@ -121,6 +123,7 @@ See [DEVELOPMENT.md](./DEVELOPMENT.md) for workflow details and [MAKEFILE_QUICK_
 - [DEVELOPMENT.md](./DEVELOPMENT.md): contributor workflow and local development guide.
 - [MAKEFILE_QUICK_REFERENCE.md](./MAKEFILE_QUICK_REFERENCE.md): make targets and variables.
 - [CHANGELOG.md](./CHANGELOG.md): release notes generated from Conventional Commits.
+- [basic/transaction/README.md](./basic/transaction/README.md): callback-first transaction guide with GORM/Mongo adapters and DDD usage notes.
 - [basic/aipsql/docs/README.md](./basic/aipsql/docs/README.md): deep documentation for `aipsql`.
 
 ## Contributing

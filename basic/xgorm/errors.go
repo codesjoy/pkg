@@ -34,18 +34,6 @@ var (
 	// ErrInvalidQuery is returned when the query parameters are invalid.
 	ErrInvalidQuery = errors.New("invalid query parameters")
 
-	// ErrTransactionFailed is returned when a database transaction cannot be started.
-	ErrTransactionFailed = errors.New("failed to begin transaction")
-
-	// ErrTransactionNotActive is returned when trying to commit/rollback a non-existent transaction.
-	ErrTransactionNotActive = errors.New("no active transaction in context")
-
-	// ErrTransactionAlreadyCommitted is returned when trying to commit an already committed transaction.
-	ErrTransactionAlreadyCommitted = errors.New("transaction already committed")
-
-	// ErrTransactionAlreadyRolledBack is returned when trying to rollback an already rolled back transaction.
-	ErrTransactionAlreadyRolledBack = errors.New("transaction already rolled back")
-
 	// ErrNilMeter is returned when attempting to register metrics with a nil meter.
 	ErrNilMeter = errors.New("meter cannot be nil")
 
@@ -96,36 +84,6 @@ func NewPaginationError(operation string, err error) *PaginationError {
 	}
 }
 
-// TransactionError represents errors related to transaction operations.
-// It provides context about which transaction phase failed (begin, commit, rollback).
-type TransactionError struct {
-	// Phase is the transaction phase that failed (e.g., "begin", "commit", "rollback")
-	Phase string
-	// Err is the underlying error
-	Err error
-}
-
-// Error implements the error interface.
-func (e *TransactionError) Error() string {
-	if e.Err == nil {
-		return fmt.Sprintf("transaction error in %s phase", e.Phase)
-	}
-	return fmt.Sprintf("transaction error in %s phase: %s", e.Phase, e.Err.Error())
-}
-
-// Unwrap returns the underlying error for use with errors.Is() and errors.As().
-func (e *TransactionError) Unwrap() error {
-	return e.Err
-}
-
-// NewTransactionError creates a new TransactionError with the given phase and underlying error.
-func NewTransactionError(phase string, err error) *TransactionError {
-	return &TransactionError{
-		Phase: phase,
-		Err:   err,
-	}
-}
-
 // SliceElementError represents errors related to extracting elements from slices.
 // This occurs when converting slice pointers to model instances.
 type SliceElementError struct {
@@ -164,12 +122,6 @@ func IsInvalidSliceType(err error) bool {
 // IsInvalidModel checks if an error is or wraps ErrInvalidModel.
 func IsInvalidModel(err error) bool {
 	return errors.Is(err, ErrInvalidModel)
-}
-
-// IsTransactionError checks if an error is a TransactionError.
-func IsTransactionError(err error) bool {
-	var txErr *TransactionError
-	return errors.As(err, &txErr)
 }
 
 // IsPaginationError checks if an error is a PaginationError.

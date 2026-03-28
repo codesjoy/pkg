@@ -3,6 +3,8 @@ module github.com/codesjoy/pkg/basic/xgorm
 go 1.25
 
 require (
+	github.com/codesjoy/pkg/basic/transaction v0.0.0
+	github.com/codesjoy/pkg/basic/transaction/gorm v0.0.0
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
@@ -13,10 +15,14 @@ require (
 	go.opentelemetry.io/otel/trace v1.39.0
 	gorm.io/driver/postgres v1.5.2
 	gorm.io/driver/sqlite v1.5.7
-	gorm.io/gorm v1.25.12
-	gorm.io/plugin/dbresolver v1.5.3
+	gorm.io/gorm v1.26.0
+	gorm.io/plugin/dbresolver v1.6.2
 	gorm.io/sharding v0.6.2
 )
+
+replace github.com/codesjoy/pkg/basic/transaction => ../transaction
+
+replace github.com/codesjoy/pkg/basic/transaction/gorm => ../transaction/gorm
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

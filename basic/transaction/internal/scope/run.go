@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package xmongo provides a lightweight MongoDB client builder with optional
-// monitor-based observability wiring. For callback-first transaction orchestration,
-// use github.com/codesjoy/pkg/basic/transaction/mongo.
-package xmongo
+package scope
+
+import "context"
+
+// Run executes the transaction scope attached to txCtx with hookCtx as the hook execution context.
+func Run(txCtx context.Context, hookCtx context.Context) error {
+	state, ok := FromContext(txCtx)
+	if !ok {
+		return nil
+	}
+	return state.Run(hookCtx)
+}

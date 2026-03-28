@@ -12,7 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package xmongo provides a lightweight MongoDB client builder with optional
-// monitor-based observability wiring. For callback-first transaction orchestration,
-// use github.com/codesjoy/pkg/basic/transaction/mongo.
-package xmongo
+// Package mongotx provides a MongoDB adapter for the callback-first transaction package.
+package mongotx

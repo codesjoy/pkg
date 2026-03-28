@@ -29,14 +29,14 @@ import (
 ```go
 store, err := outboxgorm.NewGORMStore(outboxgorm.GORMStoreConfig{
     DB:                 db,
-    SessionFromContext: xgorm.TransactionFromContext,
+    SessionFromContext: gormtx.DB,
 })
 if err != nil {
     panic(err)
 }
 
 txErr := db.Transaction(func(tx *gorm.DB) error {
-    ctx := xgorm.WithTransaction(ctx, tx)
+    ctx := gormtx.WithDB(ctx, tx)
 
     if err := tx.Create(&order).Error; err != nil {
         return err
@@ -61,7 +61,7 @@ relay.Wake()
 ```go
 store, err := outboxgorm.NewGORMStore(outboxgorm.GORMStoreConfig{
     DB:                 db,
-    SessionFromContext: xgorm.TransactionFromContext,
+    SessionFromContext: gormtx.DB,
 })
 if err != nil {
     panic(err)

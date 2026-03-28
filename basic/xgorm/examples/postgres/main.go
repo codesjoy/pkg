@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/codesjoy/pkg/basic/transaction"
+	gormtx "github.com/codesjoy/pkg/basic/transaction/gorm"
 	"github.com/codesjoy/pkg/basic/xgorm"
 	postgresdriver "gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -89,14 +91,21 @@ func main() {
 		len(page),
 	)
 
-	trans := xgorm.NewTransaction(db)
-	err = trans.Transaction(ctx, func(tx *gorm.DB) error {
-		return tx.Create(&exampleUser{Name: "tx-user", Age: 40, Balance: 999}).Error
+	runner := gormtx.New(db)
+	err = runner.Within(ctx, func(txCtx context.Context) error {
+		if err := runner.DB(txCtx).
+			Create(&exampleUser{Name: "tx-user", Age: 40, Balance: 999}).
+			Error; err != nil {
+			return err
+		}
+		return transaction.AfterCommit(txCtx, func(context.Context) error {
+			fmt.Println("transaction helper committed one row")
+			return nil
+		})
 	})
 	if err != nil {
 		fail(fmt.Errorf("transaction helper: %w", err))
 	}
-	fmt.Println("transaction helper committed one row")
 
 	var foundUser exampleUser
 	found, err := xgorm.FindOne(db.Model(&exampleUser{}).Where("name = ?", "alice"), &foundUser)

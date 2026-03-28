@@ -63,18 +63,6 @@ func TestErrInvalidQuery(t *testing.T) {
 	assert.Equal(t, "invalid query parameters", err.Error())
 }
 
-func TestErrTransactionFailed(t *testing.T) {
-	err := ErrTransactionFailed
-	assert.Error(t, err)
-	assert.Equal(t, "failed to begin transaction", err.Error())
-}
-
-func TestErrTransactionNotActive(t *testing.T) {
-	err := ErrTransactionNotActive
-	assert.Error(t, err)
-	assert.Equal(t, "no active transaction in context", err.Error())
-}
-
 func TestPaginationError(t *testing.T) {
 	t.Run("with underlying error", func(t *testing.T) {
 		underlying := errors.New("database connection failed")
@@ -114,44 +102,6 @@ func TestPaginationError(t *testing.T) {
 		require.True(t, errors.As(err, &pgErr))
 		assert.Equal(t, "offset", pgErr.Operation)
 		assert.Same(t, underlying, pgErr.Err)
-	})
-}
-
-func TestTransactionError(t *testing.T) {
-	t.Run("with underlying error", func(t *testing.T) {
-		underlying := errors.New("connection lost")
-		err := NewTransactionError("commit", underlying)
-
-		assert.Error(t, err)
-		assert.Equal(t, "transaction error in commit phase: connection lost", err.Error())
-		assert.Same(t, underlying, err.Unwrap())
-		assert.True(t, IsTransactionError(err))
-	})
-
-	t.Run("without underlying error", func(t *testing.T) {
-		err := &TransactionError{Phase: "begin"}
-
-		assert.Error(t, err)
-		assert.Equal(t, "transaction error in begin phase", err.Error())
-		assert.Nil(t, err.Unwrap())
-	})
-
-	t.Run("errors.Is", func(t *testing.T) {
-		underlying := errors.New("transaction failed")
-		err := NewTransactionError("rollback", underlying)
-
-		assert.True(t, errors.Is(err, underlying))
-		assert.True(t, IsTransactionError(err))
-	})
-
-	t.Run("errors.As", func(t *testing.T) {
-		underlying := errors.New("test error")
-		err := NewTransactionError("commit", underlying)
-
-		var txErr *TransactionError
-		require.True(t, errors.As(err, &txErr))
-		assert.Equal(t, "commit", txErr.Phase)
-		assert.Same(t, underlying, txErr.Err)
 	})
 }
 
@@ -213,24 +163,6 @@ func TestErrorHelperFunctions(t *testing.T) {
 		})
 	})
 
-	t.Run("IsTransactionError", func(t *testing.T) {
-		t.Run("transaction error", func(t *testing.T) {
-			err := NewTransactionError("begin", errors.New("failed"))
-			assert.True(t, IsTransactionError(err))
-		})
-
-		t.Run("wrapped transaction error", func(t *testing.T) {
-			err := NewTransactionError("commit", errors.New("failed"))
-			wrapped := fmt.Errorf("wrapped: %w", err)
-			assert.True(t, IsTransactionError(wrapped))
-		})
-
-		t.Run("different error type", func(t *testing.T) {
-			err := NewPaginationError("find", errors.New("failed"))
-			assert.False(t, IsTransactionError(err))
-		})
-	})
-
 	t.Run("IsPaginationError", func(t *testing.T) {
 		t.Run("pagination error", func(t *testing.T) {
 			err := NewPaginationError("count", errors.New("failed"))
@@ -244,7 +176,7 @@ func TestErrorHelperFunctions(t *testing.T) {
 		})
 
 		t.Run("different error type", func(t *testing.T) {
-			err := NewTransactionError("begin", errors.New("failed"))
+			err := NewSliceElementError("[]User", errors.New("failed"))
 			assert.False(t, IsPaginationError(err))
 		})
 	})

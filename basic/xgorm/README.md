@@ -1,11 +1,11 @@
 # xgorm
 
-Enhanced GORM utilities with pagination, transaction management, plugins, and more.
+Enhanced GORM utilities with pagination, plugins, and more.
 
 ## Features
 
 - **Pagination**: Built-in support for paginated queries with count tracking
-- **Transaction Management**: Type-safe context-based transaction handling
+- **Transaction Integration**: Use `github.com/codesjoy/pkg/basic/transaction/gorm` for callback-first transactions
 - **Sharding**: Table sharding support powered by `gorm.io/sharding`
 - **Database Routing**: Multi-database read/write routing powered by `gorm.io/plugin/dbresolver`
 - **Plugins**:
@@ -86,37 +86,26 @@ result, err := xgorm.WrapPageQuery(db, xgorm.PaginationParam{
 fmt.Printf("Total records: %d\n", result.Total)
 ```
 
-### Transaction Management
+### Transaction Integration
 
 ```go
-trans := xgorm.NewTransaction(db)
-ctx := context.Background()
+import (
+    "context"
+    "github.com/codesjoy/pkg/basic/transaction"
+    gormtx "github.com/codesjoy/pkg/basic/transaction/gorm"
+)
 
-// Manual transaction management
-ctx = trans.Begin(ctx)
-tx := trans.GetTx(ctx)
+runner := gormtx.New(db)
 
-// ... perform operations ...
-
-if err != nil {
-    trans.Rollback(ctx)
-    return err
-}
-
-return trans.Commit(ctx)
-```
-
-#### Transaction Helper
-
-```go
-trans := xgorm.NewTransaction(db)
-
-err := trans.Transaction(ctx, func(tx *gorm.DB) error {
-    // All operations in this function use the transaction
-    if err := tx.Create(&user).Error; err != nil {
-        return err  // Automatically rolls back
+err := runner.Within(context.Background(), func(ctx context.Context) error {
+    if err := runner.DB(ctx).Create(&user).Error; err != nil {
+        return err
     }
-    return nil  // Commits on nil return
+
+    return transaction.AfterCommit(ctx, func(context.Context) error {
+        // Trigger follow-up work after the outer transaction commits.
+        return nil
+    })
 })
 ```
 
@@ -332,26 +321,7 @@ if err != nil {
 Available error types:
 - `ErrInvalidSliceType` - Invalid input type
 - `ErrInvalidModel` - Invalid model
-- `ErrTransactionNotActive` - No active transaction
 - `PaginationError` - Pagination operation failed
-- `TransactionError` - Transaction operation failed
-
-## Context Utilities
-
-Type-safe context keys for transaction management:
-
-```go
-// Add transaction to context
-ctx := xgorm.WithTransaction(ctx, tx)
-
-// Get transaction from context
-tx := xgorm.TransactionFromContext(ctx)
-
-// Check if transaction exists
-if xgorm.HasTransaction(ctx) {
-    // Use transaction
-}
-```
 
 ## Testing
 
@@ -393,17 +363,17 @@ The package is optimized for performance:
 ## Best Practices
 
 1. **Always handle errors**: All errors from `rowSliceElement` are now properly propagated
-2. **Use transactions**: For multi-step operations requiring atomicity
+2. **Use transactions**: For multi-step operations requiring atomicity, prefer `transaction/gorm.Within`
 3. **Set appropriate page sizes**: Default is 100, adjust based on your needs
 4. **Enable slow query logging**: Helps identify performance issues
 5. **Use `NoCount: true`** for large datasets when count is not needed
-6. **Reuse transaction contexts**: Pass through call stacks for nested operations
+6. **Reuse transaction contexts**: Pass the `Within` callback context through nested layers
 
 ## Examples
 
 Runnable examples live under `examples/`:
 
-- `examples/postgres`: PostgreSQL example with `WrapPageQuery`, `Transaction`, and `FindOne`
+- `examples/postgres`: PostgreSQL example with `WrapPageQuery`, `transaction/gorm.Within`, and `FindOne`
 
 Run from `basic/xgorm/examples`:
 

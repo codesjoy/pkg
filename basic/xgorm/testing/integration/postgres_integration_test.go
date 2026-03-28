@@ -17,13 +17,15 @@
 package integration
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/codesjoy/pkg/basic/transaction"
+	gormtx "github.com/codesjoy/pkg/basic/transaction/gorm"
 	"github.com/codesjoy/pkg/basic/xgorm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 type integrationUser struct {
@@ -92,7 +94,7 @@ func TestPostgresIntegration_WrapPageQueryAndFindOne(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestPostgresIntegration_Transaction_BeginCommitRollback(t *testing.T) {
+func TestPostgresIntegration_TransactionWithinAndRollback(t *testing.T) {
 	ctx, cancel := integrationContext(t)
 	defer cancel()
 
@@ -100,13 +102,16 @@ func TestPostgresIntegration_Transaction_BeginCommitRollback(t *testing.T) {
 	db = db.WithContext(ctx)
 	resetTables(t, db)
 
-	trans := xgorm.NewTransaction(db)
-	baseCtx := ctx
+	runner := gormtx.New(db)
 
-	commitCtx := trans.Begin(baseCtx)
-	tx := trans.GetTx(commitCtx)
-	require.NoError(t, tx.Create(&integrationUser{Name: "committed", Age: 30, Balance: 100}).Error)
-	require.NoError(t, trans.Commit(commitCtx))
+	require.NoError(
+		t,
+		runner.Within(ctx, func(txCtx context.Context) error {
+			return runner.DB(txCtx).
+				Create(&integrationUser{Name: "committed", Age: 30, Balance: 100}).
+				Error
+		}),
+	)
 
 	var committedCount int64
 	require.NoError(
@@ -115,20 +120,20 @@ func TestPostgresIntegration_Transaction_BeginCommitRollback(t *testing.T) {
 	)
 	assert.Equal(t, int64(1), committedCount)
 
-	txRollbackCtx := trans.Begin(baseCtx)
-	txRollback := trans.GetTx(txRollbackCtx)
-	require.NoError(
-		t,
-		txRollback.Create(&integrationUser{Name: "rolled-back", Age: 28, Balance: 80}).Error,
-	)
-	require.NoError(
-		t,
-		txRollback.Model(&integrationUser{}).
+	err := runner.Within(ctx, func(txCtx context.Context) error {
+		tx := runner.DB(txCtx)
+		if err := tx.Create(&integrationUser{Name: "rolled-back", Age: 28, Balance: 80}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&integrationUser{}).
 			Where("name = ?", "committed").
 			Update("balance", 999).
-			Error,
-	)
-	require.NoError(t, trans.Rollback(txRollbackCtx))
+			Error; err != nil {
+			return err
+		}
+		return errors.New("force rollback")
+	})
+	require.EqualError(t, err, "force rollback")
 
 	var rolledBackCount int64
 	require.NoError(
@@ -145,7 +150,7 @@ func TestPostgresIntegration_Transaction_BeginCommitRollback(t *testing.T) {
 	assert.Equal(t, 100, committed.Balance)
 }
 
-func TestPostgresIntegration_TransactionHelper(t *testing.T) {
+func TestPostgresIntegration_TransactionAfterCommit(t *testing.T) {
 	ctx, cancel := integrationContext(t)
 	defer cancel()
 
@@ -153,12 +158,33 @@ func TestPostgresIntegration_TransactionHelper(t *testing.T) {
 	db = db.WithContext(ctx)
 	resetTables(t, db)
 
-	trans := xgorm.NewTransaction(db)
+	runner := gormtx.New(db)
+	called := false
 
-	err := trans.Transaction(ctx, func(tx *gorm.DB) error {
-		return tx.Create(&integrationUser{Name: "helper-success", Age: 31, Balance: 310}).Error
+	err := runner.Within(ctx, func(txCtx context.Context) error {
+		if err := runner.DB(txCtx).
+			Create(&integrationUser{Name: "helper-success", Age: 31, Balance: 310}).
+			Error; err != nil {
+			return err
+		}
+		return transaction.AfterCommit(txCtx, func(hookCtx context.Context) error {
+			called = true
+			var count int64
+			if err := runner.DB(hookCtx).
+				Model(&integrationUser{}).
+				Where("name = ?", "helper-success").
+				Count(&count).
+				Error; err != nil {
+				return err
+			}
+			if count != 1 {
+				return errors.New("after-commit hook could not observe committed row")
+			}
+			return nil
+		})
 	})
 	require.NoError(t, err)
+	assert.True(t, called)
 
 	var successCount int64
 	require.NoError(
@@ -167,18 +193,22 @@ func TestPostgresIntegration_TransactionHelper(t *testing.T) {
 	)
 	assert.Equal(t, int64(1), successCount)
 
-	err = trans.Transaction(ctx, func(tx *gorm.DB) error {
-		if createErr := tx.Create(&integrationUser{Name: "helper-rollback", Age: 29, Balance: 290}).Error; createErr != nil {
-			return createErr
+	called = false
+	err = runner.Within(ctx, func(txCtx context.Context) error {
+		tx := runner.DB(txCtx)
+		if err := tx.Create(&integrationUser{Name: "helper-rollback", Age: 29, Balance: 290}).Error; err != nil {
+			return err
+		}
+		if err := transaction.AfterCommit(txCtx, func(context.Context) error {
+			called = true
+			return nil
+		}); err != nil {
+			return err
 		}
 		return errors.New("force rollback")
 	})
-	require.Error(t, err)
-	assert.True(t, xgorm.IsTransactionError(err))
-
-	var txErr *xgorm.TransactionError
-	require.True(t, errors.As(err, &txErr))
-	assert.Equal(t, "transaction", txErr.Phase)
+	require.EqualError(t, err, "force rollback")
+	assert.False(t, called)
 
 	var rollbackCount int64
 	require.NoError(

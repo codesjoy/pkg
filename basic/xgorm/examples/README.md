@@ -1,6 +1,8 @@
 # xgorm Examples
 
-This module contains runnable examples for `github.com/codesjoy/pkg/basic/xgorm`.
+This module contains runnable examples for `github.com/codesjoy/pkg/basic/xgorm`
+and the callback-first transaction adapter in
+`github.com/codesjoy/pkg/basic/transaction/gorm`.
 
 ## Prerequisites
 
@@ -34,5 +36,5 @@ GOWORK=off go run ./postgres
 
 ## Notes
 
-- The example demonstrates `WrapPageQuery`, `Transaction`, and `FindOne`.
+- The example demonstrates `WrapPageQuery`, `transaction/gorm.Within`, and `FindOne`.
 - The example uses the same PostgreSQL-style setup as the integration tests in `../testing/integration`.

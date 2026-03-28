@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package xgorm provides enhanced GORM utilities such as pagination, transactions,
+// Package xgorm provides enhanced GORM utilities such as pagination,
 // structured logging, metrics, tracing helpers, sharding, and database routing.
+// For callback-first transaction orchestration, use github.com/codesjoy/pkg/basic/transaction/gorm.
 package xgorm

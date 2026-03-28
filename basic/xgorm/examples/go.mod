@@ -3,9 +3,10 @@ module github.com/codesjoy/pkg/basic/xgorm/examples
 go 1.25.7
 
 require (
+	github.com/codesjoy/pkg/basic/transaction v0.0.0
+	github.com/codesjoy/pkg/basic/transaction/gorm v0.0.0
 	github.com/codesjoy/pkg/basic/xgorm v0.0.0
 	gorm.io/driver/postgres v1.6.0
-	gorm.io/gorm v1.25.12
 )
 
 require (
@@ -33,3 +34,5 @@ require (
 )
 
 replace github.com/codesjoy/pkg/basic/xgorm => ../
+replace github.com/codesjoy/pkg/basic/transaction/gorm => ../../transaction/gorm
+replace github.com/codesjoy/pkg/basic/transaction => ../../transaction

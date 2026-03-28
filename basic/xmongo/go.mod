@@ -3,6 +3,7 @@ module github.com/codesjoy/pkg/basic/xmongo
 go 1.25.0
 
 require (
+	github.com/codesjoy/pkg/basic/transaction/mongo v0.0.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.40.0
@@ -73,3 +74,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/codesjoy/pkg/basic/transaction/mongo => ../transaction/mongo
+
+replace github.com/codesjoy/pkg/basic/transaction => ../transaction
