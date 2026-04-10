@@ -46,6 +46,12 @@ type Result struct {
 	Attempt   int
 }
 
+// BatchItemResult reports the per-item outcome of one batch produce call.
+type BatchItemResult struct {
+	Result *Result
+	Err    error
+}
+
 // Future is an async result handle for one produce call.
 type Future interface {
 	Await(context.Context) (*Result, error)

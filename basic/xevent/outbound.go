@@ -31,6 +31,22 @@ type Sender interface {
 	Send(context.Context, *Outbound) error
 }
 
+// BatchSender sends multiple outbound events in one call.
+// Implementations that embed Sender can optionally implement BatchSend
+// for more efficient batch delivery to the broker.
+//
+// Contract:
+//   - for non-empty input, the returned error slice must have exactly the same
+//     length as outbounds
+//   - each returned item maps 1:1 to the input at the same index
+//   - nil means that item was sent successfully; non-nil means that item failed
+//   - sending is not atomic: partial success and partial failure are allowed
+//   - for empty input, implementations may return nil
+type BatchSender interface {
+	Sender
+	BatchSend(ctx context.Context, outbounds []*Outbound) []error
+}
+
 // Encode converts one Event into a reusable outbound payload.
 //
 // Steps: (1) validate the event is non-nil, (2) marshal its payload to bytes,

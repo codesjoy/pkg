@@ -163,6 +163,8 @@ func (p *JetStreamPublisher) Publish(
 }
 
 // PublishBatch sends messages sequentially and fails fast on the first error.
+// It is kept for compatibility and is not suitable for per-item acknowledgement
+// flows such as xevent outbox relays.
 func (p *JetStreamPublisher) PublishBatch(
 	ctx context.Context,
 	msgs ...*publish.Message,
@@ -181,6 +183,42 @@ func (p *JetStreamPublisher) PublishBatch(
 			return results, fmt.Errorf("publish batch index %d: %w", i, err)
 		}
 		results[i] = result
+	}
+	return results, nil
+}
+
+// PublishBatchReport sends messages and returns a per-item outcome vector.
+// A top-level error is returned only for call-level failures such as a nil
+// publisher or a context that is already canceled before the call starts.
+func (p *JetStreamPublisher) PublishBatchReport(
+	ctx context.Context,
+	msgs ...*publish.Message,
+) ([]publish.BatchItemResult, error) {
+	if p == nil {
+		return nil, errors.New("jetstream publisher is nil")
+	}
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	results := make([]publish.BatchItemResult, len(msgs))
+	for i, msg := range msgs {
+		if err := ctx.Err(); err != nil {
+			for j := i; j < len(msgs); j++ {
+				results[j].Err = err
+			}
+			return results, nil
+		}
+
+		result, err := p.Publish(ctx, msg)
+		results[i] = publish.BatchItemResult{
+			Result: result,
+			Err:    err,
+		}
 	}
 	return results, nil
 }

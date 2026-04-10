@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/IBM/sarama"
@@ -49,16 +50,53 @@ func (e *testEvent) UnmarshalPayload(data []byte) error {
 }
 
 type fakeProducer struct {
-	last *produce.Message
-	err  error
+	mu    sync.Mutex
+	last  *produce.Message
+	msgs  []*produce.Message
+	err   error
+	errFn func(*produce.Message) error
 }
 
 func (f *fakeProducer) Produce(_ context.Context, msg *produce.Message) (*produce.Result, error) {
+	f.mu.Lock()
 	f.last = msg
-	if f.err != nil {
-		return nil, f.err
+	f.msgs = append(f.msgs, msg)
+	errFn := f.errFn
+	err := f.err
+	f.mu.Unlock()
+
+	if errFn != nil {
+		if produceErr := errFn(msg); produceErr != nil {
+			return nil, produceErr
+		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	return &produce.Result{Topic: msg.Topic}, nil
+}
+
+type fakeBatchProducer struct {
+	fakeProducer
+	batchMsgs  []*produce.Message
+	batchCalls int
+}
+
+func (f *fakeBatchProducer) ProduceBatch(_ context.Context, msgs ...*produce.Message) ([]*produce.Result, error) {
+	f.mu.Lock()
+	f.batchMsgs = append([]*produce.Message(nil), msgs...)
+	f.batchCalls++
+	err := f.err
+	f.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+	results := make([]*produce.Result, len(msgs))
+	for i, msg := range msgs {
+		results[i] = &produce.Result{Topic: msg.Topic}
+	}
+	return results, nil
 }
 
 func TestNewPublisherValidate(t *testing.T) {
@@ -257,4 +295,173 @@ func recordHeaderValue(headers []sarama.RecordHeader, key string) string {
 		}
 	}
 	return ""
+}
+
+func TestPublisherBatchSendUsesPerItemProduceWhenBatchAPIExists(t *testing.T) {
+	producer := &fakeBatchProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	outbounds := []*xevent.Outbound{
+		{EventType: "order.created", EventID: "evt_1", PartitionKey: "k1", Payload: []byte(`{"a":1}`)},
+		{EventType: "order.updated", EventID: "evt_2", PartitionKey: "k2", Payload: []byte(`{"a":2}`)},
+	}
+
+	errs := publisher.BatchSend(context.Background(), outbounds)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("errs[%d] unexpected error: %v", i, err)
+		}
+	}
+
+	producer.mu.Lock()
+	defer producer.mu.Unlock()
+
+	if producer.batchCalls != 0 {
+		t.Fatalf("expected ProduceBatch to be unused, got %d calls", producer.batchCalls)
+	}
+	if len(producer.msgs) != 2 {
+		t.Fatalf("expected 2 produce messages, got %d", len(producer.msgs))
+	}
+	first := findProducedMessageByEventID(producer.msgs, defaultEventIDHeader, "evt_1")
+	second := findProducedMessageByEventID(producer.msgs, defaultEventIDHeader, "evt_2")
+	if first == nil || second == nil {
+		t.Fatalf("expected both messages to be produced, got %#v", producer.msgs)
+	}
+	if first.Topic != "orders" {
+		t.Fatalf("expected topic %q, got %q", "orders", first.Topic)
+	}
+	if string(first.Key) != "k1" {
+		t.Fatalf("expected key %q, got %q", "k1", string(first.Key))
+	}
+	if got := recordHeaderValue(second.Headers, defaultEventTypeHeader); got != "order.updated" {
+		t.Fatalf("unexpected event type header: %q", got)
+	}
+}
+
+func TestPublisherBatchSendEmptyInput(t *testing.T) {
+	publisher := &Publisher{
+		producer:        &fakeBatchProducer{},
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	errs := publisher.BatchSend(context.Background(), nil)
+	if errs != nil {
+		t.Fatalf("expected nil, got %v", errs)
+	}
+
+	errs = publisher.BatchSend(context.Background(), []*xevent.Outbound{})
+	if errs != nil {
+		t.Fatalf("expected nil, got %v", errs)
+	}
+}
+
+func TestPublisherBatchSendUsesPerItemProduce(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	outbounds := []*xevent.Outbound{
+		{EventType: "order.created", EventID: "evt_1", Payload: []byte(`1`)},
+		{EventType: "order.updated", EventID: "evt_2", Payload: []byte(`2`)},
+	}
+
+	errs := publisher.BatchSend(context.Background(), outbounds)
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("errs[%d] unexpected error: %v", i, err)
+		}
+	}
+
+	producer.mu.Lock()
+	defer producer.mu.Unlock()
+
+	if producer.last == nil {
+		t.Fatal("expected at least one produce message")
+	}
+	if len(producer.msgs) != 2 {
+		t.Fatalf("expected 2 produce calls, got %d", len(producer.msgs))
+	}
+}
+
+func TestPublisherBatchSendReturnsErrorsPerOutbound(t *testing.T) {
+	producer := &fakeBatchProducer{
+		fakeProducer: fakeProducer{
+			errFn: func(msg *produce.Message) error {
+				if got := recordHeaderValue(msg.Headers, defaultEventIDHeader); got == "evt_2" {
+					return errors.New("produce failed")
+				}
+				return nil
+			},
+		},
+	}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	outbounds := []*xevent.Outbound{
+		{EventType: "order.created", EventID: "evt_1", Payload: []byte(`1`)},
+		{EventType: "order.updated", EventID: "evt_2", Payload: []byte(`2`)},
+	}
+
+	errs := publisher.BatchSend(context.Background(), outbounds)
+	if errs[0] != nil {
+		t.Fatalf("errs[0] expected nil, got %v", errs[0])
+	}
+	if errs[1] == nil || errs[1].Error() != "produce failed" {
+		t.Fatalf("errs[1] expected produce failed, got %v", errs[1])
+	}
+}
+
+func TestPublisherBatchSendValidatesOutbounds(t *testing.T) {
+	producer := &fakeBatchProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "orders",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	outbounds := []*xevent.Outbound{
+		{EventType: "order.created", EventID: "evt_1", Payload: []byte(`1`)},
+		nil,
+		{EventType: "", EventID: "evt_3", Payload: []byte(`3`)},
+	}
+
+	errs := publisher.BatchSend(context.Background(), outbounds)
+	if errs[0] != nil {
+		t.Fatalf("errs[0] expected nil, got %v", errs[0])
+	}
+	if !errors.Is(errs[1], xevent.ErrNilOutbound) {
+		t.Fatalf("errs[1] expected ErrNilOutbound, got %v", errs[1])
+	}
+	if !errors.Is(errs[2], xevent.ErrEventTypeRequired) {
+		t.Fatalf("errs[2] expected ErrEventTypeRequired, got %v", errs[2])
+	}
+}
+
+func findProducedMessageByEventID(
+	msgs []*produce.Message,
+	header string,
+	eventID string,
+) *produce.Message {
+	for _, msg := range msgs {
+		if recordHeaderValue(msg.Headers, header) == eventID {
+			return msg
+		}
+	}
+	return nil
 }

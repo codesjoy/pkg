@@ -17,6 +17,7 @@ package kafka
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/IBM/sarama"
 
@@ -75,17 +76,54 @@ func (p *Publisher) Publish(ctx context.Context, event xevent.Event) error {
 
 // Send publishes one xevent.Outbound to Kafka.
 func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
-	if p == nil || p.producer == nil {
-		return ErrNilProducer
+	msg, err := p.buildMessage(outbound)
+	if err != nil {
+		return err
 	}
-	if outbound == nil {
-		return xevent.ErrNilOutbound
-	}
-	if outbound.EventType == "" {
-		return xevent.ErrEventTypeRequired
+	_, err = p.producer.Produce(ctx, msg)
+	return err
+}
+
+// BatchSend sends multiple xevent.Outbound payloads to Kafka in one batch.
+// It returns a slice of errors, one per outbound; nil means success.
+// An empty input returns nil.
+func (p *Publisher) BatchSend(ctx context.Context, outbounds []*xevent.Outbound) []error {
+	if len(outbounds) == 0 {
+		return nil
 	}
 
-	// The outbound topic overrides the configured default when present.
+	errs := make([]error, len(outbounds))
+
+	var wg sync.WaitGroup
+	for i, outbound := range outbounds {
+		msg, err := p.buildMessage(outbound)
+		if err != nil {
+			errs[i] = err
+			continue
+		}
+
+		wg.Add(1)
+		go func(index int, prepared *produce.Message) {
+			defer wg.Done()
+			_, errs[index] = p.producer.Produce(ctx, prepared)
+		}(i, msg)
+	}
+
+	wg.Wait()
+	return errs
+}
+
+func (p *Publisher) buildMessage(outbound *xevent.Outbound) (*produce.Message, error) {
+	if p == nil || p.producer == nil {
+		return nil, ErrNilProducer
+	}
+	if outbound == nil {
+		return nil, xevent.ErrNilOutbound
+	}
+	if outbound.EventType == "" {
+		return nil, xevent.ErrEventTypeRequired
+	}
+
 	topic := p.topic
 	if outbound.Topic != "" {
 		topic = outbound.Topic
@@ -94,23 +132,18 @@ func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
 	msg := &produce.Message{
 		Topic: topic,
 		Value: cloneBytes(outbound.Payload),
-		// Always include the event type header so consumers can dispatch.
 		Headers: []sarama.RecordHeader{
 			{Key: []byte(p.eventTypeHeader), Value: []byte(outbound.EventType)},
 		},
 	}
-	// Use the partition key as the Kafka message key for partition routing.
 	if partitionKey := outbound.PartitionKey; partitionKey != "" {
 		msg.Key = []byte(partitionKey)
 	}
-	// Attach the event ID as a header for end-to-end tracing / deduplication.
 	if eventID := outbound.EventID; eventID != "" {
 		msg.Headers = append(msg.Headers, sarama.RecordHeader{
 			Key:   []byte(p.eventIDHeader),
 			Value: []byte(eventID),
 		})
 	}
-
-	_, err := p.producer.Produce(ctx, msg)
-	return err
+	return msg, nil
 }

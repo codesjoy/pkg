@@ -130,6 +130,81 @@ func TestProducerProduceBatchFailFast(t *testing.T) {
 	require.Nil(t, results[2])
 }
 
+func TestProducerProduceBatchReportReturnsPerItemResults(t *testing.T) {
+	t.Parallel()
+
+	enabled := false
+	mock := &fakeProducerSyncProducer{
+		sendFn: func(msg *sarama.ProducerMessage) (int32, int64, error) {
+			if msg.Key != nil {
+				encoded, _ := msg.Key.Encode()
+				if string(encoded) == "2" {
+					return 0, 0, errors.New("send failed")
+				}
+			}
+			return 0, 1, nil
+		},
+	}
+	producerInstance, err := NewProducer(ProducerConfig{
+		Brokers:              []string{"127.0.0.1:9092"},
+		SyncProducer:         mock,
+		DefaultTopic:         "orders",
+		LoggerHandlerEnabled: &enabled,
+		RetryConfig: RetryConfig{
+			MaxRetries:     0,
+			InitialBackoff: time.Millisecond,
+			MaxBackoff:     time.Millisecond,
+			Multiplier:     1,
+		},
+		ExhaustedPolicy: ProducerExhaustedPolicyStop,
+	})
+	require.NoError(t, err)
+	defer producerInstance.Close()
+
+	results, err := producerInstance.ProduceBatchReport(
+		context.Background(),
+		&produce.Message{Key: []byte("1"), Value: []byte("a")},
+		&produce.Message{Key: []byte("2"), Value: []byte("b")},
+		&produce.Message{Key: []byte("3"), Value: []byte("c")},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.NotNil(t, results[0].Result)
+	require.NoError(t, results[0].Err)
+	require.Nil(t, results[1].Result)
+	require.EqualError(t, results[1].Err, "produce message exhausted retries: send message: send failed")
+	require.NotNil(t, results[2].Result)
+	require.NoError(t, results[2].Err)
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	require.Equal(t, 3, mock.sendCalls)
+}
+
+func TestProducerProduceBatchReportCanceledBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	enabled := false
+	producerInstance, err := NewProducer(ProducerConfig{
+		Brokers:              []string{"127.0.0.1:9092"},
+		SyncProducer:         &fakeProducerSyncProducer{},
+		DefaultTopic:         "orders",
+		LoggerHandlerEnabled: &enabled,
+	})
+	require.NoError(t, err)
+	defer producerInstance.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	results, err := producerInstance.ProduceBatchReport(
+		ctx,
+		&produce.Message{Value: []byte("a")},
+	)
+	require.Nil(t, results)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestProducerProduceAsyncAndClose(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +290,7 @@ type fakeProducerSyncProducer struct {
 	lastMsg    *sarama.ProducerMessage
 	sendErr    error
 	sendFn     func(*sarama.ProducerMessage) (int32, int64, error)
+	sendCalls  int
 	closeCalls int
 }
 
@@ -223,6 +299,7 @@ func (m *fakeProducerSyncProducer) SendMessage(msg *sarama.ProducerMessage) (int
 	m.lastMsg = msg
 	sendFn := m.sendFn
 	sendErr := m.sendErr
+	m.sendCalls++
 	m.mu.Unlock()
 
 	if sendFn != nil {

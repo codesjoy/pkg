@@ -45,6 +45,12 @@ type Result struct {
 	Duplicate bool
 }
 
+// BatchItemResult reports the per-item outcome of one batch publish call.
+type BatchItemResult struct {
+	Result *Result
+	Err    error
+}
+
 // MessageContext contains per-message metadata passed through handlers.
 type MessageContext struct {
 	Message    *Message

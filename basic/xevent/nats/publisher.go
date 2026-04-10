@@ -16,6 +16,7 @@ package nats
 
 import (
 	"context"
+	"sync"
 
 	natsio "github.com/nats-io/nats.go"
 
@@ -66,33 +67,68 @@ func (p *Publisher) Publish(ctx context.Context, event xevent.Event) error {
 
 // Send publishes one xevent.Outbound to JetStream.
 func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
-	if p == nil || p.publisher == nil {
-		return ErrNilPublisher
+	msg, err := p.buildMessage(outbound)
+	if err != nil {
+		return err
 	}
-	if outbound == nil {
-		return xevent.ErrNilOutbound
-	}
-	if outbound.EventType == "" {
-		return xevent.ErrEventTypeRequired
+	_, err = p.publisher.Publish(ctx, msg)
+	return err
+}
+
+// BatchSend sends multiple xevent.Outbound payloads to JetStream in one batch.
+// It returns a slice of errors, one per outbound; nil means success.
+// An empty input returns nil.
+func (p *Publisher) BatchSend(ctx context.Context, outbounds []*xevent.Outbound) []error {
+	if len(outbounds) == 0 {
+		return nil
 	}
 
-	// Assemble NATS headers: always include event type; include event ID when present.
+	errs := make([]error, len(outbounds))
+
+	var wg sync.WaitGroup
+	for i, outbound := range outbounds {
+		msg, err := p.buildMessage(outbound)
+		if err != nil {
+			errs[i] = err
+			continue
+		}
+
+		wg.Add(1)
+		go func(index int, prepared *publish.Message) {
+			defer wg.Done()
+			_, errs[index] = p.publisher.Publish(ctx, prepared)
+		}(i, msg)
+	}
+
+	wg.Wait()
+	return errs
+}
+
+func (p *Publisher) buildMessage(outbound *xevent.Outbound) (*publish.Message, error) {
+	if p == nil || p.publisher == nil {
+		return nil, ErrNilPublisher
+	}
+	if outbound == nil {
+		return nil, xevent.ErrNilOutbound
+	}
+	if outbound.EventType == "" {
+		return nil, xevent.ErrEventTypeRequired
+	}
+
 	header := make(natsio.Header, 2)
 	header.Add(p.eventTypeHeader, outbound.EventType)
 	if eventID := outbound.EventID; eventID != "" {
 		header.Add(p.eventIDHeader, eventID)
 	}
 
-	// Fall back from outbound.Topic to eventType for the NATS subject.
 	subject := outbound.EventType
 	if outbound.Topic != "" {
 		subject = outbound.Topic
 	}
 
-	_, err := p.publisher.Publish(ctx, &publish.Message{
+	return &publish.Message{
 		Subject: subject,
 		Data:    cloneBytes(outbound.Payload),
 		Header:  header,
-	})
-	return err
+	}, nil
 }

@@ -17,6 +17,7 @@ package outbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -31,6 +32,12 @@ const (
 	defaultClaimTTL     = 30 * time.Second
 	defaultRetryDelay   = time.Second
 	defaultMaxAttempts  = 3
+)
+
+// ErrBatchSendResultCountMismatch indicates a BatchSender returned a result
+// vector whose length does not match the requested batch size.
+var ErrBatchSendResultCountMismatch = errors.New(
+	"xevent outbox batch sender returned mismatched result count",
 )
 
 // RelayConfig configures one local outbox relay loop.
@@ -189,10 +196,59 @@ func (r *Relay) ProcessOnce(ctx context.Context) error {
 	}
 }
 
-// processBatch sends each record concurrently using a goroutine-per-record
+// processBatch sends records using BatchSender when available, falling back
+// to the goroutine-per-record approach otherwise.
+func (r *Relay) processBatch(ctx context.Context, records []Record) error {
+	if bs, ok := r.sender.(xevent.BatchSender); ok {
+		return r.processBatchBulk(ctx, records, bs)
+	}
+	return r.processBatchIndividual(ctx, records)
+}
+
+// processBatchBulk sends all records through BatchSender in one call.
+func (r *Relay) processBatchBulk(ctx context.Context, records []Record, bs xevent.BatchSender) error {
+	outbounds := make([]*xevent.Outbound, len(records))
+	for i, record := range records {
+		outbounds[i] = record.outbound()
+	}
+
+	errs := bs.BatchSend(ctx, outbounds)
+	if len(errs) != len(records) {
+		return fmt.Errorf(
+			"%w: expected %d, got %d",
+			ErrBatchSendResultCountMismatch,
+			len(records),
+			len(errs),
+		)
+	}
+
+	transitionCtx := relayTransitionContext(ctx)
+	now := r.now().UTC()
+
+	var joinErrs []error
+	for i, err := range errs {
+		if err == nil {
+			if markErr := r.store.MarkSent(transitionCtx, MarkSentRequest{
+				ID:     records[i].ID,
+				Owner:  r.owner,
+				Now:    now,
+				SentAt: now,
+			}); markErr != nil {
+				joinErrs = append(joinErrs, markErr)
+			}
+			continue
+		}
+		if handleErr := r.handleSendError(transitionCtx, records[i], now, err); handleErr != nil {
+			joinErrs = append(joinErrs, handleErr)
+		}
+	}
+	return errors.Join(joinErrs...)
+}
+
+// processBatchIndividual sends each record concurrently using a goroutine-per-record
 // pattern. A WaitGroup coordinates completion; a mutex guards the shared
 // error slice.
-func (r *Relay) processBatch(ctx context.Context, records []Record) error {
+func (r *Relay) processBatchIndividual(ctx context.Context, records []Record) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errs := make([]error, 0, len(records))

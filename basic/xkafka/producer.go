@@ -101,6 +101,8 @@ func (p *Producer) Produce(ctx context.Context, msg *produce.Message) (*produce.
 }
 
 // ProduceBatch sends messages sequentially and fails fast on first error.
+// It is kept for compatibility and is not suitable for per-item acknowledgement
+// flows such as xevent outbox relays.
 func (p *Producer) ProduceBatch(
 	ctx context.Context,
 	msgs ...*produce.Message,
@@ -120,6 +122,42 @@ func (p *Producer) ProduceBatch(
 			return results, fmt.Errorf("produce batch index %d: %w", i, err)
 		}
 		results[i] = result
+	}
+	return results, nil
+}
+
+// ProduceBatchReport sends messages and returns a per-item outcome vector.
+// A top-level error is returned only for call-level failures such as a nil
+// producer or a context that is already canceled before the call starts.
+func (p *Producer) ProduceBatchReport(
+	ctx context.Context,
+	msgs ...*produce.Message,
+) ([]produce.BatchItemResult, error) {
+	if p == nil {
+		return nil, errors.New("producer is nil")
+	}
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	results := make([]produce.BatchItemResult, len(msgs))
+	for i, msg := range msgs {
+		if err := ctx.Err(); err != nil {
+			for j := i; j < len(msgs); j++ {
+				results[j].Err = err
+			}
+			return results, nil
+		}
+
+		result, err := p.Produce(ctx, msg)
+		results[i] = produce.BatchItemResult{
+			Result: result,
+			Err:    err,
+		}
 	}
 	return results, nil
 }

@@ -276,6 +276,66 @@ func TestPublisherPublishBatchFailsWithIndex(t *testing.T) {
 	require.Equal(t, "ok", string(msg.Data))
 }
 
+func TestPublisherPublishBatchReportReturnsPerItemResults(t *testing.T) {
+	srv := newTestServer(t)
+	subConn := newTestConn(t, srv)
+	sub, err := subConn.SubscribeSync("orders")
+	require.NoError(t, err)
+	require.NoError(t, subConn.Flush())
+
+	publisher, err := NewPublisher(PublisherConfig{
+		URLs:           []string{srv.ClientURL()},
+		DefaultSubject: "orders",
+	})
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, publisher.Close())
+	}()
+
+	results, err := publisher.PublishBatchReport(
+		context.Background(),
+		&publish.Message{Data: []byte("ok-1")},
+		nil,
+		&publish.Message{Data: []byte("ok-2")},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.NotNil(t, results[0].Result)
+	require.NoError(t, results[0].Err)
+	require.Nil(t, results[1].Result)
+	require.ErrorIs(t, results[1].Err, ErrNilPublishMessage)
+	require.NotNil(t, results[2].Result)
+	require.NoError(t, results[2].Err)
+
+	gotOne, err := sub.NextMsg(time.Second)
+	require.NoError(t, err)
+	gotTwo, err := sub.NextMsg(time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "ok-1", string(gotOne.Data))
+	require.Equal(t, "ok-2", string(gotTwo.Data))
+}
+
+func TestPublisherPublishBatchReportCanceledBeforeStart(t *testing.T) {
+	srv := newTestServer(t)
+	publisher, err := NewPublisher(PublisherConfig{
+		URLs: []string{srv.ClientURL()},
+	})
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, publisher.Close())
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	results, err := publisher.PublishBatchReport(
+		ctx,
+		&publish.Message{Subject: "orders", Data: []byte("a")},
+	)
+	require.Nil(t, results)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 func TestPublisherErrorPathsAndClose(t *testing.T) {
 	t.Parallel()
 
