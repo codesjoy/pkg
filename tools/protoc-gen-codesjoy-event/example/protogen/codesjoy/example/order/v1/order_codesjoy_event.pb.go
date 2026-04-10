@@ -23,6 +23,10 @@ func (x *AuditPing) PartitionKey() string {
 	return ""
 }
 
+func (*AuditPing) Topic() string {
+	return ""
+}
+
 func (x *AuditPing) MarshalPayload() ([]byte, error) {
 	return proto.Marshal(x)
 }
@@ -64,6 +68,10 @@ func (x *OrderCreated) PartitionKey() string {
 		return ""
 	}
 	return x.GetOrderId()
+}
+
+func (*OrderCreated) Topic() string {
+	return "orders"
 }
 
 func (x *OrderCreated) MarshalPayload() ([]byte, error) {

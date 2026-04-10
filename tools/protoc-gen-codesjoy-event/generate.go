@@ -41,6 +41,7 @@ type eventMessage struct {
 	eventType          string
 	eventIDGetter      string
 	partitionKeyGetter string
+	topic              string
 }
 
 func generateFiles(gen *protogen.Plugin) error {
@@ -190,6 +191,7 @@ func describeEventMessage(file *protogen.File, message *protogen.Message) (*even
 		eventType:          eventType,
 		eventIDGetter:      eventIDGetter,
 		partitionKeyGetter: partitionKeyGetter,
+		topic:              options.GetTopic(),
 	}, nil
 }
 
@@ -309,6 +311,9 @@ func generateFileContent(g *protogen.GeneratedFile, events fileEvents) {
 		g.P(eventIDMethod)
 		g.P()
 		g.P(partitionKeyMethod)
+		g.P()
+		topicMethod := renderStringMethod(message.goName, "Topic", message.topic)
+		g.P(topicMethod)
 		g.P()
 		g.P("func (x *", message.goName, ") MarshalPayload() ([]byte, error) {")
 		g.P("\treturn ", g.QualifiedGoIdent(protoPackage.Ident("Marshal")), "(x)")

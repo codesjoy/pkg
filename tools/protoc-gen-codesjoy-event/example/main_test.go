@@ -142,6 +142,16 @@ func TestGeneratedMessageOptionalMetadataDefaultsEmpty(t *testing.T) {
 	if got := event.PartitionKey(); got != "" {
 		t.Fatalf("PartitionKey() = %q, want empty", got)
 	}
+	if got := event.Topic(); got != "" {
+		t.Fatalf("Topic() = %q, want empty", got)
+	}
+}
+
+func TestGeneratedMessageTopicBinding(t *testing.T) {
+	event := &orderv1.OrderCreated{Id: "evt_1", OrderId: "o_1"}
+	if got := event.Topic(); got != "orders" {
+		t.Fatalf("Topic() = %q, want %q", got, "orders")
+	}
 }
 
 func TestBufGenerateMatchesCommittedOutput(t *testing.T) {

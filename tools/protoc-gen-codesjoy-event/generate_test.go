@@ -48,6 +48,7 @@ func TestGenerateFilesEnabledMessageUsesFullNameByDefault(t *testing.T) {
 	assert.Contains(t, content, `return "codesjoy.example.order.v1.OrderCreated"`)
 	assert.Contains(t, content, "return x.GetId()")
 	assert.Contains(t, content, "return x.GetOrderId()")
+	assert.Contains(t, content, `func (*OrderCreated) Topic() string {`)
 	assert.Contains(t, content, "return proto.Marshal(x)")
 	assert.Contains(t, content, "return proto.Unmarshal(data, x)")
 	assert.Contains(t, content, `func OnOrderCreated(`)
@@ -190,6 +191,44 @@ func TestGenerateFilesFieldAnnotationWithoutEventTypeErrors(t *testing.T) {
 		err.Error(),
 		"field annotation requires message option (codesjoy.ddd.event.v1.event)",
 	)
+}
+
+func TestGenerateFilesTopicOptionGeneratesTopicMethod(t *testing.T) {
+	gen, err := newTestPluginWithFiles([]string{"order.proto"}, []*descriptorpb.FileDescriptorProto{
+		newOrderFile(),
+	})
+	require.NoError(t, err)
+
+	proto.SetExtension(gen.Files[0].Messages[0].Desc.Options(), eventv1.E_Event, &eventv1.EventOptions{
+		Topic: "orders",
+	})
+	proto.SetExtension(gen.Files[0].Messages[0].Fields[0].Desc.Options(), eventv1.E_EventId, true)
+	proto.SetExtension(gen.Files[0].Messages[0].Fields[1].Desc.Options(), eventv1.E_PartitionKey, true)
+
+	require.NoError(t, generateFiles(gen))
+
+	content := generatedFileContent(gen, "order_codesjoy_event.pb.go")
+	require.NotEmpty(t, content)
+	assert.Contains(t, content, `func (*OrderCreated) Topic() string {`)
+	assert.Contains(t, content, `return "orders"`)
+}
+
+func TestGenerateFilesNoTopicGeneratesEmptyTopicMethod(t *testing.T) {
+	gen, err := newTestPluginWithFiles([]string{"order.proto"}, []*descriptorpb.FileDescriptorProto{
+		newOrderFile(),
+	})
+	require.NoError(t, err)
+
+	proto.SetExtension(gen.Files[0].Messages[0].Desc.Options(), eventv1.E_Event, &eventv1.EventOptions{})
+	proto.SetExtension(gen.Files[0].Messages[0].Fields[0].Desc.Options(), eventv1.E_EventId, true)
+
+	require.NoError(t, generateFiles(gen))
+
+	content := generatedFileContent(gen, "order_codesjoy_event.pb.go")
+	require.NotEmpty(t, content)
+	assert.Contains(t, content, `func (*OrderCreated) Topic() string {`)
+	assert.Contains(t, content, `return ""`)
+	assert.NotContains(t, content, "TopicResolver")
 }
 
 func TestGenerateFilesBlankEventTypeErrors(t *testing.T) {

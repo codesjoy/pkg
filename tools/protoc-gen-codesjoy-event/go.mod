@@ -3,7 +3,7 @@ module github.com/codesjoy/pkg/tools/protoc-gen-codesjoy-event
 go 1.25.7
 
 require (
-	github.com/codesjoy/pkg/proto/codesjoy/ddd v0.0.0-20260315175100-21ea1546c9c2
+	github.com/codesjoy/pkg/proto/codesjoy/ddd v0.0.0-20260410090054-44503cbc7838
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/protobuf v1.36.11
 )

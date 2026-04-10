@@ -130,11 +130,11 @@ var File_codesjoy_example_order_v1_order_proto protoreflect.FileDescriptor
 
 const file_codesjoy_example_order_v1_order_proto_rawDesc = "" +
 	"\n" +
-	"%codesjoy/example/order/v1/order.proto\x12\x19codesjoy.example.order.v1\x1a!codesjoy/ddd/event/v1/event.proto\"a\n" +
+	"%codesjoy/example/order/v1/order.proto\x12\x19codesjoy.example.order.v1\x1a!codesjoy/ddd/event/v1/event.proto\"i\n" +
 	"\fOrderCreated\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xb8E\x01R\x02id\x12\x1e\n" +
 	"\border_id\x18\x02 \x01(\tB\x03\xc0E\x01R\aorderId\x12\x17\n" +
-	"\auser_id\x18\x03 \x01(\tR\x06userId:\x03\xb2E\x00\"2\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId:\v\xb2E\b\x12\x06orders\"2\n" +
 	"\tAuditPing\x12\x14\n" +
 	"\x05actor\x18\x01 \x01(\tR\x05actor:\x0f\xb2E\f\n" +
 	"\n" +
