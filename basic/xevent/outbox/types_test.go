@@ -61,6 +61,7 @@ func TestNewRecordValidationAndCopy(t *testing.T) {
 			EventID:      "evt-1",
 			PartitionKey: "p1",
 			Payload:      []byte("payload"),
+			Topic:        "custom-topic",
 		}
 
 		record, err := NewRecord(outbound, AppendOptions{AvailableAt: availableAt})
@@ -72,6 +73,9 @@ func TestNewRecordValidationAndCopy(t *testing.T) {
 		}
 		if !record.AvailableAt.Equal(availableAt.UTC()) {
 			t.Fatalf("unexpected available_at: %v", record.AvailableAt)
+		}
+		if record.Topic != "custom-topic" {
+			t.Fatalf("expected topic %q, got %q", "custom-topic", record.Topic)
 		}
 
 		outbound.Payload[0] = 'P'
@@ -283,6 +287,10 @@ func (*stubEvent) PartitionKey() string {
 	return "partition"
 }
 
+func (*stubEvent) Topic() string {
+	return ""
+}
+
 func (*stubEvent) MarshalPayload() ([]byte, error) {
 	return []byte("payload"), nil
 }
@@ -302,6 +310,10 @@ func (*badStubEvent) EventID() string {
 }
 
 func (*badStubEvent) PartitionKey() string {
+	return ""
+}
+
+func (*badStubEvent) Topic() string {
 	return ""
 }
 

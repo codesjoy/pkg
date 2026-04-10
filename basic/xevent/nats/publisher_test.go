@@ -35,6 +35,7 @@ type testEvent struct {
 func (*testEvent) EventType() string                 { return "order.created" }
 func (e *testEvent) EventID() string                 { return e.ID }
 func (*testEvent) PartitionKey() string              { return "" }
+func (*testEvent) Topic() string                     { return "" }
 func (e *testEvent) MarshalPayload() ([]byte, error) { return json.Marshal(e) }
 func (e *testEvent) UnmarshalPayload(data []byte) error {
 	return json.Unmarshal(data, e)
@@ -45,6 +46,7 @@ type testMarshalErrorEvent struct{}
 func (*testMarshalErrorEvent) EventType() string    { return "order.created" }
 func (*testMarshalErrorEvent) EventID() string      { return "" }
 func (*testMarshalErrorEvent) PartitionKey() string { return "" }
+func (*testMarshalErrorEvent) Topic() string        { return "" }
 func (*testMarshalErrorEvent) MarshalPayload() ([]byte, error) {
 	return nil, errors.New("marshal failed")
 }
@@ -191,6 +193,49 @@ func TestPublisherPublishNilEventAndErrors(t *testing.T) {
 	err = publisher.Publish(context.Background(), &testEvent{Name: "alice"})
 	if err == nil || err.Error() != "publish failed" {
 		t.Fatalf("expected publish error, got %v", err)
+	}
+}
+
+func TestPublisherSendUsesOutboundTopicAsSubject(t *testing.T) {
+	publisherImpl := &fakePublisher{}
+	publisher := &Publisher{
+		publisher:       publisherImpl,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_3",
+		Payload:   []byte(`{}`),
+		Topic:     "custom-orders",
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if publisherImpl.last.Subject != "custom-orders" {
+		t.Fatalf("expected subject %q, got %q", "custom-orders", publisherImpl.last.Subject)
+	}
+}
+
+func TestPublisherSendFallsBackToEventTypeAsSubject(t *testing.T) {
+	publisherImpl := &fakePublisher{}
+	publisher := &Publisher{
+		publisher:       publisherImpl,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_4",
+		Payload:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if publisherImpl.last.Subject != "order.created" {
+		t.Fatalf("expected subject %q, got %q", "order.created", publisherImpl.last.Subject)
 	}
 }
 

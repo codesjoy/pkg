@@ -76,6 +76,8 @@ func (s *Subscriber) Subscribe(ctx context.Context) error {
 		return err
 	}
 
+	// Consume handler: extract the event type from the Kafka record header
+	// and dispatch to the typed handler registry.
 	return s.consumer.Consume(
 		ctx,
 		func(handlerCtx context.Context, msg *consume.MessageContext) error {
@@ -115,6 +117,8 @@ func (s *Subscriber) Close() error {
 	return s.closeErr
 }
 
+// markStarted is a once-only lifecycle guard. It rejects double-start and
+// any start attempt after Close.
 func (s *Subscriber) markStarted() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

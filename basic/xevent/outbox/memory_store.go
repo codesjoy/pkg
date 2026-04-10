@@ -50,6 +50,8 @@ func (s *MemoryStore) Append(ctx context.Context, record *Record) error {
 	defer s.mu.Unlock()
 
 	stored := prepareStoredRecord(*record, time.Now().UTC())
+	// Auto-increment: assign the next ID when the caller did not supply one,
+	// or advance the counter past an explicitly-set ID.
 	if stored.ID == 0 {
 		s.nextID++
 		stored.ID = s.nextID
@@ -77,14 +79,18 @@ func (s *MemoryStore) Claim(ctx context.Context, req ClaimRequest) ([]Record, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Step 1: find claimable candidates (at most one per partition key).
 	candidates := s.claimCandidatesLocked(req)
+	// Step 2: sort by available time then ID for deterministic ordering.
 	sort.Slice(candidates, func(i, j int) bool {
 		return recordOrderLess(candidates[i], candidates[j])
 	})
+	// Step 3: apply the batch limit.
 	if len(candidates) > req.Limit {
 		candidates = candidates[:req.Limit]
 	}
 
+	// Step 4: claim each candidate by mutating its status and owner.
 	claimed := make([]Record, 0, len(candidates))
 	claimUntil := req.Now.Add(req.ClaimTTL).UTC()
 	for _, record := range candidates {
@@ -171,6 +177,10 @@ func (s *MemoryStore) MarkFailed(ctx context.Context, req FailRequest) error {
 	})
 }
 
+// claimCandidatesLocked returns the earliest unfinished record per partition
+// key that is eligible for claiming. This guarantees ordered delivery within a
+// partition: only the earliest unfinished record per partition is claimable at
+// any time.
 func (s *MemoryStore) claimCandidatesLocked(req ClaimRequest) []Record {
 	earliestByPartition := make(map[string]Record)
 	for _, record := range s.records {
@@ -184,6 +194,7 @@ func (s *MemoryStore) claimCandidatesLocked(req ClaimRequest) []Record {
 		}
 	}
 
+	// Filter down to those that pass the time-based eligibility check.
 	candidates := make([]Record, 0, len(earliestByPartition))
 	for _, record := range earliestByPartition {
 		if isClaimEligible(record, req.Now) {
@@ -193,6 +204,8 @@ func (s *MemoryStore) claimCandidatesLocked(req ClaimRequest) []Record {
 	return candidates
 }
 
+// claimRecord applies the claim mutation: transitions to Sending, sets the
+// owner and deadline, and increments the attempt counter.
 func claimRecord(record Record, owner string, claimUntil time.Time, now time.Time) Record {
 	record.Status = StatusSending
 	record.ClaimOwner = owner
@@ -202,6 +215,8 @@ func claimRecord(record Record, owner string, claimUntil time.Time, now time.Tim
 	return record
 }
 
+// updateClaimedRecordLocked is a generic helper that validates ownership of a
+// claimed record and applies an arbitrary update mutation.
 func (s *MemoryStore) updateClaimedRecordLocked(
 	id uint64,
 	owner string,
@@ -216,11 +231,14 @@ func (s *MemoryStore) updateClaimedRecordLocked(
 	return nil
 }
 
+// claimedRecordLocked loads a record by ID and validates that it is currently
+// in the Sending state and owned by the given owner.
 func (s *MemoryStore) claimedRecordLocked(id uint64, owner string) (Record, error) {
 	record, ok := s.records[id]
 	if !ok {
 		return Record{}, ErrRecordNotFound
 	}
+	// Ownership validation: status must be Sending and owner must match.
 	if record.Status != StatusSending || record.ClaimOwner != owner {
 		return Record{}, ErrClaimNotOwned
 	}
@@ -231,6 +249,11 @@ func isUnfinished(record Record) bool {
 	return record.Status == StatusPending || record.Status == StatusSending
 }
 
+// isClaimEligible returns true when a record can be claimed. There are two
+// eligibility paths:
+//   - Pending + available time has passed: fresh record ready for first send.
+//   - Sending + available + claim has expired: orphaned record from a previous
+//     claim that never completed, eligible for re-claim.
 func isClaimEligible(record Record, now time.Time) bool {
 	switch record.Status {
 	case StatusPending:

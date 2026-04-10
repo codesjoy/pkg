@@ -34,6 +34,7 @@ func (e *testOrderCreated) EventID() string { return e.ID }
 func (e *testOrderCreated) PartitionKey() string {
 	return e.OrderID
 }
+func (*testOrderCreated) Topic() string { return "" }
 
 func (e *testOrderCreated) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
@@ -52,6 +53,7 @@ func (e *testNoPartitionEvent) EventID() string { return e.ID }
 func (*testNoPartitionEvent) PartitionKey() string {
 	return ""
 }
+func (*testNoPartitionEvent) Topic() string { return "" }
 
 func (e *testNoPartitionEvent) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
@@ -70,6 +72,7 @@ func (e *testOrderCreatedAlias) EventID() string { return e.ID }
 func (*testOrderCreatedAlias) PartitionKey() string {
 	return ""
 }
+func (*testOrderCreatedAlias) Topic() string { return "" }
 
 func (e *testOrderCreatedAlias) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
@@ -84,6 +87,7 @@ type testValueEvent struct{}
 func (testValueEvent) EventType() string               { return "value.event" }
 func (testValueEvent) EventID() string                 { return "evt" }
 func (testValueEvent) PartitionKey() string            { return "" }
+func (testValueEvent) Topic() string                   { return "" }
 func (testValueEvent) MarshalPayload() ([]byte, error) { return nil, nil }
 func (testValueEvent) UnmarshalPayload([]byte) error   { return nil }
 
@@ -92,6 +96,7 @@ type testEmptyTypeEvent struct{}
 func (*testEmptyTypeEvent) EventType() string               { return "" }
 func (*testEmptyTypeEvent) EventID() string                 { return "evt-empty" }
 func (*testEmptyTypeEvent) PartitionKey() string            { return "" }
+func (*testEmptyTypeEvent) Topic() string                   { return "" }
 func (*testEmptyTypeEvent) MarshalPayload() ([]byte, error) { return []byte("payload"), nil }
 func (*testEmptyTypeEvent) UnmarshalPayload([]byte) error   { return nil }
 
@@ -104,6 +109,7 @@ func (*testFailMarshalEvent) EventID() string   { return "evt-fail" }
 func (*testFailMarshalEvent) PartitionKey() string {
 	return ""
 }
+func (*testFailMarshalEvent) Topic() string { return "" }
 
 func (e *testFailMarshalEvent) MarshalPayload() ([]byte, error) {
 	return nil, e.err
@@ -583,6 +589,126 @@ func TestDispatcherOnEventTypeConflict(t *testing.T) {
 
 func newTestDispatcher() *Dispatcher {
 	return NewDispatcher()
+}
+
+type testTopicEvent struct {
+	ID    string `json:"id"`
+	Topic_ string `json:"-"`
+}
+
+func (*testTopicEvent) EventType() string { return "topic.event" }
+func (e *testTopicEvent) EventID() string { return e.ID }
+func (e *testTopicEvent) PartitionKey() string { return "" }
+func (e *testTopicEvent) Topic() string { return e.Topic_ }
+
+func (e *testTopicEvent) MarshalPayload() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+func (e *testTopicEvent) UnmarshalPayload(data []byte) error {
+	return json.Unmarshal(data, e)
+}
+
+func TestEncodeExtractsTopic(t *testing.T) {
+	event := &testTopicEvent{ID: "evt_topic", Topic_: "custom-topic"}
+	outbound, err := Encode(event)
+	if err != nil {
+		t.Fatalf("Encode returned error: %v", err)
+	}
+	if outbound.Topic != "custom-topic" {
+		t.Fatalf("expected topic %q, got %q", "custom-topic", outbound.Topic)
+	}
+}
+
+func TestEncodeTopicEmptyByDefault(t *testing.T) {
+	event := &testOrderCreated{ID: "evt_no_topic"}
+	outbound, err := Encode(event)
+	if err != nil {
+		t.Fatalf("Encode returned error: %v", err)
+	}
+	if outbound.Topic != "" {
+		t.Fatalf("expected empty topic, got %q", outbound.Topic)
+	}
+}
+
+func TestSenderFromPublisherPreservesTopic(t *testing.T) {
+	publisher := &testPublisher{}
+	sender := SenderFromPublisher(publisher)
+
+	outbound := &Outbound{
+		EventType: "topic.event",
+		EventID:   "evt_topic",
+		Payload:   []byte(`{}`),
+		Topic:     "custom-topic",
+	}
+	if err := sender.Send(context.Background(), outbound); err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+
+	if publisher.last == nil {
+		t.Fatal("expected publisher event")
+	}
+
+	reEncoded, err := Encode(publisher.last)
+	if err != nil {
+		t.Fatalf("Encode of published event returned error: %v", err)
+	}
+	if reEncoded.Topic != "custom-topic" {
+		t.Fatalf("expected topic %q after round-trip, got %q", "custom-topic", reEncoded.Topic)
+	}
+}
+
+func TestDispatcherFallbackHandler(t *testing.T) {
+	dispatcher := newTestDispatcher()
+
+	var gotMsg *Message
+	dispatcher.SetFallback(func(_ context.Context, msg *Message) error {
+		gotMsg = msg
+		return nil
+	})
+
+	payload := []byte(`{"id":"fb_1"}`)
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "unknown.event",
+		Payload:   payload,
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if gotMsg == nil {
+		t.Fatal("expected fallback to receive message")
+	}
+	if gotMsg.EventType != "unknown.event" {
+		t.Fatalf("expected event type %q, got %q", "unknown.event", gotMsg.EventType)
+	}
+}
+
+func TestDispatcherFallbackHandlerError(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	wantErr := errors.New("fallback failed")
+	dispatcher.SetFallback(func(_ context.Context, msg *Message) error {
+		return wantErr
+	})
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "unknown.event",
+		Payload:   []byte(`{}`),
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected fallback error, got %v", err)
+	}
+}
+
+func TestDispatcherNoFallbackReturnsErrNoHandlers(t *testing.T) {
+	dispatcher := newTestDispatcher()
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "unknown.event",
+		Payload:   []byte(`{}`),
+	})
+	if !errors.Is(err, ErrNoHandlers) {
+		t.Fatalf("expected ErrNoHandlers, got %v", err)
+	}
 }
 
 func ExampleOn() {

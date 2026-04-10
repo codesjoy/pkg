@@ -47,20 +47,32 @@ const (
 
 // Record is the persisted outbox payload.
 type Record struct {
+	// Event metadata: identifies and classifies the event.
 	ID           uint64     `gorm:"primaryKey;autoIncrement"`
 	EventType    string     `gorm:"size:255;not null;index"`
 	EventID      string     `gorm:"size:255;index"`
 	PartitionKey string     `gorm:"size:255;not null;default:'';index;index:idx_xevent_outbox_status_available_partition_id,priority:3;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:4"`
-	Payload      []byte     `gorm:"not null"`
-	AvailableAt  time.Time  `gorm:"not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:2;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:3"`
-	Status       Status     `gorm:"type:varchar(16);not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:1;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:1"`
-	Attempts     int        `gorm:"not null;default:0"`
-	LastError    string     `gorm:"type:text"`
-	ClaimOwner   string     `gorm:"size:255;index"`
-	ClaimUntil   *time.Time `gorm:"index;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:2"`
-	SentAt       *time.Time `gorm:"index"`
-	CreatedAt    time.Time  `gorm:"not null"`
-	UpdatedAt    time.Time  `gorm:"not null"`
+
+	// Payload: the serialised event body and target topic.
+	Payload []byte `gorm:"not null"`
+	Topic   string `gorm:"size:255;not null;default:''"`
+
+	// Timing: controls when the record becomes eligible for processing.
+	AvailableAt time.Time `gorm:"not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:2;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:3"`
+
+	// Status and retry tracking.
+	Status    Status `gorm:"type:varchar(16);not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:1;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:1"`
+	Attempts  int    `gorm:"not null;default:0"`
+	LastError string `gorm:"type:text"`
+
+	// Claim tracking: which owner is currently processing this record and until when.
+	ClaimOwner string     `gorm:"size:255;index"`
+	ClaimUntil *time.Time `gorm:"index;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:2"`
+
+	// Timestamps: lifecycle milestones.
+	SentAt    *time.Time `gorm:"index"`
+	CreatedAt time.Time  `gorm:"not null"`
+	UpdatedAt time.Time  `gorm:"not null"`
 }
 
 // TableName returns the default outbox table name.
@@ -116,6 +128,9 @@ type AppendOptions struct {
 }
 
 // AppendEvent encodes one xevent.Event and appends it into the store.
+//
+// Steps: (1) encode the event to an Outbound, (2) wrap it in a pending
+// Record, (3) persist via the Store.
 func AppendEvent(
 	ctx context.Context,
 	store Store,
@@ -126,15 +141,19 @@ func AppendEvent(
 		return nil, errors.New("xevent outbox store is nil")
 	}
 
+	// Step 1: encode event to outbound.
 	outbound, err := xevent.Encode(event)
 	if err != nil {
 		return nil, err
 	}
 
+	// Step 2: build a pending record from the outbound.
 	record, err := NewRecord(outbound, opts)
 	if err != nil {
 		return nil, err
 	}
+
+	// Step 3: persist the record.
 	if err := store.Append(ctx, record); err != nil {
 		return nil, err
 	}
@@ -155,8 +174,11 @@ func NewRecord(outbound *xevent.Outbound, opts AppendOptions) (*Record, error) {
 		EventID:      outbound.EventID,
 		PartitionKey: outbound.PartitionKey,
 		Payload:      cloneBytes(outbound.Payload),
+		Topic:        outbound.Topic,
 		Status:       StatusPending,
 	}
+	// Default AvailableAt to the zero time (i.e. immediately eligible);
+	// store implementations will fill in time.Now() if still zero at persist.
 	if !opts.AvailableAt.IsZero() {
 		record.AvailableAt = opts.AvailableAt.UTC()
 	}
@@ -164,8 +186,11 @@ func NewRecord(outbound *xevent.Outbound, opts AppendOptions) (*Record, error) {
 	return record, nil
 }
 
+// prepareStoredRecord deep-copies the record and fills in zero-valued fields
+// (status, available_at, created_at, updated_at) with sensible defaults.
 func prepareStoredRecord(record Record, now time.Time) Record {
 	stored := cloneRecord(record)
+	// Default any unset fields so the persisted record is always complete.
 	if stored.Status == "" {
 		stored.Status = StatusPending
 	}
@@ -181,6 +206,8 @@ func prepareStoredRecord(record Record, now time.Time) Record {
 	return stored
 }
 
+// cloneRecord returns a deep copy of the record. Time fields are normalized
+// to UTC so that comparisons and storage are timezone-consistent.
 func cloneRecord(record Record) Record {
 	cloned := record
 	cloned.Payload = cloneBytes(record.Payload)
@@ -205,6 +232,8 @@ func cloneBytes(src []byte) []byte {
 	return append([]byte(nil), src...)
 }
 
+// normalizeClaimRequest validates required fields and defaults Now to the
+// current time when zero.
 func normalizeClaimRequest(req ClaimRequest) (ClaimRequest, error) {
 	if req.Owner == "" {
 		return ClaimRequest{}, errors.New("xevent outbox claim owner is required")
@@ -219,6 +248,8 @@ func normalizeClaimRequest(req ClaimRequest) (ClaimRequest, error) {
 	return req, nil
 }
 
+// normalizeMarkSentRequest validates owner, defaults Now and SentAt when zero,
+// and normalises SentAt to UTC.
 func normalizeMarkSentRequest(req MarkSentRequest) (MarkSentRequest, error) {
 	if req.Owner == "" {
 		return MarkSentRequest{}, errors.New("xevent outbox claim owner is required")
@@ -232,6 +263,8 @@ func normalizeMarkSentRequest(req MarkSentRequest) (MarkSentRequest, error) {
 	return req, nil
 }
 
+// normalizeRetryRequest validates owner, defaults Now and NextAvailableAt when
+// zero, and normalises times to UTC.
 func normalizeRetryRequest(req RetryRequest) (RetryRequest, error) {
 	if req.Owner == "" {
 		return RetryRequest{}, errors.New("xevent outbox claim owner is required")
@@ -245,6 +278,7 @@ func normalizeRetryRequest(req RetryRequest) (RetryRequest, error) {
 	return req, nil
 }
 
+// normalizeFailRequest validates owner and defaults Now to the current time.
 func normalizeFailRequest(req FailRequest) (FailRequest, error) {
 	if req.Owner == "" {
 		return FailRequest{}, errors.New("xevent outbox claim owner is required")

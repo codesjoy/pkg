@@ -65,6 +65,7 @@ type Relay struct {
 }
 
 // NewRelay creates a configured outbox relay.
+// Zero-valued or nil optional fields are filled with sensible defaults.
 func NewRelay(cfg RelayConfig) (*Relay, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("xevent outbox store is nil")
@@ -72,6 +73,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 	if cfg.Sender == nil {
 		return nil, errors.New("xevent outbox sender is nil")
 	}
+	// Default optional numeric / duration fields.
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
@@ -93,6 +95,7 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	// Generate a unique owner ID so multiple relay instances do not clash.
 	if cfg.Owner == "" {
 		cfg.Owner = uuid.NewString()
 	}
@@ -113,6 +116,9 @@ func NewRelay(cfg RelayConfig) (*Relay, error) {
 }
 
 // Run starts the polling relay loop until ctx is canceled or a store error occurs.
+//
+// The loop structure is: process immediately once, then wait on a ticker or
+// an explicit wake signal before processing again.
 func (r *Relay) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -121,6 +127,7 @@ func (r *Relay) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
+	// Process immediately on start rather than waiting for the first tick.
 	if err := r.ProcessOnce(ctx); err != nil {
 		return err
 	}
@@ -139,7 +146,9 @@ func (r *Relay) Run(ctx context.Context) error {
 	}
 }
 
-// Wake requests one extra relay scan without blocking.
+// Wake requests one extra relay scan without blocking. If a wake signal is
+// already pending the new one is discarded — the relay will process on the
+// next cycle regardless.
 func (r *Relay) Wake() {
 	select {
 	case r.wakeCh <- struct{}{}:
@@ -147,7 +156,9 @@ func (r *Relay) Wake() {
 	}
 }
 
-// ProcessOnce drains all currently claimable outbox records.
+// ProcessOnce drains all currently claimable outbox records. It repeatedly
+// claims batches until no more eligible records remain. The mutex prevents
+// concurrent ProcessOnce calls (e.g. from Run + manual invocation).
 func (r *Relay) ProcessOnce(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -156,6 +167,7 @@ func (r *Relay) ProcessOnce(ctx context.Context) error {
 	r.processMu.Lock()
 	defer r.processMu.Unlock()
 
+	// Drain loop: keep claiming batches until the store returns nothing.
 	for {
 		now := r.now().UTC()
 		claimed, err := r.store.Claim(ctx, ClaimRequest{
@@ -177,6 +189,9 @@ func (r *Relay) ProcessOnce(ctx context.Context) error {
 	}
 }
 
+// processBatch sends each record concurrently using a goroutine-per-record
+// pattern. A WaitGroup coordinates completion; a mutex guards the shared
+// error slice.
 func (r *Relay) processBatch(ctx context.Context, records []Record) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -199,9 +214,15 @@ func (r *Relay) processBatch(ctx context.Context, records []Record) error {
 	return errors.Join(errs...)
 }
 
+// processRecord sends one record and transitions its store state. Two
+// contexts are used: ctx governs the send (and may be canceled by the caller),
+// while transitionCtx is used for store mutations and is never canceled
+// mid-flight.
 func (r *Relay) processRecord(ctx context.Context, record Record) error {
 	now := r.now().UTC()
 	transitionCtx := relayTransitionContext(ctx)
+
+	// Send using the original (possibly cancelable) context.
 	sendErr := r.sender.Send(ctx, record.outbound())
 	if sendErr == nil {
 		return r.store.MarkSent(transitionCtx, MarkSentRequest{
@@ -215,12 +236,16 @@ func (r *Relay) processRecord(ctx context.Context, record Record) error {
 	return r.handleSendError(transitionCtx, record, now, sendErr)
 }
 
+// handleSendError decides between retry and permanent failure based on the
+// attempt count. When the record has not exhausted retries it is rescheduled
+// with a delay; otherwise it is marked as permanently failed.
 func (r *Relay) handleSendError(
 	ctx context.Context,
 	record Record,
 	now time.Time,
 	sendErr error,
 ) error {
+	// Still within the retry budget — schedule another attempt.
 	if record.Attempts < r.maxAttempts {
 		retryErr := r.store.Retry(ctx, RetryRequest{
 			ID:              record.ID,
@@ -242,6 +267,7 @@ func (r *Relay) handleSendError(
 		return errors.Join(sendErr, retryErr)
 	}
 
+	// Retries exhausted — mark permanently failed.
 	failErr := r.store.MarkFailed(ctx, FailRequest{
 		ID:        record.ID,
 		Owner:     r.owner,
@@ -267,9 +293,14 @@ func (r Record) outbound() *xevent.Outbound {
 		EventID:      r.EventID,
 		PartitionKey: r.PartitionKey,
 		Payload:      cloneBytes(r.Payload),
+		Topic:        r.Topic,
 	}
 }
 
+// relayTransitionContext returns a fresh context when ctx is nil or already
+// canceled. Store state transitions (MarkSent, Retry, MarkFailed) must succeed
+// even when the original caller context is done, to avoid leaving records in
+// an inconsistent state (claimed but never finalized).
 func relayTransitionContext(ctx context.Context) context.Context {
 	if ctx == nil || ctx.Err() != nil {
 		return context.Background()

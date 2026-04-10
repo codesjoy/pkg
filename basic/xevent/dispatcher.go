@@ -34,6 +34,7 @@ type eventBinding struct {
 type Dispatcher struct {
 	mu       sync.RWMutex
 	bindings map[string]eventBinding
+	fallback FallbackHandler
 }
 
 // NewDispatcher creates a typed event dispatcher.
@@ -44,6 +45,10 @@ func NewDispatcher() *Dispatcher {
 }
 
 // Handle decodes one subscribed message and routes it to all bound typed handlers.
+//
+// Steps: (1) look up the binding for the event type, (2) fall back to the
+// fallback handler when no binding exists, (3) unmarshal the payload into a
+// fresh event prototype per handler and dispatch.
 func (d *Dispatcher) Handle(ctx context.Context, msg *Message) error {
 	if d == nil {
 		return ErrInvalidEventBinding
@@ -55,11 +60,17 @@ func (d *Dispatcher) Handle(ctx context.Context, msg *Message) error {
 		return ErrEventTypeRequired
 	}
 
+	// Step 1: look up binding by event type.
 	binding := d.bindingFor(msg.EventType)
 	if binding.newEvent == nil || len(binding.handlers) == 0 {
+		// Step 2: no typed handlers — try fallback.
+		if fb := d.fallbackFor(); fb != nil {
+			return fb(ctx, msg)
+		}
 		return ErrNoHandlers
 	}
 
+	// Step 3: unmarshal & dispatch to each handler.
 	var errs []error
 	for _, handler := range binding.handlers {
 		event := binding.newEvent()
@@ -92,6 +103,8 @@ func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 	defer d.mu.Unlock()
 
 	binding, exists := d.bindings[eventType]
+	// Conflict detection: reject if the same event type name was already bound
+	// to a different concrete Go type.
 	if exists {
 		if binding.prototypeType != prototypeType {
 			return fmt.Errorf(
@@ -109,6 +122,8 @@ func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 		}
 	}
 
+	// Wrap the user's typed handler in a closure that performs the
+	// Event → T type assertion before delegating.
 	binding.handlers = append(binding.handlers, func(ctx context.Context, event Event) error {
 		typed, ok := event.(T)
 		if !ok {
@@ -134,14 +149,31 @@ func (d *Dispatcher) bindingFor(eventType string) eventBinding {
 		return eventBinding{}
 	}
 
+	// Copy the handlers slice so mutations during dispatch cannot affect the
+	// stored binding.
 	cloned := make([]dispatchFunc, len(binding.handlers))
 	copy(cloned, binding.handlers)
 	binding.handlers = cloned
 	return binding
 }
 
+// SetFallback registers a fallback handler for events with no registered typed handlers.
+func (d *Dispatcher) SetFallback(fb FallbackHandler) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.fallback = fb
+}
+
+func (d *Dispatcher) fallbackFor() FallbackHandler {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.fallback
+}
+
 func bindingSpec[T Event]() (string, reflect.Type, func() Event, error) {
 	eventType := reflect.TypeFor[T]()
+	// Enforce the generic constraint: T must be a pointer-to-struct so that
+	// reflect.New can instantiate a concrete prototype.
 	if eventType == nil || eventType.Kind() != reflect.Pointer ||
 		eventType.Elem().Kind() != reflect.Struct {
 		return "", nil, nil, ErrInvalidEventBinding

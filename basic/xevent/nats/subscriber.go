@@ -83,6 +83,8 @@ func (s *Subscriber) Subscribe(ctx context.Context) error {
 				return xevent.ErrNilMessage
 			}
 
+			// Multi-level event type fallback: header → msg.Subject →
+			// msg.Message.Subject. If none resolve, return an error.
 			eventType := ""
 			if msg.Message.Header != nil {
 				eventType = msg.Message.Header.Get(s.eventTypeHeader)

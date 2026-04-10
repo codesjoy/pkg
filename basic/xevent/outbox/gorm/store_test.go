@@ -42,6 +42,7 @@ func (e *testEvent) EventID() string { return e.ID }
 func (e *testEvent) PartitionKey() string {
 	return e.Key
 }
+func (*testEvent) Topic() string { return "" }
 
 func (e *testEvent) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)

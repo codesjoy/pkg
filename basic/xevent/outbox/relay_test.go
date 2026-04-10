@@ -45,6 +45,23 @@ func (s *fakeSender) Send(_ context.Context, outbound *xevent.Outbound) error {
 	return err
 }
 
+func TestRecordOutboundCarriesTopic(t *testing.T) {
+	record := Record{
+		EventType:    "evt",
+		EventID:      "evt-topic",
+		PartitionKey: "p1",
+		Payload:      []byte("payload"),
+		Topic:        "custom-topic",
+	}
+	outbound := record.outbound()
+	if outbound.Topic != "custom-topic" {
+		t.Fatalf("expected topic %q, got %q", "custom-topic", outbound.Topic)
+	}
+	if outbound.EventType != "evt" {
+		t.Fatalf("expected event type %q, got %q", "evt", outbound.EventType)
+	}
+}
+
 func TestNewRelayRejectsNilDependencies(t *testing.T) {
 	_, err := NewRelay(RelayConfig{Sender: &fakeSender{}})
 	if err == nil {

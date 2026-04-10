@@ -58,7 +58,8 @@ type GORMStore struct {
 
 var _ outbox.Store = (*GORMStore)(nil)
 
-// NewGORMStore creates a default GORM-backed outbox store.
+// NewGORMStore creates a default GORM-backed outbox store. If no dialect is
+// explicitly configured, it is auto-detected from the GORM Dialector.
 func NewGORMStore(cfg GORMStoreConfig) (*GORMStore, error) {
 	if cfg.DB == nil {
 		return nil, errors.New("xevent outbox gorm db is nil")
@@ -69,6 +70,7 @@ func NewGORMStore(cfg GORMStoreConfig) (*GORMStore, error) {
 		tableName = (outbox.Record{}).TableName()
 	}
 
+	// Auto-detect the SQL dialect when not explicitly set.
 	dialect, err := resolveGORMStoreDialect(cfg.DB, cfg.Dialect)
 	if err != nil {
 		return nil, err
@@ -83,6 +85,8 @@ func NewGORMStore(cfg GORMStoreConfig) (*GORMStore, error) {
 }
 
 // Append inserts one outbox record using the current GORM handle.
+// The session is resolved via session(), which supports transaction-bound
+// contexts (e.g. a *gorm.DB obtained from SessionFromContext).
 func (s *GORMStore) Append(ctx context.Context, record *outbox.Record) error {
 	if record == nil {
 		return errors.New("xevent outbox record is nil")
@@ -91,6 +95,8 @@ func (s *GORMStore) Append(ctx context.Context, record *outbox.Record) error {
 
 	stored := prepareStoredRecord(*record, time.Now().UTC())
 
+	// Use the resolved session so that records are inserted within the
+	// caller's transaction when one is active.
 	if err := s.session(ctx).Table(s.tableName).Create(&stored).Error; err != nil {
 		return err
 	}
@@ -99,6 +105,8 @@ func (s *GORMStore) Append(ctx context.Context, record *outbox.Record) error {
 }
 
 // Claim reserves one batch of eligible records ordered by available time then id.
+// The entire claim runs inside a transaction so that candidate selection and
+// the status update are atomic.
 func (s *GORMStore) Claim(ctx context.Context, req outbox.ClaimRequest) ([]outbox.Record, error) {
 	ctx = normalizeContext(ctx)
 
@@ -107,6 +115,7 @@ func (s *GORMStore) Claim(ctx context.Context, req outbox.ClaimRequest) ([]outbo
 		return nil, err
 	}
 
+	// Transactional claim: select candidates and update their status atomically.
 	var claimed []outbox.Record
 	claim := s.claimer()
 	err = s.session(ctx).Transaction(func(tx *gorm.DB) error {
@@ -188,6 +197,9 @@ func (s *GORMStore) claimStandard(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
+	// Standard SQL claim: the NOT EXISTS subquery enforces per-partition
+	// ordering by ensuring only records with no earlier unfinished sibling
+	// (same partition_key, earlier available_at or id) are selected.
 	sqlText := fmt.Sprintf(
 		`SELECT records.*
 FROM %s AS records
@@ -230,6 +242,7 @@ LIMIT ?`,
 
 type claimerFunc func(*gorm.DB, outbox.ClaimRequest, time.Time) ([]outbox.Record, error)
 
+// claimer returns the dialect-appropriate claim function.
 func (s *GORMStore) claimer() claimerFunc {
 	switch s.dialect {
 	case GORMStoreDialectPostgres:
@@ -247,6 +260,10 @@ func (s *GORMStore) claimMySQL(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
+	// MySQL claim: ROW_NUMBER() OVER PARTITION BY assigns a per-partition rank
+	// so that only rank 1 (earliest unfinished) records are selected. The
+	// outer FOR UPDATE SKIP LOCKED provides concurrent safety by skipping
+	// rows already locked by competing transactions.
 	sqlText := fmt.Sprintf(
 		`SELECT records.*
 FROM %s AS records
@@ -300,6 +317,10 @@ func (s *GORMStore) claimPostgres(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
+	// PostgreSQL claim: a single CTE-based statement that (1) ranks records
+	// per partition, (2) selects rank-1 candidates with FOR UPDATE SKIP LOCKED,
+	// and (3) UPDATEs them in-place with RETURNING. This combines candidate
+	// selection and mutation into one round-trip for maximum efficiency.
 	sqlText := fmt.Sprintf(
 		`WITH ranked AS (
   SELECT records.id,
@@ -356,6 +377,7 @@ RETURNING records.*`,
 	return claimed, nil
 }
 
+// selectClaimCandidates executes a raw SQL query and returns the matching records.
 func (s *GORMStore) selectClaimCandidates(
 	tx *gorm.DB,
 	sqlText string,
@@ -368,6 +390,10 @@ func (s *GORMStore) selectClaimCandidates(
 	return candidates, nil
 }
 
+// claimSelectedRecords performs an optimistic update: it updates only those
+// records whose IDs match AND are still eligible (re-checking the eligibility
+// SQL to guard against concurrent claims). It then re-fetches the successfully
+// claimed records.
 func (s *GORMStore) claimSelectedRecords(
 	tx *gorm.DB,
 	ids []uint64,
@@ -378,6 +404,9 @@ func (s *GORMStore) claimSelectedRecords(
 		return nil, nil
 	}
 
+	// Optimistic update: only claim records that are still eligible at the
+	// moment of the UPDATE. This prevents races where another transaction
+	// claimed the same record between SELECT and UPDATE.
 	result := tx.Table(s.tableName).
 		Where("id IN ?", ids).
 		Where(claimEligibilitySQL(), outbox.StatusPending, req.Now, outbox.StatusSending, req.Now, req.Now).
@@ -395,6 +424,7 @@ func (s *GORMStore) claimSelectedRecords(
 		return nil, nil
 	}
 
+	// Re-fetch the records that were successfully claimed to return to the caller.
 	claimed := make([]outbox.Record, 0, len(ids))
 	if err := tx.Table(s.tableName).
 		Where("id IN ?", ids).
@@ -407,6 +437,9 @@ func (s *GORMStore) claimSelectedRecords(
 	return claimed, nil
 }
 
+// updateClaimed updates a claimed record after validating ownership. When no
+// rows are affected it performs a secondary query to discriminate between
+// "record not found" and "record exists but not owned by caller".
 func (s *GORMStore) updateClaimed(
 	ctx context.Context,
 	id uint64,
@@ -416,12 +449,14 @@ func (s *GORMStore) updateClaimed(
 	session := s.session(ctx)
 	result := session.
 		Table(s.tableName).
+		// Ownership validation: only update records in Sending state owned by caller.
 		Where("id = ? AND status = ? AND claim_owner = ?", id, outbox.StatusSending, owner).
 		Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
+		// Discriminate: does the record not exist, or is it owned by someone else?
 		var count int64
 		if err := session.Table(s.tableName).Where("id = ?", id).Count(&count).Error; err != nil {
 			return err
@@ -438,6 +473,11 @@ func claimEligibilitySQL() string {
 	return claimEligibilitySQLForAlias("")
 }
 
+// claimEligibilitySQLForAlias generates a SQL fragment with two conditions
+// OR-ed together:
+//   - Condition 1: status=pending AND available_at <= now (fresh record ready to send).
+//   - Condition 2: status=sending AND available_at <= now AND claim expired
+//     (orphaned claim eligible for re-claim).
 func claimEligibilitySQLForAlias(alias string) string {
 	prefix := ""
 	if alias != "" {
@@ -602,6 +642,9 @@ func (s *GORMStore) quotedTable(tx *gorm.DB) string {
 	return stmt.Quote(s.tableName)
 }
 
+// session resolves the appropriate *gorm.DB for the given context. When
+// SessionFromContext is configured (e.g. to inject a transaction-bound
+// session), it takes priority; otherwise the default db handle is used.
 func (s *GORMStore) session(ctx context.Context) *gorm.DB {
 	ctx = normalizeContext(ctx)
 	if s.sessionFromContext != nil {

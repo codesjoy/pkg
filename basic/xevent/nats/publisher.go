@@ -76,14 +76,21 @@ func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
 		return xevent.ErrEventTypeRequired
 	}
 
+	// Assemble NATS headers: always include event type; include event ID when present.
 	header := make(natsio.Header, 2)
 	header.Add(p.eventTypeHeader, outbound.EventType)
 	if eventID := outbound.EventID; eventID != "" {
 		header.Add(p.eventIDHeader, eventID)
 	}
 
+	// Fall back from outbound.Topic to eventType for the NATS subject.
+	subject := outbound.EventType
+	if outbound.Topic != "" {
+		subject = outbound.Topic
+	}
+
 	_, err := p.publisher.Publish(ctx, &publish.Message{
-		Subject: outbound.EventType,
+		Subject: subject,
 		Data:    cloneBytes(outbound.Payload),
 		Header:  header,
 	})

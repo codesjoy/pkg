@@ -25,9 +25,13 @@ type Event interface {
 	EventType() string
 	EventID() string
 	PartitionKey() string
+	Topic() string
 	MarshalPayload() ([]byte, error)
 	UnmarshalPayload([]byte) error
 }
+
+// FallbackHandler handles subscribed events that have no registered typed handler.
+type FallbackHandler func(context.Context, *Message) error
 
 // Message is the minimal subscribed event input for typed dispatch.
 type Message struct {
@@ -76,6 +80,8 @@ func isNilValue(v any) bool {
 	}
 
 	rv := reflect.ValueOf(v)
+	// Reference-like kinds can be non-nil interface values wrapping nil underlying
+	// values (e.g. (*MyStruct)(nil)). Check IsNil for these types specifically.
 	switch rv.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return rv.IsNil()
@@ -84,6 +90,8 @@ func isNilValue(v any) bool {
 	}
 }
 
+// cloneBytes returns a deep copy of src so the caller cannot accidentally
+// alias and mutate the original slice.
 func cloneBytes(src []byte) []byte {
 	if src == nil {
 		return nil

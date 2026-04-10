@@ -38,6 +38,7 @@ func (e *testEvent) EventID() string { return e.ID }
 func (e *testEvent) PartitionKey() string {
 	return e.Key
 }
+func (*testEvent) Topic() string { return "" }
 
 func (e *testEvent) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
@@ -191,6 +192,51 @@ func TestPublisherPublishNilEventAndErrors(t *testing.T) {
 	err = publisher.Publish(context.Background(), &testEvent{Name: "alice"})
 	if err == nil || err.Error() != "produce failed" {
 		t.Fatalf("expected produce error, got %v", err)
+	}
+}
+
+func TestPublisherSendUsesOutboundTopicOverride(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "default-topic",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_3",
+		Payload:   []byte(`{}`),
+		Topic:     "custom-orders",
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if producer.last.Topic != "custom-orders" {
+		t.Fatalf("expected topic %q, got %q", "custom-orders", producer.last.Topic)
+	}
+}
+
+func TestPublisherSendFallsBackToDefaultTopic(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		topic:           "default-topic",
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_4",
+		Payload:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if producer.last.Topic != "default-topic" {
+		t.Fatalf("expected default topic %q, got %q", "default-topic", producer.last.Topic)
 	}
 }
 

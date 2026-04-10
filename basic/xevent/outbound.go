@@ -23,6 +23,7 @@ type Outbound struct {
 	EventID      string
 	PartitionKey string
 	Payload      []byte
+	Topic        string
 }
 
 // Sender sends one outbound event payload.
@@ -31,7 +32,11 @@ type Sender interface {
 }
 
 // Encode converts one Event into a reusable outbound payload.
+//
+// Steps: (1) validate the event is non-nil, (2) marshal its payload to bytes,
+// (3) build an Outbound with a defensive copy of those bytes.
 func Encode(event Event) (*Outbound, error) {
+	// Step 1: validate.
 	if isNilValue(event) {
 		return nil, ErrNilEvent
 	}
@@ -41,16 +46,19 @@ func Encode(event Event) (*Outbound, error) {
 		return nil, ErrEventTypeRequired
 	}
 
+	// Step 2: marshal payload.
 	payload, err := event.MarshalPayload()
 	if err != nil {
 		return nil, err
 	}
 
+	// Step 3: build outbound with a deep-copied payload to prevent aliasing.
 	return &Outbound{
 		EventType:    eventType,
 		EventID:      event.EventID(),
 		PartitionKey: event.PartitionKey(),
 		Payload:      cloneBytes(payload),
+		Topic:        event.Topic(),
 	}, nil
 }
 
@@ -63,6 +71,8 @@ type publisherSender struct {
 	publisher Publisher
 }
 
+// Send bridges an Outbound back to the Publisher interface by wrapping the
+// outbound fields in an outboundEvent adapter.
 func (s publisherSender) Send(ctx context.Context, outbound *Outbound) error {
 	if outbound == nil {
 		return ErrNilOutbound
@@ -79,14 +89,18 @@ func (s publisherSender) Send(ctx context.Context, outbound *Outbound) error {
 		eventID:      outbound.EventID,
 		partitionKey: outbound.PartitionKey,
 		payload:      cloneBytes(outbound.Payload),
+		topic:        outbound.Topic,
 	})
 }
 
+// outboundEvent is the internal Event adapter that carries fields from an
+// Outbound so they can be passed to a Publisher.
 type outboundEvent struct {
 	eventType    string
 	eventID      string
 	partitionKey string
 	payload      []byte
+	topic        string
 }
 
 func (e outboundEvent) EventType() string {
@@ -103,6 +117,10 @@ func (e outboundEvent) PartitionKey() string {
 
 func (e outboundEvent) MarshalPayload() ([]byte, error) {
 	return cloneBytes(e.payload), nil
+}
+
+func (e outboundEvent) Topic() string {
+	return e.topic
 }
 
 func (e *outboundEvent) UnmarshalPayload(data []byte) error {

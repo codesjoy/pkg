@@ -85,16 +85,25 @@ func (p *Publisher) Send(ctx context.Context, outbound *xevent.Outbound) error {
 		return xevent.ErrEventTypeRequired
 	}
 
+	// The outbound topic overrides the configured default when present.
+	topic := p.topic
+	if outbound.Topic != "" {
+		topic = outbound.Topic
+	}
+
 	msg := &produce.Message{
-		Topic: p.topic,
+		Topic: topic,
 		Value: cloneBytes(outbound.Payload),
+		// Always include the event type header so consumers can dispatch.
 		Headers: []sarama.RecordHeader{
 			{Key: []byte(p.eventTypeHeader), Value: []byte(outbound.EventType)},
 		},
 	}
+	// Use the partition key as the Kafka message key for partition routing.
 	if partitionKey := outbound.PartitionKey; partitionKey != "" {
 		msg.Key = []byte(partitionKey)
 	}
+	// Attach the event ID as a header for end-to-end tracing / deduplication.
 	if eventID := outbound.EventID; eventID != "" {
 		msg.Headers = append(msg.Headers, sarama.RecordHeader{
 			Key:   []byte(p.eventIDHeader),

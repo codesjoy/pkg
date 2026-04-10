@@ -55,6 +55,7 @@ type testOrderCreated struct {
 func (*testOrderCreated) EventType() string    { return "order.created" }
 func (e *testOrderCreated) EventID() string    { return e.ID }
 func (*testOrderCreated) PartitionKey() string { return "" }
+func (*testOrderCreated) Topic() string        { return "" }
 func (e *testOrderCreated) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)
 }
