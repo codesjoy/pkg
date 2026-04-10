@@ -39,6 +39,7 @@ const (
 type EventOptions struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EventType     string                 `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"`
+	Topic         string                 `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -76,6 +77,13 @@ func (*EventOptions) Descriptor() ([]byte, []int) {
 func (x *EventOptions) GetEventType() string {
 	if x != nil {
 		return x.EventType
+	}
+	return ""
+}
+
+func (x *EventOptions) GetTopic() string {
+	if x != nil {
+		return x.Topic
 	}
 	return ""
 }
@@ -125,10 +133,11 @@ var File_codesjoy_ddd_event_v1_event_proto protoreflect.FileDescriptor
 
 const file_codesjoy_ddd_event_v1_event_proto_rawDesc = "" +
 	"\n" +
-	"!codesjoy/ddd/event/v1/event.proto\x12\x15codesjoy.ddd.event.v1\x1a google/protobuf/descriptor.proto\"-\n" +
+	"!codesjoy/ddd/event/v1/event.proto\x12\x15codesjoy.ddd.event.v1\x1a google/protobuf/descriptor.proto\"C\n" +
 	"\fEventOptions\x12\x1d\n" +
 	"\n" +
-	"event_type\x18\x01 \x01(\tR\teventType:[\n" +
+	"event_type\x18\x01 \x01(\tR\teventType\x12\x14\n" +
+	"\x05topic\x18\x02 \x01(\tR\x05topic:[\n" +
 	"\x05event\x12\x1f.google.protobuf.MessageOptions\x18\xd6\b \x01(\v2#.codesjoy.ddd.event.v1.EventOptionsR\x05event:9\n" +
 	"\bevent_id\x12\x1d.google.protobuf.FieldOptions\x18\xd7\b \x01(\bR\aeventId:C\n" +
 	"\rpartition_key\x12\x1d.google.protobuf.FieldOptions\x18\xd8\b \x01(\bR\fpartitionKeyB\xdb\x01\n" +

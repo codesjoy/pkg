@@ -22,6 +22,7 @@ option go_package = "github.com/codesjoy/pkg/proto/codesjoy/ddd/event/v1;eventv1
 
 message EventOptions {
   string event_type = 1;
+  string topic = 2;
 }
 
 extend google.protobuf.MessageOptions {
