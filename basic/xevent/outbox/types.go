@@ -51,17 +51,17 @@ type Record struct {
 	ID           uint64     `gorm:"primaryKey;autoIncrement"`
 	EventType    string     `gorm:"size:255;not null;index"`
 	EventID      string     `gorm:"size:255;index"`
-	PartitionKey string     `gorm:"size:255;not null;default:'';index;index:idx_xevent_outbox_status_available_partition_id,priority:3;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:4"`
+	PartitionKey string     `gorm:"size:255;not null;default:'';index;index:idx_xevent_outbox_status_partition_available_id,priority:2;index:idx_xevent_outbox_status_available_partition_id,priority:3;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:4"`
 
 	// Payload: the serialised event body and target topic.
 	Payload []byte `gorm:"not null"`
 	Topic   string `gorm:"size:255;not null;default:''"`
 
 	// Timing: controls when the record becomes eligible for processing.
-	AvailableAt time.Time `gorm:"not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:2;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:3"`
+	AvailableAt time.Time `gorm:"not null;index;index:idx_xevent_outbox_status_partition_available_id,priority:3;index:idx_xevent_outbox_status_available_partition_id,priority:2;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:3"`
 
 	// Status and retry tracking.
-	Status    Status `gorm:"type:varchar(16);not null;index;index:idx_xevent_outbox_status_available_partition_id,priority:1;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:1"`
+	Status    Status `gorm:"type:varchar(16);not null;index;index:idx_xevent_outbox_status_partition_available_id,priority:1;index:idx_xevent_outbox_status_available_partition_id,priority:1;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:1"`
 	Attempts  int    `gorm:"not null;default:0"`
 	LastError string `gorm:"type:text"`
 

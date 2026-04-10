@@ -111,7 +111,7 @@ func TestGORMStoreClaimPostgresUsesReturningSQL(t *testing.T) {
 		Limit:    1,
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("WITH ranked AS (") + `[\s\S]*` + regexp.QuoteMeta("RETURNING records.*")).
+	mock.ExpectQuery(regexp.QuoteMeta("WITH distinct_partitions AS (") + `[\s\S]*` + regexp.QuoteMeta("RETURNING records.*")).
 		WillReturnRows(outboxRows(outbox.Record{
 			ID:           8,
 			EventType:    "evt",

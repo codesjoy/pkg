@@ -270,7 +270,7 @@ FROM %s AS records
 JOIN (
   SELECT ranked.id
   FROM (
-    SELECT records.id, records.available_at,
+    SELECT records.id,
       ROW_NUMBER() OVER (
         PARTITION BY records.partition_key
         ORDER BY records.available_at ASC, records.id ASC
@@ -278,15 +278,12 @@ JOIN (
     FROM %s AS records
     WHERE records.status IN (?, ?)
   ) AS ranked
-  JOIN %s AS records ON records.id = ranked.id
   WHERE ranked.partition_rank = 1
-    AND %s
-  ORDER BY records.available_at ASC, records.id ASC
-  LIMIT ?
 ) AS candidates ON candidates.id = records.id
+WHERE %s
 ORDER BY records.available_at ASC, records.id ASC
+LIMIT ?
 FOR UPDATE SKIP LOCKED`,
-		tableName,
 		tableName,
 		tableName,
 		claimEligibilitySQLForAlias("records"),
@@ -317,26 +314,33 @@ func (s *GORMStore) claimPostgres(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
-	// PostgreSQL claim: a single CTE-based statement that (1) ranks records
-	// per partition, (2) selects rank-1 candidates with FOR UPDATE SKIP LOCKED,
-	// and (3) UPDATEs them in-place with RETURNING. This combines candidate
-	// selection and mutation into one round-trip for maximum efficiency.
+	// PostgreSQL claim: LATERAL JOIN finds the earliest unfinished record per
+	// partition with one index seek each, then filters for eligibility and
+	// UPDATEs in-place with RETURNING. This is O(K × log(U/K)) instead of
+	// O(U × log(U/K)) where K is the number of active partitions.
 	sqlText := fmt.Sprintf(
-		`WITH ranked AS (
-  SELECT records.id,
-    ROW_NUMBER() OVER (
-      PARTITION BY records.partition_key
-      ORDER BY records.available_at ASC, records.id ASC
-    ) AS partition_rank
-  FROM %s AS records
-  WHERE records.status IN (?, ?)
+		`WITH distinct_partitions AS (
+  SELECT DISTINCT partition_key
+  FROM %s
+  WHERE status IN (?, ?)
+),
+earliest_unfinished AS (
+  SELECT e.id
+  FROM distinct_partitions AS dp
+  CROSS JOIN LATERAL (
+    SELECT records.id
+    FROM %s AS records
+    WHERE records.partition_key = dp.partition_key
+      AND records.status IN (?, ?)
+    ORDER BY records.available_at ASC, records.id ASC
+    LIMIT 1
+  ) AS e
 ),
 candidates AS (
   SELECT records.id
-  FROM %s AS records
-  JOIN ranked ON ranked.id = records.id
-  WHERE ranked.partition_rank = 1
-    AND %s
+  FROM earliest_unfinished AS eu
+  JOIN %s AS records ON records.id = eu.id
+  WHERE %s
   ORDER BY records.available_at ASC, records.id ASC
   LIMIT ?
   FOR UPDATE OF records SKIP LOCKED
@@ -352,6 +356,7 @@ WHERE records.id = candidates.id
 RETURNING records.*`,
 		tableName,
 		tableName,
+		tableName,
 		claimEligibilitySQLForAlias("records"),
 		tableName,
 	)
@@ -359,6 +364,8 @@ RETURNING records.*`,
 	claimed := make([]outbox.Record, 0, req.Limit)
 	if err := tx.Raw(
 		sqlText,
+		outbox.StatusPending,
+		outbox.StatusSending,
 		outbox.StatusPending,
 		outbox.StatusSending,
 		outbox.StatusPending,
