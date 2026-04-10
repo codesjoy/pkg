@@ -126,6 +126,44 @@ func TestJetStreamPublisherPublishBatchReportCanceledBeforeStart(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
+func TestJetStreamPublisherPublishBatchReportAsyncReturnsPerItemResults(t *testing.T) {
+	srv := newTestServerWithArgs(t, "-js")
+	nc := newTestConn(t, srv)
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+
+	_, err = js.CreateStream(context.Background(), jetstream.StreamConfig{
+		Name:     "ORDERS_BATCH_ASYNC",
+		Subjects: []string{"orders.batch.async"},
+	})
+	require.NoError(t, err)
+
+	publisher, err := NewJetStreamPublisher(JetStreamPublisherConfig{
+		URLs:           []string{srv.ClientURL()},
+		DefaultSubject: "orders.batch.async",
+	})
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, publisher.Close())
+	}()
+
+	results, err := publisher.publishBatchReportAsync(
+		context.Background(),
+		&publish.Message{Data: []byte("one")},
+		nil,
+		&publish.Message{Data: []byte("two")},
+	)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.NotNil(t, results[0].Result)
+	require.NoError(t, results[0].Err)
+	require.Nil(t, results[1].Result)
+	require.ErrorIs(t, results[1].Err, ErrNilPublishMessage)
+	require.NotNil(t, results[2].Result)
+	require.NoError(t, results[2].Err)
+	require.Equal(t, results[0].Result.Sequence+1, results[2].Result.Sequence)
+}
+
 func TestJetStreamPublisherErrorPaths(t *testing.T) {
 	var nilPublisher *JetStreamPublisher
 	_, err := nilPublisher.Publish(context.Background(), &publish.Message{})

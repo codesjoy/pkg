@@ -223,6 +223,72 @@ func (p *JetStreamPublisher) PublishBatchReport(
 	return results, nil
 }
 
+// publishBatchReportAsync is an internal JetStream fast path that uses async
+// publish futures to collect per-item results without running middleware.
+func (p *JetStreamPublisher) publishBatchReportAsync(
+	ctx context.Context,
+	msgs ...*publish.Message,
+) ([]publish.BatchItemResult, error) {
+	if p == nil {
+		return nil, errors.New("jetstream publisher is nil")
+	}
+	if p.js == nil {
+		return nil, ErrJetStreamPublisherClosed
+	}
+	ctx = normalizeContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	results := make([]publish.BatchItemResult, len(msgs))
+	type pendingPublish struct {
+		index  int
+		future jetstream.PubAckFuture
+	}
+	pending := make([]pendingPublish, 0, len(msgs))
+
+	for i, msg := range msgs {
+		prepared, err := p.prepareMessage(msg)
+		if err != nil {
+			results[i].Err = err
+			continue
+		}
+
+		future, err := p.js.PublishMsgAsync(toNATSMessage(prepared))
+		if err != nil {
+			results[i].Err = err
+			continue
+		}
+		pending = append(pending, pendingPublish{index: i, future: future})
+	}
+
+	for _, item := range pending {
+		select {
+		case ack := <-item.future.Ok():
+			if ack == nil {
+				results[item.index].Err = errors.New("jetstream publish ack is nil")
+				continue
+			}
+			results[item.index].Result = &publish.Result{
+				Subject:   item.future.Msg().Subject,
+				Published: time.Now(),
+				Stream:    ack.Stream,
+				Sequence:  ack.Sequence,
+				Duplicate: ack.Duplicate,
+			}
+		case err := <-item.future.Err():
+			results[item.index].Err = err
+		case <-ctx.Done():
+			results[item.index].Err = ctx.Err()
+		}
+	}
+
+	return results, nil
+}
+
 // Close drains and closes owned resources.
 func (p *JetStreamPublisher) Close() error {
 	if p == nil {

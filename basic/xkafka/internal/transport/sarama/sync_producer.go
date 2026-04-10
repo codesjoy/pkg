@@ -16,6 +16,7 @@ package sarama
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -111,4 +112,86 @@ func (s *SyncProducerSender) Send(
 		Offset:    offset,
 		Timestamp: timestamp,
 	}, nil
+}
+
+// SendBatchReport sends multiple messages using Sarama's batch API and returns
+// one per-item outcome. It is an internal fast path and does not run higher
+// level xkafka middleware or retry chains.
+func (s *SyncProducerSender) SendBatchReport(
+	ctx context.Context,
+	msgs []*produce.Message,
+) ([]produce.BatchItemResult, error) {
+	if s == nil || s.producer == nil {
+		return nil, fmt.Errorf("sync producer is not configured")
+	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	results := make([]produce.BatchItemResult, len(msgs))
+	producerMsgs := make([]*ibmsarama.ProducerMessage, 0, len(msgs))
+	for i, msg := range msgs {
+		if msg == nil {
+			results[i].Err = fmt.Errorf("producer message is nil")
+			continue
+		}
+
+		producerMsgs = append(producerMsgs, &ibmsarama.ProducerMessage{
+			Topic:     msg.Topic,
+			Key:       ibmsarama.ByteEncoder(msg.Key),
+			Value:     ibmsarama.ByteEncoder(msg.Value),
+			Timestamp: msg.Timestamp,
+			Headers:   msg.Headers,
+			Metadata:  i,
+		})
+	}
+	if len(producerMsgs) == 0 {
+		return results, nil
+	}
+
+	if err := s.producer.SendMessages(producerMsgs); err != nil {
+		var producerErrors ibmsarama.ProducerErrors
+		if !errors.As(err, &producerErrors) {
+			return nil, fmt.Errorf("send messages: %w", err)
+		}
+		for _, producerErr := range producerErrors {
+			if producerErr == nil || producerErr.Msg == nil {
+				return nil, fmt.Errorf("send messages: producer error missing message")
+			}
+			index, ok := producerErr.Msg.Metadata.(int)
+			if !ok || index < 0 || index >= len(results) {
+				return nil, fmt.Errorf("send messages: producer error missing index metadata")
+			}
+			results[index].Err = fmt.Errorf("send message: %w", producerErr.Err)
+		}
+	}
+
+	for _, producerMsg := range producerMsgs {
+		index, ok := producerMsg.Metadata.(int)
+		if !ok || index < 0 || index >= len(results) {
+			return nil, fmt.Errorf("send messages: producer message missing index metadata")
+		}
+		if results[index].Err != nil {
+			continue
+		}
+
+		timestamp := producerMsg.Timestamp
+		if timestamp.IsZero() {
+			timestamp = time.Now()
+		}
+		results[index].Result = &produce.Result{
+			Topic:     msgs[index].Topic,
+			Partition: producerMsg.Partition,
+			Offset:    producerMsg.Offset,
+			Timestamp: timestamp,
+		}
+	}
+
+	return results, nil
 }
