@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260315175100-21ea1546c9c2
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260411093916-410ede6f4c84
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/stretchr/testify v1.11.1
@@ -82,5 +82,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/codesjoy/pkg/basic/xevent => ../../..

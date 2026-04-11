@@ -4,8 +4,7 @@ go 1.25.7
 
 require (
 	github.com/IBM/sarama v1.46.3
-	github.com/codesjoy/pkg/basic/xevent v0.0.0
-	github.com/codesjoy/pkg/basic/xevent/outbox/debezium v0.0.0
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260411093916-410ede6f4c84
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
@@ -94,7 +93,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/codesjoy/pkg/basic/xevent => ../../..
-
-replace github.com/codesjoy/pkg/basic/xevent/outbox/debezium => ..
