@@ -386,6 +386,7 @@ func TestGORMStoreHelpers(t *testing.T) {
 		t.Fatalf("expected payload clone, got %q", stored.Payload)
 	}
 
+	//nolint:staticcheck // Intentionally pass nil to verify fallback to context.Background().
 	if normalizeContext(nil) == nil {
 		t.Fatal("expected normalized context")
 	}

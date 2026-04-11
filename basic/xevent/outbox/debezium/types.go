@@ -134,16 +134,6 @@ func cloneRecord(record Record) Record {
 	return cloned
 }
 
-func validateRecord(record Record) error {
-	if strings.TrimSpace(record.EventType) == "" {
-		return xevent.ErrEventTypeRequired
-	}
-	if strings.TrimSpace(record.Topic) == "" {
-		return ErrTopicRequired
-	}
-	return nil
-}
-
 func cloneBytes(src []byte) []byte {
 	if src == nil {
 		return nil
