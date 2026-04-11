@@ -7,6 +7,7 @@ require (
 	github.com/codesjoy/pkg/basic/transaction/gorm v0.0.0
 	github.com/codesjoy/pkg/basic/xgorm v0.0.0
 	gorm.io/driver/postgres v1.6.0
+	gorm.io/gorm v1.26.0
 )
 
 require (
@@ -29,10 +30,12 @@ require (
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
-	gorm.io/plugin/dbresolver v1.5.3 // indirect
+	gorm.io/plugin/dbresolver v1.6.2 // indirect
 	gorm.io/sharding v0.6.2 // indirect
 )
 
 replace github.com/codesjoy/pkg/basic/xgorm => ../
+
 replace github.com/codesjoy/pkg/basic/transaction/gorm => ../../transaction/gorm
+
 replace github.com/codesjoy/pkg/basic/transaction => ../../transaction

@@ -172,7 +172,11 @@ func TestProducerProduceBatchReportReturnsPerItemResults(t *testing.T) {
 	require.NotNil(t, results[0].Result)
 	require.NoError(t, results[0].Err)
 	require.Nil(t, results[1].Result)
-	require.EqualError(t, results[1].Err, "produce message exhausted retries: send message: send failed")
+	require.EqualError(
+		t,
+		results[1].Err,
+		"produce message exhausted retries: send message: send failed",
+	)
 	require.NotNil(t, results[2].Result)
 	require.NoError(t, results[2].Err)
 

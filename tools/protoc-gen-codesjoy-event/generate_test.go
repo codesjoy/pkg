@@ -199,11 +199,19 @@ func TestGenerateFilesTopicOptionGeneratesTopicMethod(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	proto.SetExtension(gen.Files[0].Messages[0].Desc.Options(), eventv1.E_Event, &eventv1.EventOptions{
-		Topic: "orders",
-	})
+	proto.SetExtension(
+		gen.Files[0].Messages[0].Desc.Options(),
+		eventv1.E_Event,
+		&eventv1.EventOptions{
+			Topic: "orders",
+		},
+	)
 	proto.SetExtension(gen.Files[0].Messages[0].Fields[0].Desc.Options(), eventv1.E_EventId, true)
-	proto.SetExtension(gen.Files[0].Messages[0].Fields[1].Desc.Options(), eventv1.E_PartitionKey, true)
+	proto.SetExtension(
+		gen.Files[0].Messages[0].Fields[1].Desc.Options(),
+		eventv1.E_PartitionKey,
+		true,
+	)
 
 	require.NoError(t, generateFiles(gen))
 
@@ -219,7 +227,11 @@ func TestGenerateFilesNoTopicGeneratesEmptyTopicMethod(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	proto.SetExtension(gen.Files[0].Messages[0].Desc.Options(), eventv1.E_Event, &eventv1.EventOptions{})
+	proto.SetExtension(
+		gen.Files[0].Messages[0].Desc.Options(),
+		eventv1.E_Event,
+		&eventv1.EventOptions{},
+	)
 	proto.SetExtension(gen.Files[0].Messages[0].Fields[0].Desc.Options(), eventv1.E_EventId, true)
 
 	require.NoError(t, generateFiles(gen))
