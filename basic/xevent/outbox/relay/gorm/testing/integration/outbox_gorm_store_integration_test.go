@@ -22,11 +22,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/codesjoy/pkg/basic/xevent/outbox"
-	outboxgorm "github.com/codesjoy/pkg/basic/xevent/outbox/gorm"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
+	outboxgorm "github.com/codesjoy/pkg/basic/xevent/outbox/relay/gorm"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
@@ -205,6 +206,33 @@ func TestGORMStoreClaimAcrossDialects(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, nextClaimed, 1)
 			require.Equal(t, "a2", nextClaimed[0].EventID)
+		})
+	}
+}
+
+func TestGORMStoreAutoMigrateCreatesMinimalIndexesAcrossDialects(t *testing.T) {
+	tests := []struct {
+		name   string
+		openDB func(*testing.T) *gorm.DB
+	}{
+		{name: "postgres", openDB: mustPostgresDB},
+		{name: "mysql", openDB: mustMySQLDB},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := tt.openDB(t)
+			resetOutboxTable(t, db)
+
+			indexes := outboxIndexes(t, db)
+			require.Equal(
+				t,
+				[]string{"status", "partition_key", "available_at", "id"},
+				indexes["idx_xevent_outbox_status_partition_available_id"],
+			)
+
+			delete(indexes, "idx_xevent_outbox_status_partition_available_id")
+			require.Empty(t, indexes)
 		})
 	}
 }
@@ -517,4 +545,93 @@ func recordTableName() string {
 func quotedTable(db *gorm.DB, tableName string) string {
 	stmt := &gorm.Statement{DB: db}
 	return stmt.Quote(tableName)
+}
+
+func outboxIndexes(t *testing.T, db *gorm.DB) map[string][]string {
+	t.Helper()
+
+	switch db.Name() {
+	case "postgres", "postgresql", "pgx":
+		return postgresOutboxIndexes(t, db)
+	case "mysql", "mariadb":
+		return mySQLOutboxIndexes(t, db)
+	default:
+		t.Fatalf("unsupported integration dialect for index introspection: %s", db.Name())
+		return nil
+	}
+}
+
+func postgresOutboxIndexes(t *testing.T, db *gorm.DB) map[string][]string {
+	t.Helper()
+
+	type indexRow struct {
+		Name string `gorm:"column:indexname"`
+		Def  string `gorm:"column:indexdef"`
+	}
+
+	var rows []indexRow
+	require.NoError(
+		t,
+		db.Raw(
+			`SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = CURRENT_SCHEMA()
+  AND tablename = ?`,
+			recordTableName(),
+		).Scan(&rows).Error,
+	)
+
+	got := make(map[string][]string)
+	for _, row := range rows {
+		if row.Name == recordTableName()+"_pkey" {
+			continue
+		}
+		got[row.Name] = parseIndexColumns(t, row.Def)
+	}
+
+	return got
+}
+
+func mySQLOutboxIndexes(t *testing.T, db *gorm.DB) map[string][]string {
+	t.Helper()
+
+	type indexRow struct {
+		KeyName    string `gorm:"column:Key_name"`
+		ColumnName string `gorm:"column:Column_name"`
+	}
+
+	var rows []indexRow
+	require.NoError(
+		t,
+		db.Raw(fmt.Sprintf("SHOW INDEX FROM %s", quotedTable(db, recordTableName()))).Scan(&rows).Error,
+	)
+
+	got := make(map[string][]string)
+	for _, row := range rows {
+		if row.KeyName == "PRIMARY" {
+			continue
+		}
+		got[row.KeyName] = append(got[row.KeyName], row.ColumnName)
+	}
+
+	return got
+}
+
+func parseIndexColumns(t *testing.T, indexDef string) []string {
+	t.Helper()
+
+	start := strings.Index(indexDef, "(")
+	if start < 0 {
+		t.Fatalf("failed to parse index definition: %s", indexDef)
+	}
+	end := strings.Index(indexDef[start+1:], ")")
+	if end < 0 {
+		t.Fatalf("failed to parse index definition: %s", indexDef)
+	}
+
+	columns := strings.Split(indexDef[start+1:start+1+end], ",")
+	for i := range columns {
+		columns[i] = strings.Trim(columns[i], " \"")
+	}
+	return columns
 }

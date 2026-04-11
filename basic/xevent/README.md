@@ -116,8 +116,8 @@ if err := sender.Send(context.Background(), outbound); err != nil {
 }
 ```
 
-This is the transport-neutral path used by the `xevent/outbox` package and its
-optional storage adapters.
+This is the transport-neutral path used by the `xevent/outbox/relay` and
+`xevent/outbox/debezium` packages and their optional storage adapters.
 
 ## Typed Dispatch
 
@@ -150,8 +150,10 @@ not support generic methods.
 
 `xevent` stays transport-neutral. Adapter modules are documented separately.
 
-- Outbox core: `github.com/codesjoy/pkg/basic/xevent/outbox`
-- Outbox GORM adapter: `github.com/codesjoy/pkg/basic/xevent/outbox/gorm`
+- Outbox relay core: `github.com/codesjoy/pkg/basic/xevent/outbox/relay`
+- Outbox relay GORM adapter: `github.com/codesjoy/pkg/basic/xevent/outbox/relay/gorm`
+- Debezium outbox core: `github.com/codesjoy/pkg/basic/xevent/outbox/debezium`
+- Debezium outbox GORM adapter: `github.com/codesjoy/pkg/basic/xevent/outbox/debezium/gorm`
 - Kafka adapter: `github.com/codesjoy/pkg/basic/xevent/kafka`
 - NATS/JetStream adapter: `github.com/codesjoy/pkg/basic/xevent/nats`
 

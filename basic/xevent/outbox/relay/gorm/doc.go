@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package outbox provides a transaction-friendly local event table and relay
-// for xevent senders.
-package outbox
+// Package outboxgorm provides the optional GORM-backed Store adapter for
+// xevent/outbox/relay.
+package outboxgorm

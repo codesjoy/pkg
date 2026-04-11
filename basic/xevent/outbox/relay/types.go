@@ -48,31 +48,31 @@ const (
 // Record is the persisted outbox payload.
 type Record struct {
 	// Event metadata: identifies and classifies the event.
-	ID           uint64     `gorm:"primaryKey;autoIncrement"`
-	EventType    string     `gorm:"size:255;not null;index"`
-	EventID      string     `gorm:"size:255;index"`
-	PartitionKey string     `gorm:"size:255;not null;default:'';index;index:idx_xevent_outbox_status_partition_available_id,priority:2;index:idx_xevent_outbox_status_available_partition_id,priority:3;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:4"`
+	ID           uint64 `gorm:"primaryKey;autoIncrement;index:idx_xevent_outbox_status_partition_available_id,priority:4"`
+	EventType    string `gorm:"size:255;not null"`
+	EventID      string `gorm:"size:255"`
+	PartitionKey string `gorm:"size:255;not null;default:'';index:idx_xevent_outbox_status_partition_available_id,priority:2"`
 
 	// Payload: the serialised event body and target topic.
 	Payload []byte `gorm:"not null"`
 	Topic   string `gorm:"size:255;not null;default:''"`
 
 	// Timing: controls when the record becomes eligible for processing.
-	AvailableAt time.Time `gorm:"not null;index;index:idx_xevent_outbox_status_partition_available_id,priority:3;index:idx_xevent_outbox_status_available_partition_id,priority:2;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:3"`
+	AvailableAt time.Time `gorm:"not null;index:idx_xevent_outbox_status_partition_available_id,priority:3"`
 
 	// Status and retry tracking.
-	Status    Status `gorm:"type:varchar(16);not null;index;index:idx_xevent_outbox_status_partition_available_id,priority:1;index:idx_xevent_outbox_status_available_partition_id,priority:1;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:1"`
+	Status    Status `gorm:"type:varchar(16);not null;index:idx_xevent_outbox_status_partition_available_id,priority:1"`
 	Attempts  int    `gorm:"not null;default:0"`
 	LastError string `gorm:"type:text"`
 
 	// Claim tracking: which owner is currently processing this record and until when.
-	ClaimOwner string     `gorm:"size:255;index"`
-	ClaimUntil *time.Time `gorm:"index;index:idx_xevent_outbox_status_claim_until_available_partition_id,priority:2"`
+	ClaimOwner string `gorm:"size:255"`
+	ClaimUntil *time.Time
 
 	// Timestamps: lifecycle milestones.
-	SentAt    *time.Time `gorm:"index"`
-	CreatedAt time.Time  `gorm:"not null"`
-	UpdatedAt time.Time  `gorm:"not null"`
+	SentAt    *time.Time
+	CreatedAt time.Time `gorm:"not null"`
+	UpdatedAt time.Time `gorm:"not null"`
 }
 
 // TableName returns the default outbox table name.

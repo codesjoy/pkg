@@ -82,7 +82,10 @@ type fakeBatchProducer struct {
 	batchCalls int
 }
 
-func (f *fakeBatchProducer) ProduceBatch(_ context.Context, msgs ...*produce.Message) ([]*produce.Result, error) {
+func (f *fakeBatchProducer) ProduceBatch(
+	_ context.Context,
+	msgs ...*produce.Message,
+) ([]*produce.Result, error) {
 	f.mu.Lock()
 	f.batchMsgs = append([]*produce.Message(nil), msgs...)
 	f.batchCalls++
@@ -307,8 +310,18 @@ func TestPublisherBatchSendUsesPerItemProduceWhenBatchAPIExists(t *testing.T) {
 	}
 
 	outbounds := []*xevent.Outbound{
-		{EventType: "order.created", EventID: "evt_1", PartitionKey: "k1", Payload: []byte(`{"a":1}`)},
-		{EventType: "order.updated", EventID: "evt_2", PartitionKey: "k2", Payload: []byte(`{"a":2}`)},
+		{
+			EventType:    "order.created",
+			EventID:      "evt_1",
+			PartitionKey: "k1",
+			Payload:      []byte(`{"a":1}`),
+		},
+		{
+			EventType:    "order.updated",
+			EventID:      "evt_2",
+			PartitionKey: "k2",
+			Payload:      []byte(`{"a":2}`),
+		},
 	}
 
 	errs := publisher.BatchSend(context.Background(), outbounds)

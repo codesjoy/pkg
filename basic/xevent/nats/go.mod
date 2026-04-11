@@ -3,7 +3,7 @@ module github.com/codesjoy/pkg/basic/xevent/nats
 go 1.25.7
 
 require (
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260315175100-21ea1546c9c2
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260410223318-93048fcc8093
 	github.com/codesjoy/pkg/basic/xnats v0.0.0-20260315175100-21ea1546c9c2
 	github.com/nats-io/nats.go v1.49.0
 )

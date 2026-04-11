@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codesjoy/pkg/basic/xevent/outbox"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	"gorm.io/gorm"
 )
 
@@ -260,23 +260,45 @@ func (s *GORMStore) claimMySQL(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
-	// MySQL claim: ROW_NUMBER() OVER PARTITION BY assigns a per-partition rank
-	// so that only rank 1 (earliest unfinished) records are selected. The
-	// outer FOR UPDATE SKIP LOCKED provides concurrent safety by skipping
-	// rows already locked by competing transactions.
+	// MySQL claim: find the earliest pending and earliest sending record per
+	// partition separately, UNION ALL them, then pick the earliest unfinished
+	// row per partition before applying SKIP LOCKED.
 	sqlText := fmt.Sprintf(
 		`SELECT records.*
 FROM %s AS records
 JOIN (
   SELECT ranked.id
   FROM (
-    SELECT records.id,
+    SELECT unfinished.id,
       ROW_NUMBER() OVER (
-        PARTITION BY records.partition_key
-        ORDER BY records.available_at ASC, records.id ASC
+        PARTITION BY unfinished.partition_key
+        ORDER BY unfinished.available_at ASC, unfinished.id ASC
       ) AS partition_rank
-    FROM %s AS records
-    WHERE records.status IN (?, ?)
+    FROM (
+      SELECT pending.partition_key, pending.id, pending.available_at
+      FROM (
+        SELECT records.partition_key, records.id, records.available_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY records.partition_key
+            ORDER BY records.available_at ASC, records.id ASC
+          ) AS status_rank
+        FROM %s AS records
+        WHERE records.status = ?
+      ) AS pending
+      WHERE pending.status_rank = 1
+      UNION ALL
+      SELECT sending.partition_key, sending.id, sending.available_at
+      FROM (
+        SELECT records.partition_key, records.id, records.available_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY records.partition_key
+            ORDER BY records.available_at ASC, records.id ASC
+          ) AS status_rank
+        FROM %s AS records
+        WHERE records.status = ?
+      ) AS sending
+      WHERE sending.status_rank = 1
+    ) AS unfinished
   ) AS ranked
   WHERE ranked.partition_rank = 1
 ) AS candidates ON candidates.id = records.id
@@ -284,6 +306,7 @@ WHERE %s
 ORDER BY records.available_at ASC, records.id ASC
 LIMIT ?
 FOR UPDATE SKIP LOCKED`,
+		tableName,
 		tableName,
 		tableName,
 		claimEligibilitySQLForAlias("records"),
@@ -314,27 +337,59 @@ func (s *GORMStore) claimPostgres(
 	claimUntil time.Time,
 ) ([]outbox.Record, error) {
 	tableName := s.quotedTable(tx)
-	// PostgreSQL claim: LATERAL JOIN finds the earliest unfinished record per
-	// partition with one index seek each, then filters for eligibility and
-	// UPDATEs in-place with RETURNING. This is O(K × log(U/K)) instead of
-	// O(U × log(U/K)) where K is the number of active partitions.
+	pendingStatus := string(outbox.StatusPending)
+	sendingStatus := string(outbox.StatusSending)
+	// PostgreSQL claim: use literal status predicates so reviewed migrations can
+	// rely on partial indexes, then do one pending seek and one sending seek per
+	// partition before selecting the earliest unfinished row.
 	sqlText := fmt.Sprintf(
 		`WITH distinct_partitions AS (
-  SELECT DISTINCT partition_key
+  SELECT partition_key
   FROM %s
-  WHERE status IN (?, ?)
+  WHERE status = '%s'
+  UNION
+  SELECT partition_key
+  FROM %s
+  WHERE status = '%s'
 ),
-earliest_unfinished AS (
-  SELECT e.id
+earliest_pending AS (
+  SELECT dp.partition_key, pending.id, pending.available_at
   FROM distinct_partitions AS dp
-  CROSS JOIN LATERAL (
-    SELECT records.id
+  LEFT JOIN LATERAL (
+    SELECT records.id, records.available_at
     FROM %s AS records
     WHERE records.partition_key = dp.partition_key
-      AND records.status IN (?, ?)
+      AND records.status = '%s'
     ORDER BY records.available_at ASC, records.id ASC
     LIMIT 1
-  ) AS e
+  ) AS pending ON TRUE
+),
+earliest_sending AS (
+  SELECT dp.partition_key, sending.id, sending.available_at
+  FROM distinct_partitions AS dp
+  LEFT JOIN LATERAL (
+    SELECT records.id, records.available_at
+    FROM %s AS records
+    WHERE records.partition_key = dp.partition_key
+      AND records.status = '%s'
+    ORDER BY records.available_at ASC, records.id ASC
+    LIMIT 1
+  ) AS sending ON TRUE
+),
+earliest_unfinished AS (
+  SELECT pending.partition_key,
+    CASE
+      WHEN pending.id IS NULL THEN sending.id
+      WHEN sending.id IS NULL THEN pending.id
+      WHEN pending.available_at < sending.available_at THEN pending.id
+      WHEN pending.available_at > sending.available_at THEN sending.id
+      WHEN pending.id < sending.id THEN pending.id
+      ELSE sending.id
+    END AS id
+  FROM earliest_pending AS pending
+  JOIN earliest_sending AS sending
+    ON sending.partition_key = pending.partition_key
+  WHERE pending.id IS NOT NULL OR sending.id IS NOT NULL
 ),
 candidates AS (
   SELECT records.id
@@ -355,22 +410,22 @@ FROM candidates
 WHERE records.id = candidates.id
 RETURNING records.*`,
 		tableName,
+		pendingStatus,
 		tableName,
+		sendingStatus,
 		tableName,
-		claimEligibilitySQLForAlias("records"),
+		pendingStatus,
+		tableName,
+		sendingStatus,
+		tableName,
+		claimEligibilitySQLWithLiteralStatuses("records"),
 		tableName,
 	)
 
 	claimed := make([]outbox.Record, 0, req.Limit)
 	if err := tx.Raw(
 		sqlText,
-		outbox.StatusPending,
-		outbox.StatusSending,
-		outbox.StatusPending,
-		outbox.StatusSending,
-		outbox.StatusPending,
 		req.Now,
-		outbox.StatusSending,
 		req.Now,
 		req.Now,
 		req.Limit,
@@ -478,6 +533,19 @@ func (s *GORMStore) updateClaimed(
 
 func claimEligibilitySQL() string {
 	return claimEligibilitySQLForAlias("")
+}
+
+func claimEligibilitySQLWithLiteralStatuses(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+
+	return `((
+` + prefix + `status = '` + string(outbox.StatusPending) + `' AND ` + prefix + `available_at <= ?
+) OR (
+` + prefix + `status = '` + string(outbox.StatusSending) + `' AND ` + prefix + `available_at <= ? AND (` + prefix + `claim_until IS NULL OR ` + prefix + `claim_until <= ?)
+))`
 }
 
 // claimEligibilitySQLForAlias generates a SQL fragment with two conditions

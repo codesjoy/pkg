@@ -12,6 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package outboxgorm provides the optional GORM-backed Store adapter for
-// xevent/outbox.
-package outboxgorm
+// Package outbox provides the application-managed relay variant of the xevent
+// outbox.
+package outbox

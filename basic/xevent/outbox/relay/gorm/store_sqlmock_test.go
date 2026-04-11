@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/codesjoy/pkg/basic/xevent/outbox"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -46,7 +46,12 @@ func TestGORMStoreClaimMySQLUsesDialectSpecificSQL(t *testing.T) {
 		Limit:    1,
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT records.*") + `[\s\S]*` + regexp.QuoteMeta("FOR UPDATE SKIP LOCKED")).
+	mock.ExpectQuery(
+		regexp.QuoteMeta("SELECT records.*") +
+			`[\s\S]*` + regexp.QuoteMeta("PARTITION BY unfinished.partition_key") +
+			`[\s\S]*` + regexp.QuoteMeta("UNION ALL") +
+			`[\s\S]*` + regexp.QuoteMeta("FOR UPDATE SKIP LOCKED"),
+	).
 		WillReturnRows(outboxRows(outbox.Record{
 			ID:           7,
 			EventType:    "evt",
@@ -111,7 +116,13 @@ func TestGORMStoreClaimPostgresUsesReturningSQL(t *testing.T) {
 		Limit:    1,
 	}
 
-	mock.ExpectQuery(regexp.QuoteMeta("WITH distinct_partitions AS (") + `[\s\S]*` + regexp.QuoteMeta("RETURNING records.*")).
+	mock.ExpectQuery(
+		regexp.QuoteMeta("WITH distinct_partitions AS (") +
+			`[\s\S]*` + regexp.QuoteMeta("WHERE status = 'pending'") +
+			`[\s\S]*` + regexp.QuoteMeta("WHERE status = 'sending'") +
+			`[\s\S]*` + regexp.QuoteMeta("LEFT JOIN LATERAL") +
+			`[\s\S]*` + regexp.QuoteMeta("RETURNING records.*"),
+	).
 		WillReturnRows(outboxRows(outbox.Record{
 			ID:           8,
 			EventType:    "evt",

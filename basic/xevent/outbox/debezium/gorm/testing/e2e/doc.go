@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build integration
-
-// Package integration contains Docker-backed integration tests for xevent/outbox/gorm.
-package integration
+// Package e2e contains full PostgreSQL + Debezium + Kafka end-to-end tests for
+// xevent/outbox/debezium/gorm.
+package e2e

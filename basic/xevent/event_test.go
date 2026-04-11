@@ -592,14 +592,14 @@ func newTestDispatcher() *Dispatcher {
 }
 
 type testTopicEvent struct {
-	ID    string `json:"id"`
+	ID     string `json:"id"`
 	Topic_ string `json:"-"`
 }
 
-func (*testTopicEvent) EventType() string { return "topic.event" }
-func (e *testTopicEvent) EventID() string { return e.ID }
+func (*testTopicEvent) EventType() string      { return "topic.event" }
+func (e *testTopicEvent) EventID() string      { return e.ID }
 func (e *testTopicEvent) PartitionKey() string { return "" }
-func (e *testTopicEvent) Topic() string { return e.Topic_ }
+func (e *testTopicEvent) Topic() string        { return e.Topic_ }
 
 func (e *testTopicEvent) MarshalPayload() ([]byte, error) {
 	return json.Marshal(e)

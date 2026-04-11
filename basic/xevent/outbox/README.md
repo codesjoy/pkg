@@ -1,79 +1,30 @@
 # xevent/outbox
 
-`xevent/outbox` provides a transaction-friendly local event table, store
-contract, and relay that publishes pending records through any `xevent.Sender`.
+`xevent/outbox` is the namespace for the two supported outbox styles in
+`xevent`:
 
-## What This Package Provides
+- `github.com/codesjoy/pkg/basic/xevent/outbox/relay`
+- `github.com/codesjoy/pkg/basic/xevent/outbox/debezium`
 
-- `Record`: one persisted outbox row
-- `AppendEvent`: encode an `xevent.Event` and append it to a local outbox table
-- `Store`: persistence contract for append/claim/state transitions
-- `Relay`: local polling relay with `Run`, `Wake`, and `ProcessOnce`
-- `MemoryStore`: in-memory `Store` implementation for tests and local flows
+## Choose A Variant
 
-## Optional Adapter Modules
+- `outbox/relay`: application-managed relay semantics with claim ownership,
+  retries, delayed delivery, and failure state tracking
+- `outbox/debezium`: Kafka-only append-only rows intended for Debezium's
+  outbox event router
 
-- GORM adapter: `github.com/codesjoy/pkg/basic/xevent/outbox/gorm`
+Both GORM adapter READMEs include PostgreSQL / MySQL notes and reference schema
+SQL:
 
-## In-Memory Example
+- `outbox/relay/gorm`: stateful relay storage, claim dialect notes, and DDL
+- `outbox/debezium/gorm`: append-only storage, retention notes, and DDL
 
-```go
-store := outbox.NewMemoryStore()
+## Migration
 
-_, err := outbox.AppendEvent(ctx, store, &OrderCreated{
-	ID:      "evt_1",
-	OrderID: "o_123",
-	UserID:  "u_1",
-}, outbox.AppendOptions{})
-if err != nil {
-	panic(err)
-}
-```
+This repository no longer exposes the stateful relay implementation at the root
+`xevent/outbox` path.
 
-`AppendOptions.AvailableAt` can be set when one record should not be sent before
-a specific time.
-
-## Relay Example
-
-```go
-store, err := outbox.NewGORMStore(outbox.GORMStoreConfig{
-	DB:                 db,
-	SessionFromContext: gormtx.DB,
-})
-if err != nil {
-	panic(err)
-}
-
-sender := xevent.SenderFromPublisher(kafkaPublisher)
-relay, err := outbox.NewRelay(outbox.RelayConfig{
-	Store:        store,
-	Sender:       sender,
-	PollInterval: time.Second,
-	BatchSize:    128,
-	ClaimTTL:     30 * time.Second,
-	RetryDelay:   time.Second,
-	MaxAttempts:  3,
-})
-if err != nil {
-	panic(err)
-}
-
-go func() {
-	if err := relay.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		panic(err)
-	}
-}()
-```
-
-`RelayConfig.Owner` identifies one relay instance for claim ownership. When it
-is left empty, `NewRelay` generates a UUID automatically. If application code
-sets `Owner` explicitly, it must remain globally unique across live relay
-instances.
-
-`Wake()` is the entry point for:
-
-- transaction-commit driven immediate scans
-- external CDC listeners that observe outbox table changes
-- manual nudges from application code
-
-For a GORM-backed store, see `xevent/outbox/gorm`.
+- old `github.com/codesjoy/pkg/basic/xevent/outbox` ->
+  `github.com/codesjoy/pkg/basic/xevent/outbox/relay`
+- old `github.com/codesjoy/pkg/basic/xevent/outbox/gorm` ->
+  `github.com/codesjoy/pkg/basic/xevent/outbox/relay/gorm`

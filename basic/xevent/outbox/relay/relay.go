@@ -206,7 +206,11 @@ func (r *Relay) processBatch(ctx context.Context, records []Record) error {
 }
 
 // processBatchBulk sends all records through BatchSender in one call.
-func (r *Relay) processBatchBulk(ctx context.Context, records []Record, bs xevent.BatchSender) error {
+func (r *Relay) processBatchBulk(
+	ctx context.Context,
+	records []Record,
+	bs xevent.BatchSender,
+) error {
 	outbounds := make([]*xevent.Outbound, len(records))
 	for i, record := range records {
 		outbounds[i] = record.outbound()

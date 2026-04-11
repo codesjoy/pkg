@@ -86,7 +86,10 @@ type fakeBatchPublisher struct {
 	batchCalls int
 }
 
-func (f *fakeBatchPublisher) PublishBatch(_ context.Context, msgs ...*publish.Message) ([]*publish.Result, error) {
+func (f *fakeBatchPublisher) PublishBatch(
+	_ context.Context,
+	msgs ...*publish.Message,
+) ([]*publish.Result, error) {
 	f.mu.Lock()
 	f.batchMsgs = append([]*publish.Message(nil), msgs...)
 	f.batchCalls++

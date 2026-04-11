@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codesjoy/pkg/basic/xevent/outbox"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
