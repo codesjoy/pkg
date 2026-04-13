@@ -30,6 +30,8 @@ import (
 // It follows the functional options pattern for flexible configuration.
 type Option func(*Config)
 
+// ensureLoggerForOption lazily initializes cfg.Logger with sensible defaults
+// and returns the logger. Used by options that need to modify logger settings.
 func ensureLoggerForOption(cfg *Config) *Logger {
 	if cfg.Logger == nil {
 		cfg.Logger = NewLogger(nil, gormlogger.Info, 200*time.Millisecond, false)
@@ -37,6 +39,8 @@ func ensureLoggerForOption(cfg *Config) *Logger {
 	return cfg.Logger
 }
 
+// newDBResolverRule creates a dbResolverRule with a defensive copy of the datas slice
+// to prevent accidental mutation of the caller's slice.
 func newDBResolverRule(config dbresolver.Config, datas []any) dbResolverRule {
 	return dbResolverRule{
 		Config: config,

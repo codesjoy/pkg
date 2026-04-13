@@ -116,16 +116,21 @@ func (l *Logger) Error(ctx context.Context, msg string, data ...any) {
 // Trace logs SQL query execution with timing and error information.
 // This implements the core logging logic for GORM operations.
 func (l *Logger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	// Skip entirely when logger is in Silent mode.
 	if l.config.LogLevel <= gormlogger.Silent {
 		return
 	}
+	// Ensure we have a non-nil context for slog.
 	ctx = ensureContext(ctx)
+	// Extract the SQL string and affected row count from the closure.
 	sql, rows := fc()
 	elapsed := time.Since(begin)
+	// Decide the log level and message based on error and elapsed time.
 	level, msg, ok := l.traceDecision(elapsed, err)
 	if !ok {
 		return
 	}
+	// Emit a structured log entry with trace attributes.
 	l.config.Logger.LogAttrs(ctx, level, msg, l.buildTraceAttrs(ctx, elapsed, sql, rows, err)...)
 }
 
@@ -135,6 +140,7 @@ func (l *Logger) GetConfig() *LoggerConfig {
 	return l.config
 }
 
+// cloneWithLevel returns a shallow copy of LoggerConfig with the given log level.
 func (c *LoggerConfig) cloneWithLevel(level gormlogger.LogLevel) *LoggerConfig {
 	return &LoggerConfig{
 		Logger:                    c.Logger,
@@ -144,6 +150,7 @@ func (c *LoggerConfig) cloneWithLevel(level gormlogger.LogLevel) *LoggerConfig {
 	}
 }
 
+// log emits a structured log message if the current log level meets the minimum.
 func (l *Logger) log(
 	ctx context.Context,
 	minLevel gormlogger.LogLevel,
@@ -157,6 +164,7 @@ func (l *Logger) log(
 	l.config.Logger.Log(ensureContext(ctx), level, msg, data...)
 }
 
+// ensureContext returns a non-nil context, substituting context.Background() for nil.
 func ensureContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -164,17 +172,23 @@ func ensureContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// traceDecision determines the slog level and message for a trace event.
+// It returns (level, message, true) when the event should be logged,
+// or (0, "", false) to suppress it.
 func (l *Logger) traceDecision(elapsed time.Duration, err error) (slog.Level, string, bool) {
 	switch {
+	// Log errors at Error level, unless ErrRecordNotFound is ignored.
 	case err != nil && l.config.LogLevel >= gormlogger.Error:
 		if l.config.IgnoreRecordNotFoundError && errors.Is(err, gorm.ErrRecordNotFound) {
 			return 0, "", false
 		}
 		return slog.LevelError, "sql query failed", true
+	// Log slow queries at Warn level when threshold is configured.
 	case elapsed > l.config.SlowThreshold &&
 		l.config.SlowThreshold > 0 &&
 		l.config.LogLevel >= gormlogger.Warn:
 		return slog.LevelWarn, "slow sql query", true
+	// Log all other queries at Info level.
 	case l.config.LogLevel >= gormlogger.Info:
 		return slog.LevelInfo, "sql query", true
 	default:
@@ -182,6 +196,8 @@ func (l *Logger) traceDecision(elapsed time.Duration, err error) (slog.Level, st
 	}
 }
 
+// buildTraceAttrs constructs structured logging attributes for a SQL trace event.
+// It always includes duration, sql, and rows; conditionally adds file, line, and error.
 func (l *Logger) buildTraceAttrs(
 	ctx context.Context,
 	elapsed time.Duration,
@@ -189,6 +205,7 @@ func (l *Logger) buildTraceAttrs(
 	rows int64,
 	err error,
 ) []slog.Attr {
+	// Pre-allocate a fixed-size array; only the first n elements are returned.
 	var attrs [6]slog.Attr
 	n := 0
 	attrs[n] = slog.Duration("duration", elapsed)
@@ -198,6 +215,7 @@ func (l *Logger) buildTraceAttrs(
 	attrs[n] = slog.Int64("rows", rows)
 	n++
 
+	// Append file and line from GORM context values if present.
 	if v, ok := ctx.Value("file").(string); ok {
 		attrs[n] = slog.String("file", v)
 		n++
@@ -206,6 +224,7 @@ func (l *Logger) buildTraceAttrs(
 		attrs[n] = slog.Int("line", v)
 		n++
 	}
+	// Append error message when the query failed.
 	if err != nil {
 		attrs[n] = slog.String("error", err.Error())
 		n++

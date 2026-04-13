@@ -63,9 +63,11 @@ func (p *Plugin) Name() string {
 	return "otel-tracer"
 }
 
-// Initialize registers the plugin callbacks with GORM.
+// Initialize registers before/after callbacks for each GORM operation type
+// (create, query, update, delete, raw, row) so that spans are started before
+// execution and ended after execution.
 func (p *Plugin) Initialize(db *gorm.DB) error {
-	// Register callbacks for all operations
+	// Register create callbacks.
 	if err := db.Callback().Create().Before("gorm:create").Register("tracer:before_create", p.beforeCreate); err != nil {
 		return err
 	}
@@ -73,6 +75,7 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 		return err
 	}
 
+	// Register query callbacks.
 	if err := db.Callback().Query().Before("gorm:query").Register("tracer:before_query", p.beforeQuery); err != nil {
 		return err
 	}
@@ -80,6 +83,7 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 		return err
 	}
 
+	// Register update callbacks.
 	if err := db.Callback().Update().Before("gorm:update").Register("tracer:before_update", p.beforeUpdate); err != nil {
 		return err
 	}
@@ -87,6 +91,7 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 		return err
 	}
 
+	// Register delete callbacks.
 	if err := db.Callback().Delete().Before("gorm:delete").Register("tracer:before_delete", p.beforeDelete); err != nil {
 		return err
 	}
@@ -94,6 +99,7 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 		return err
 	}
 
+	// Register raw callbacks.
 	if err := db.Callback().Raw().Before("gorm:raw").Register("tracer:before_raw", p.beforeRaw); err != nil {
 		return err
 	}
@@ -101,6 +107,7 @@ func (p *Plugin) Initialize(db *gorm.DB) error {
 		return err
 	}
 
+	// Register row callbacks.
 	if err := db.Callback().Row().Before("gorm:row").Register("tracer:before_row", p.beforeRow); err != nil {
 		return err
 	}
@@ -161,41 +168,46 @@ func (p *Plugin) afterRow(db *gorm.DB) {
 	p.endSpan(db, "ROW")
 }
 
-// startSpan begins a new trace span for the database operation.
+// startSpan begins a new OpenTelemetry span for the database operation,
+// attaches common attributes, and stores the span context in db.Statement.
 func (p *Plugin) startSpan(db *gorm.DB, operation string) {
+	// Guard against nil DB or Statement.
 	if db == nil || db.Statement == nil {
 		return
 	}
 
+	// Use the statement context, falling back to Background.
 	ctx := db.Statement.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	// Build span name
+	// Build a descriptive span name from operation and table.
 	spanName := buildSpanName(operation, db.Statement.Table)
 
-	// Create span with attributes
+	// Start the span with operation attributes.
 	attrs := p.buildAttributes(db, operation)
 	ctx, _ = p.tracer.Start(ctx, spanName, trace.WithAttributes(attrs...))
 
-	// Store span and context for use in after callback
+	// Store the updated context so the after-callback can retrieve the span.
 	db.Statement.Context = ctx
 }
 
-// endSpan completes the trace span for the database operation.
+// endSpan completes the OpenTelemetry span for the database operation.
+// It records any error from db.Error and sets the span status accordingly.
 func (p *Plugin) endSpan(db *gorm.DB, _ string) {
+	// Guard against nil DB or Statement.
 	if db == nil || db.Statement == nil {
 		return
 	}
 
-	// Retrieve span from context
+	// Retrieve the span that was started in the before-callback.
 	span := trace.SpanFromContext(db.Statement.Context)
 	if !span.SpanContext().IsValid() {
 		return
 	}
 
-	// Record error if operation failed
+	// Record error status if the operation failed.
 	if db.Error != nil {
 		span.SetStatus(codes.Error, db.Error.Error())
 		span.SetAttributes(attribute.String("db.error", db.Error.Error()))
@@ -203,28 +215,29 @@ func (p *Plugin) endSpan(db *gorm.DB, _ string) {
 		span.SetStatus(codes.Ok, "")
 	}
 
-	// End the span
 	span.End()
 }
 
-// buildAttributes creates OpenTelemetry attributes from the GORM statement.
+// buildAttributes creates OpenTelemetry span attributes from the GORM statement,
+// including operation type, database system, table, SQL, and affected rows.
 func (p *Plugin) buildAttributes(db *gorm.DB, operation string) []attribute.KeyValue {
+	// Start with the required operation and system attributes.
 	attrs := []attribute.KeyValue{
 		attribute.String("db.operation", operation),
 		attribute.String("db.system", dbSystem(db)),
 	}
 
-	// Add table name
+	// Add table name when available.
 	if db.Statement.Table != "" {
 		attrs = append(attrs, attribute.String("db.sql.table", db.Statement.Table))
 	}
 
-	// Add SQL statement
+	// Add the SQL statement when available.
 	if sql := db.Statement.SQL.String(); sql != "" {
 		attrs = append(attrs, attribute.String("db.statement", sql))
 	}
 
-	// Add row count if available
+	// Add the number of affected rows.
 	if db.RowsAffected >= 0 {
 		attrs = append(attrs, attribute.Int64("db.rows_affected", db.RowsAffected))
 	}
@@ -232,12 +245,14 @@ func (p *Plugin) buildAttributes(db *gorm.DB, operation string) []attribute.KeyV
 	return attrs
 }
 
+// dbSystem maps the GORM dialector name to an OpenTelemetry database system identifier.
 func dbSystem(db *gorm.DB) string {
 	if db == nil || db.Config == nil || db.Dialector == nil {
 		return "unknown_sql"
 	}
 	dialectorName := db.Name()
 
+	// Normalize common dialector names to OTel semantic conventions.
 	switch strings.ToLower(dialectorName) {
 	case "sqlite", "sqlite3":
 		return "sqlite"

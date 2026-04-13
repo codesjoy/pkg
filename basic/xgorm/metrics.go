@@ -212,6 +212,8 @@ type gormDB interface {
 // Ensure *gorm.DB implements gormDB at compile time.
 // This will fail to compile if *gorm.DB doesn't have the DB() method.
 
+// buildObserveOptions converts attribute key-value pairs into metric.ObserveOption slice.
+// Returns nil when no attributes are provided to avoid unnecessary allocations.
 func buildObserveOptions(attrs []attribute.KeyValue) []metric.ObserveOption {
 	if len(attrs) == 0 {
 		return nil
@@ -219,6 +221,8 @@ func buildObserveOptions(attrs []attribute.KeyValue) []metric.ObserveOption {
 	return []metric.ObserveOption{metric.WithAttributes(attrs...)}
 }
 
+// observeDBStats records current sql.DBStats values onto the provided instruments.
+// Gauge instruments receive current-state values; counter instruments receive cumulative values.
 func observeDBStats(
 	observer metric.Observer,
 	stats sql.DBStats,
@@ -231,12 +235,12 @@ func observeDBStats(
 	maxIdleClosed metric.Int64ObservableCounter,
 	maxLifetimeClosed metric.Int64ObservableCounter,
 ) {
-	// Observe gauge values (current state).
+	// Observe gauge values (current pool state).
 	observer.ObserveInt64(openConnections, int64(stats.OpenConnections), opts...)
 	observer.ObserveInt64(inUseConnections, int64(stats.InUse), opts...)
 	observer.ObserveInt64(idleConnections, int64(stats.Idle), opts...)
 
-	// Observe counter values (cumulative).
+	// Observe counter values (cumulative statistics).
 	observer.ObserveInt64(waitCount, stats.WaitCount, opts...)
 	observer.ObserveInt64(waitDuration, stats.WaitDuration.Milliseconds(), opts...)
 	observer.ObserveInt64(maxIdleClosed, stats.MaxIdleClosed, opts...)
