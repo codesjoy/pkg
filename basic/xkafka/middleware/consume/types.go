@@ -51,6 +51,7 @@ func (f Func) Handle(ctx context.Context, msg *MessageContext, next Next) error 
 }
 
 // Compose builds a middleware chain around a final business handler.
+// 从处理器列表构建中间件链：过滤 nil handler，反向嵌套，最终调用 business handler。
 func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
 	if final == nil {
 		return func(context.Context, *MessageContext) error {
@@ -58,12 +59,14 @@ func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
 		}
 	}
 
+	// 将 Handler 接口适配为统一的函数签名
 	adapted := make(
 		[]func(context.Context, *MessageContext, func(context.Context, *MessageContext) error) error,
 		0,
 		len(handlers),
 	)
 	for _, handler := range handlers {
+		// 过滤 nil handler
 		if handler == nil {
 			continue
 		}
@@ -76,14 +79,21 @@ func Compose(handlers []Handler, final HandlerFunc) HandlerFunc {
 		)
 	}
 
+	// 反向构建嵌套链
 	return pipeline.ComposeError(adapted, final)
 }
 
 // MessageContext contains per-message metadata passed through handlers.
+// 消费者中间件链中传递的每条消息上下文。
 type MessageContext struct {
-	Message    *sarama.ConsumerMessage
+	// Message 是原始的 Kafka 消费者消息。
+	Message *sarama.ConsumerMessage
+	// LogicalKey 是用于分片路由的逻辑键。
 	LogicalKey string
-	Shard      int
-	Attempt    int
+	// Shard 是消息被分配到的分片索引。
+	Shard int
+	// Attempt 是当前处理尝试次数（含首次）。
+	Attempt int
+	// ReceivedAt 是消息被接收的时间。
 	ReceivedAt time.Time
 }

@@ -26,23 +26,34 @@ import (
 )
 
 // DLQWriterConfig controls DLQ writer construction.
+// 死信队列写入器的构造配置。
 type DLQWriterConfig struct {
-	Topic    string
+	// Topic 是死信队列的目标 topic。
+	Topic string
+	// Producer 是外部传入的同步生产者，nil 时自动创建。
 	Producer ibmsarama.SyncProducer
-	Brokers  []string
-	Config   *ibmsarama.Config
+	// Brokers 是 Kafka 集群地址列表。
+	Brokers []string
+	// Config 是底层 Sarama 配置。
+	Config *ibmsarama.Config
 }
 
 // DLQWriter publishes exhausted messages to a dead-letter topic.
+// 死信队列写入器，将处理耗尽的消息发送到指定的 DLQ topic。
 type DLQWriter struct {
-	topic    string
+	// topic 是死信队列的目标 topic。
+	topic string
+	// producer 是底层 Sarama 同步生产者。
 	producer ibmsarama.SyncProducer
-	owned    bool
+	// owned 标记是否由本模块创建（需要自行关闭）。
+	owned bool
 }
 
 // NewDLQWriter creates one DLQ writer.
+// 创建死信队列写入器：如果外部提供了 producer 则直接使用，否则自动创建。
 func NewDLQWriter(cfg DLQWriterConfig) (*DLQWriter, error) {
 	writer := &DLQWriter{topic: cfg.Topic}
+	// 外部传入 producer，直接使用
 	if cfg.Producer != nil {
 		writer.producer = cfg.Producer
 		return writer, nil
@@ -52,6 +63,7 @@ func NewDLQWriter(cfg DLQWriterConfig) (*DLQWriter, error) {
 		return nil, fmt.Errorf("brokers are required when producer is nil")
 	}
 
+	// 创建新的同步生产者，使用高可靠配置
 	producerCfg := ibmsarama.NewConfig()
 	if cfg.Config != nil {
 		producerCfg.Version = cfg.Config.Version
@@ -80,6 +92,7 @@ func (w *DLQWriter) Close() error {
 }
 
 // Publish sends one exhausted message into DLQ topic.
+// 克隆原始消息头、追加诊断头信息、发送到 DLQ topic。
 func (w *DLQWriter) Publish(ctx context.Context, event retry.Event) error {
 	if w == nil || w.producer == nil {
 		return fmt.Errorf("dlq producer is not configured")
@@ -88,12 +101,14 @@ func (w *DLQWriter) Publish(ctx context.Context, event retry.Event) error {
 		return fmt.Errorf("dlq message is nil")
 	}
 
+	// context 取消检查
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
+	// 克隆原始消息头并追加诊断信息
 	headers := cloneRecordHeaders(event.Message.Headers)
 	headers = append(
 		headers,
@@ -118,6 +133,7 @@ func (w *DLQWriter) Publish(ctx context.Context, event retry.Event) error {
 		},
 	)
 
+	// 构建并发送 DLQ 消息
 	producerMsg := &ibmsarama.ProducerMessage{
 		Topic:     w.topic,
 		Key:       ibmsarama.ByteEncoder(event.Message.Key),
@@ -132,6 +148,7 @@ func (w *DLQWriter) Publish(ctx context.Context, event retry.Event) error {
 	return nil
 }
 
+// cloneRecordHeaders 深拷贝 Sarama RecordHeader 列表。
 func cloneRecordHeaders(in []*ibmsarama.RecordHeader) []ibmsarama.RecordHeader {
 	if len(in) == 0 {
 		return nil

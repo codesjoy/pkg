@@ -34,14 +34,21 @@ type BuildChainFunc func(topic string, business consume.HandlerFunc) consume.Han
 type ShardRouter func(logicalKey string) int
 
 // Config describes session runtime dependencies.
+// 消费者组会话运行时的配置。
 type Config struct {
-	ShardCount     int
+	// ShardCount 是分片数量。
+	ShardCount int
+	// ShardQueueSize 是每个分片队列的缓冲区大小。
 	ShardQueueSize int
 
+	// ExtractLogicalKey 从消息中提取逻辑键的函数。
 	ExtractLogicalKey router.ConsumeKeyExtractor
-	ShardForKey       ShardRouter
-	BuildChain        BuildChainFunc
-	Business          consume.HandlerFunc
+	// ShardForKey 根据逻辑键计算分片索引的函数。
+	ShardForKey ShardRouter
+	// BuildChain 构建指定 topic 的中间件链。
+	BuildChain BuildChainFunc
+	// Business 是最终的业务处理函数。
+	Business consume.HandlerFunc
 }
 
 func (cfg Config) normalize() Config {
@@ -66,11 +73,15 @@ func (cfg Config) normalize() Config {
 }
 
 // Handler implements Sarama ConsumerGroupHandler with sharded ordering.
+// 实现 Sarama ConsumerGroupHandler 接口，使用分片队列保证消息顺序。
 type Handler struct {
+	// cfg 是运行时配置。
 	cfg Config
 
+	// runtimeMu 保护 runtime 字段的读写。
 	runtimeMu sync.RWMutex
-	runtime   *sessionRuntime
+	// runtime 是当前会话的运行时实例。
+	runtime *sessionRuntime
 }
 
 // NewHandler creates a runtime-backed consumer group handler.
@@ -79,7 +90,9 @@ func NewHandler(cfg Config) *Handler {
 }
 
 // Setup initializes one consume session runtime.
+// 在 Sarama rebalance 的 Setup 阶段创建新的会话运行时。
 func (h *Handler) Setup(session sarama.ConsumerGroupSession) error {
+	// 创建新的会话运行时
 	rt := newSessionRuntime(h.cfg, session)
 
 	h.runtimeMu.Lock()
@@ -89,13 +102,16 @@ func (h *Handler) Setup(session sarama.ConsumerGroupSession) error {
 }
 
 // Cleanup waits for runtime workers and returns fatal errors if present.
+// 在 Sarama rebalance 的 Cleanup 阶段关闭运行时并检查致命错误。
 func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error {
 	rt := h.getRuntime()
 	if rt == nil {
 		return nil
 	}
 
+	// 关闭运行时，等待工作协程退出
 	rt.shutdown()
+	// 检查是否有致命错误
 	if err := rt.FatalErr(); err != nil {
 		return err
 	}
@@ -103,6 +119,7 @@ func (h *Handler) Cleanup(_ sarama.ConsumerGroupSession) error {
 }
 
 // ConsumeClaim routes each message into shard workers.
+// 消费消息循环：观察 offset、提取逻辑键、计算分片、构建上下文、入队。
 func (h *Handler) ConsumeClaim(
 	_ sarama.ConsumerGroupSession,
 	claim sarama.ConsumerGroupClaim,
@@ -115,6 +132,7 @@ func (h *Handler) ConsumeClaim(
 	for {
 		select {
 		case <-rt.ctx.Done():
+			// 运行时已关闭，检查致命错误
 			if err := rt.FatalErr(); err != nil {
 				return err
 			}
@@ -124,15 +142,18 @@ func (h *Handler) ConsumeClaim(
 			return rt.ctx.Err()
 		case msg, ok := <-claim.Messages():
 			if !ok {
+				// 消息通道关闭，检查致命错误
 				if err := rt.FatalErr(); err != nil {
 					return err
 				}
 				return nil
 			}
 
+			// 观察 offset 用于连续前沿追踪
 			tracker := rt.trackerFor(msg.Topic, msg.Partition)
 			tracker.Observe(msg.Offset)
 
+			// 提取逻辑键
 			logicalKey, err := h.cfg.ExtractLogicalKey(msg)
 			if err != nil {
 				err = fmt.Errorf("extract logical key: %w", err)
@@ -140,11 +161,14 @@ func (h *Handler) ConsumeClaim(
 				rt.cancel()
 				return err
 			}
+			// 空值回退
 			if logicalKey == "" {
 				logicalKey = router.ConsumeFallbackKey(msg)
 			}
 
+			// 计算分片索引
 			shard := h.cfg.ShardForKey(logicalKey)
+			// 校验分片索引合法性
 			if shard < 0 || shard >= len(rt.shards) {
 				err = fmt.Errorf(
 					"invalid shard index %d for key %q with shard count %d",
@@ -157,6 +181,7 @@ func (h *Handler) ConsumeClaim(
 				return err
 			}
 
+			// 构建 MessageContext
 			msgCtx := &consume.MessageContext{
 				Message:    msg,
 				LogicalKey: logicalKey,
@@ -164,6 +189,7 @@ func (h *Handler) ConsumeClaim(
 				ReceivedAt: time.Now(),
 			}
 
+			// 入队到分片 worker
 			if err := rt.enqueue(&queuedMessage{tracker: tracker, msgCtx: msgCtx}); err != nil {
 				if fatalErr := rt.FatalErr(); fatalErr != nil {
 					return fatalErr

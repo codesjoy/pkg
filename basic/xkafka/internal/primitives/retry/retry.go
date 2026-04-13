@@ -27,31 +27,43 @@ const (
 )
 
 // Config controls retry behavior.
+// 重试行为的通用配置。
 type Config struct {
-	MaxRetries     int
+	// MaxRetries 是最大重试次数，-1 表示无限重试。
+	MaxRetries int
+	// InitialBackoff 是首次重试的等待时长。
 	InitialBackoff time.Duration
-	MaxBackoff     time.Duration
-	Multiplier     float64
+	// MaxBackoff 是重试等待的最大时长上限。
+	MaxBackoff time.Duration
+	// Multiplier 是指数退避的乘数因子。
+	Multiplier float64
 }
 
 // NormalizeConfig fills zero-values with defaults.
+// 将配置的零值字段替换为默认值，并校正不合理参数。
 func NormalizeConfig(cfg Config, defaults Config) Config {
 	n := cfg
+	// 补填 InitialBackoff 默认值
 	if n.InitialBackoff <= 0 {
 		n.InitialBackoff = defaults.InitialBackoff
 	}
+	// 补填 MaxBackoff 默认值
 	if n.MaxBackoff <= 0 {
 		n.MaxBackoff = defaults.MaxBackoff
 	}
+	// 确保 MaxBackoff >= InitialBackoff
 	if n.MaxBackoff < n.InitialBackoff {
 		n.MaxBackoff = n.InitialBackoff
 	}
+	// 补填 Multiplier 默认值
 	if n.Multiplier <= 0 {
 		n.Multiplier = defaults.Multiplier
 	}
+	// 约束 Multiplier >= 1
 	if n.Multiplier < 1 {
 		n.Multiplier = 1
 	}
+	// 约束 MaxRetries >= InfiniteRetries (-1)
 	if n.MaxRetries < InfiniteRetries {
 		n.MaxRetries = InfiniteRetries
 	}
@@ -83,7 +95,9 @@ func ValidateConfig(cfg Config) error {
 }
 
 // IsExhausted reports whether current attempt reaches finite retry limits.
+// 判断当前尝试次数是否已达到有限重试上限。无限重试模式永远返回 false。
 func IsExhausted(cfg Config, attempt int) bool {
+	// 无限重试模式永远不会耗尽
 	if cfg.MaxRetries == InfiniteRetries {
 		return false
 	}

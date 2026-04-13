@@ -27,13 +27,16 @@ import (
 type ConsumeKeyExtractor func(*sarama.ConsumerMessage) (string, error)
 
 // DefaultConsumeKeyExtractor extracts message key and falls back to topic:partition.
+// 默认消费者键提取器：优先使用消息 Key，空值时回退到 topic:partition。
 func DefaultConsumeKeyExtractor(msg *sarama.ConsumerMessage) (string, error) {
 	if msg == nil {
 		return "", fmt.Errorf("consumer message is nil")
 	}
+	// 优先使用消息 Key
 	if len(msg.Key) > 0 {
 		return string(msg.Key), nil
 	}
+	// 回退到 topic:partition 格式
 	return ConsumeFallbackKey(msg), nil
 }
 
@@ -57,8 +60,11 @@ func ProduceDispatchKey(msg *produce.Message) string {
 }
 
 // ShardForKey hashes key and maps it into [0, shardCount).
+// 使用 FNV-1a 哈希算法计算键的分片索引，结果在 [0, shardCount) 范围内。
 func ShardForKey(key string, shardCount int) int {
+	// FNV-1a 哈希计算
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(key))
+	// 取模映射到分片范围
 	return int(h.Sum32() % uint32(shardCount))
 }

@@ -112,10 +112,14 @@ type DLQConfig struct {
 }
 
 // BackoffConfig controls partition reconnect backoff strategy.
+// 控制分区消费者的重连退避策略。
 type BackoffConfig struct {
+	// InitialBackoff 是首次重连等待时长。
 	InitialBackoff time.Duration
-	MaxBackoff     time.Duration
-	Multiplier     float64
+	// MaxBackoff 是重连等待的最大时长上限。
+	MaxBackoff time.Duration
+	// Multiplier 是指数退避的乘数因子。
+	Multiplier float64
 }
 
 // OffsetStore persists per-partition next offsets for partition mode.
@@ -184,9 +188,14 @@ const (
 )
 
 // ProducerDispatchConfig controls async runtime queueing and routing.
+// 控制异步生产者运行时的队列路由策略。
 type ProducerDispatchConfig struct {
-	Mode        ProducerDispatchMode
-	ShardCount  int
+	// Mode 指定消息分发模式：串行、按键分片或并行轮询。
+	Mode ProducerDispatchMode
+	// ShardCount 是按键分片模式下的分片数量。
+	ShardCount int
+	// WorkerCount 是并行轮询模式下的工作协程数量。
 	WorkerCount int
-	QueueSize   int
+	// QueueSize 是每个工作队列的缓冲区大小。
+	QueueSize int
 }

@@ -26,34 +26,53 @@ import (
 	"github.com/codesjoy/pkg/basic/xkafka/middleware/consume"
 )
 
+// queuedMessage 是待处理的队列消息，携带 offset 跟踪器和消息上下文。
 type queuedMessage struct {
+	// tracker 是该消息所属分区的 offset 跟踪器。
 	tracker *offset.Tracker
-	msgCtx  *consume.MessageContext
+	// msgCtx 是消息的中间件链上下文。
+	msgCtx *consume.MessageContext
 }
 
+// sessionRuntime 管理一次消费者组会话的分片工作协程和资源。
 type sessionRuntime struct {
-	cfg     Config
+	// cfg 是运行时配置。
+	cfg Config
+	// session 是 Sarama 消费者组会话，用于提交 offset。
 	session sarama.ConsumerGroupSession
 
-	ctx    context.Context
+	// ctx 是会话级 context，随 session 生命周期结束。
+	ctx context.Context
+	// cancel 取消会话 context。
 	cancel context.CancelFunc
 
+	// shards 是分片队列列表，每个队列对应一个工作协程。
 	shards []chan *queuedMessage
-	wg     sync.WaitGroup
+	// wg 跟踪所有工作协程的退出。
+	wg sync.WaitGroup
 
+	// trackerMu 保护 trackers 字段的读写。
 	trackerMu sync.RWMutex
-	trackers  map[string]*offset.Tracker
+	// trackers 是按 "topic:partition" 索引的 offset 跟踪器。
+	trackers map[string]*offset.Tracker
 
+	// chainMu 保护 chains 字段的读写。
 	chainMu sync.RWMutex
-	chains  map[string]consume.HandlerFunc
+	// chains 是按 topic 索引的中间件链缓存。
+	chains map[string]consume.HandlerFunc
 
-	fatalMu  sync.RWMutex
+	// fatalMu 保护 fatalErr 字段的读写。
+	fatalMu sync.RWMutex
+	// fatalErr 是首次致命错误。
 	fatalErr error
 
+	// shutdownOnce 保证 shutdown 只执行一次。
 	shutdownOnce sync.Once
 }
 
+// newSessionRuntime 创建新的会话运行时，初始化分片队列和工作协程。
 func newSessionRuntime(cfg Config, session sarama.ConsumerGroupSession) *sessionRuntime {
+	// 创建会话级 context，绑定到 session 的 context
 	ctx, cancel := context.WithCancel(session.Context())
 	rt := &sessionRuntime{
 		cfg:      cfg,
@@ -65,6 +84,7 @@ func newSessionRuntime(cfg Config, session sarama.ConsumerGroupSession) *session
 		chains:   make(map[string]consume.HandlerFunc),
 	}
 
+	// 为每个分片创建队列和工作协程
 	for shard := 0; shard < cfg.ShardCount; shard++ {
 		queue := make(chan *queuedMessage, cfg.ShardQueueSize)
 		rt.shards[shard] = queue
@@ -75,6 +95,7 @@ func newSessionRuntime(cfg Config, session sarama.ConsumerGroupSession) *session
 	return rt
 }
 
+// runShardWorker 运行一个分片工作协程，从队列中取任务并处理。
 func (r *sessionRuntime) runShardWorker(queue <-chan *queuedMessage) {
 	defer r.wg.Done()
 
@@ -89,6 +110,7 @@ func (r *sessionRuntime) runShardWorker(queue <-chan *queuedMessage) {
 			if task == nil {
 				continue
 			}
+			// 处理任务，遇到错误设置致命错误并退出
 			if err := r.handleTask(task); err != nil {
 				if errors.Is(err, context.Canceled) && r.ctx.Err() != nil {
 					return
@@ -101,8 +123,11 @@ func (r *sessionRuntime) runShardWorker(queue <-chan *queuedMessage) {
 	}
 }
 
+// handleTask 处理一条消息：获取 topic 链、执行处理、连续 offset 提交。
 func (r *sessionRuntime) handleTask(task *queuedMessage) error {
+	// 获取 topic 对应的中间件链
 	chain := r.chainForTopic(task.msgCtx.Message.Topic)
+	// 执行中间件链
 	if err := chain(r.ctx, task.msgCtx); err != nil {
 		if errors.Is(err, context.Canceled) && r.ctx.Err() != nil {
 			return nil
@@ -110,6 +135,7 @@ func (r *sessionRuntime) handleTask(task *queuedMessage) error {
 		return err
 	}
 
+	// 标记 offset 完成并尝试提交连续前沿
 	nextOffset, advanced := task.tracker.MarkDone(task.msgCtx.Message.Offset)
 	if advanced {
 		r.session.MarkOffset(
@@ -122,6 +148,7 @@ func (r *sessionRuntime) handleTask(task *queuedMessage) error {
 	return nil
 }
 
+// enqueue 将消息路由到对应分片的队列中。
 func (r *sessionRuntime) enqueue(task *queuedMessage) error {
 	if task == nil {
 		return nil
@@ -136,9 +163,11 @@ func (r *sessionRuntime) enqueue(task *queuedMessage) error {
 	}
 }
 
+// trackerFor 获取指定 topic:partition 的 offset 跟踪器，使用双检锁懒初始化。
 func (r *sessionRuntime) trackerFor(topic string, partition int32) *offset.Tracker {
 	key := partitionKey(topic, partition)
 
+	// 快速路径：读锁检查
 	r.trackerMu.RLock()
 	tracker, ok := r.trackers[key]
 	r.trackerMu.RUnlock()
@@ -146,6 +175,7 @@ func (r *sessionRuntime) trackerFor(topic string, partition int32) *offset.Track
 		return tracker
 	}
 
+	// 慢速路径：写锁创建
 	r.trackerMu.Lock()
 	defer r.trackerMu.Unlock()
 	if tracker, ok = r.trackers[key]; ok {
@@ -156,7 +186,9 @@ func (r *sessionRuntime) trackerFor(topic string, partition int32) *offset.Track
 	return tracker
 }
 
+// chainForTopic 获取指定 topic 的中间件链，使用双检锁懒初始化。
 func (r *sessionRuntime) chainForTopic(topic string) consume.HandlerFunc {
+	// 快速路径：读锁检查
 	r.chainMu.RLock()
 	chain, ok := r.chains[topic]
 	r.chainMu.RUnlock()
@@ -164,6 +196,7 @@ func (r *sessionRuntime) chainForTopic(topic string) consume.HandlerFunc {
 		return chain
 	}
 
+	// 慢速路径：写锁创建
 	r.chainMu.Lock()
 	defer r.chainMu.Unlock()
 	if chain, ok = r.chains[topic]; ok {
@@ -174,6 +207,7 @@ func (r *sessionRuntime) chainForTopic(topic string) consume.HandlerFunc {
 	return chain
 }
 
+// setFatal 设置首个致命错误，后续调用不会覆盖。
 func (r *sessionRuntime) setFatal(err error) {
 	if err == nil {
 		return

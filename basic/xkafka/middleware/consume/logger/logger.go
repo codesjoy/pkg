@@ -23,7 +23,9 @@ import (
 )
 
 // Middleware logs message handling outcomes with slog.
+// 消费者日志中间件，使用 slog 记录消息处理结果。
 type Middleware struct {
+	// logger 是结构化日志记录器。
 	logger *slog.Logger
 }
 
@@ -36,6 +38,7 @@ func New(logger *slog.Logger) *Middleware {
 }
 
 // Handle logs result and forwards execution to next.
+// 记录处理开始时间，调用下游处理器，然后根据结果记录日志。
 func (m *Middleware) Handle(
 	ctx context.Context,
 	msg *consume.MessageContext,
@@ -45,11 +48,15 @@ func (m *Middleware) Handle(
 		return next(ctx, msg)
 	}
 
+	// 记录开始时间
 	start := time.Now()
+	// 调用下游处理器
 	err := next(ctx, msg)
+	// 构建日志属性
 	attrs := logAttrs(msg, time.Since(start))
 
 	if err != nil {
+		// 记录失败日志
 		attrs = append(attrs,
 			slog.String("result", "error"),
 			slog.String("error", err.Error()),
@@ -58,11 +65,13 @@ func (m *Middleware) Handle(
 		return err
 	}
 
+	// 记录成功日志
 	attrs = append(attrs, slog.String("result", "success"))
 	m.logger.InfoContext(ctx, "xkafka handle success", attrs...)
 	return nil
 }
 
+// logAttrs 构建消费者日志的结构化属性列表。
 func logAttrs(msg *consume.MessageContext, duration time.Duration) []any {
 	attrs := make([]any, 0, 9)
 	attrs = append(attrs, slog.Duration("duration", duration))

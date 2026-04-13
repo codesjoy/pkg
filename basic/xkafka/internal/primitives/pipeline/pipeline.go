@@ -17,11 +17,13 @@ package pipeline
 import "context"
 
 // ComposeError composes a no-result middleware chain.
+// 反向遍历处理器列表，构建嵌套的中间件链。最终返回一个只返回 error 的函数。
 func ComposeError[T any](
 	handlers []func(context.Context, *T, func(context.Context, *T) error) error,
 	final func(context.Context, *T) error,
 ) func(context.Context, *T) error {
 	chained := final
+	// 从后向前遍历，每个 handler 包裹其后的链
 	for i := len(handlers) - 1; i >= 0; i-- {
 		h := handlers[i]
 		if h == nil {
@@ -36,11 +38,13 @@ func ComposeError[T any](
 }
 
 // ComposeResult composes a middleware chain with one typed result.
+// 反向遍历处理器列表，构建嵌套的中间件链。最终返回一个带结果类型的函数。
 func ComposeResult[T any, R any](
 	handlers []func(context.Context, *T, func(context.Context, *T) (*R, error)) (*R, error),
 	final func(context.Context, *T) (*R, error),
 ) func(context.Context, *T) (*R, error) {
 	chained := final
+	// 从后向前遍历，每个 handler 包裹其后的链
 	for i := len(handlers) - 1; i >= 0; i-- {
 		h := handlers[i]
 		if h == nil {

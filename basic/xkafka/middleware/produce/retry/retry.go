@@ -84,11 +84,16 @@ type FailureHook func(context.Context, Event)
 var ErrMessageDropped = errors.New("producer message dropped after retries exhausted")
 
 // Middleware retries message handling and applies exhausted policies.
+// 生产者重试中间件，处理发送失败时按策略重试或丢弃消息。
 type Middleware struct {
-	config      Config
-	exhausted   ExhaustedPolicy
+	// config 是重试配置参数。
+	config Config
+	// exhausted 是重试耗尽后的处理策略。
+	exhausted ExhaustedPolicy
+	// failureHook 是失败事件回调。
 	failureHook FailureHook
-	logger      *slog.Logger
+	// logger 是结构化日志记录器。
+	logger *slog.Logger
 }
 
 // New creates retry middleware.
@@ -113,6 +118,7 @@ func New(
 }
 
 // Handle executes retries around downstream handlers.
+// 执行重试循环：设置 attempt、调用下游、失败发射事件、耗尽时按策略处理、退避等待。
 func (m *Middleware) Handle(
 	ctx context.Context,
 	msg *produce.MessageContext,
@@ -125,26 +131,34 @@ func (m *Middleware) Handle(
 	cfg := NormalizeConfig(m.config)
 	exhaustedNotified := false
 
+	// 重试循环
 	for attempt := 1; ; attempt++ {
+		// 检查 context 取消
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		// 设置当前尝试次数
 		if msg != nil {
 			msg.Attempt = attempt
 		}
 
+		// 调用下游处理器
 		result, err := next(ctx, msg)
 		if err == nil {
+			// 回填 attempt 到 result
 			if result != nil && result.Attempt == 0 {
 				result.Attempt = attempt
 			}
 			return result, nil
 		}
 
+		// 检查是否已耗尽有限重试次数
 		exhausted := IsRetryExhausted(cfg, attempt)
 		willRetry := !exhausted || m.exhausted == ExhaustedPolicyBlock
+		// 发射重试失败事件
 		m.emitFailure(ctx, m.newEvent(msg, err, attempt, FailureStageRetry, willRetry))
 
+		// 首次耗尽时发射耗尽事件（仅触发一次）
 		if exhausted && !exhaustedNotified {
 			exhaustedNotified = true
 			m.emitFailure(
@@ -159,25 +173,30 @@ func (m *Middleware) Handle(
 			)
 		}
 
+		// 耗尽后按策略处理
 		if exhausted {
 			switch m.exhausted {
 			case ExhaustedPolicyStop:
+				// 停止并返回错误
 				stopErr := fmt.Errorf("produce message exhausted retries: %w", err)
 				m.emitFailure(ctx, m.newEvent(msg, stopErr, attempt, FailureStageStop, false))
 				m.logger.ErrorContext(ctx, "xkafka producer stop", logAttrs(msg, stopErr, 0)...)
 				return nil, stopErr
 			case ExhaustedPolicyDrop:
+				// 丢弃消息并返回错误
 				dropErr := fmt.Errorf("%w: %v", ErrMessageDropped, err)
 				m.emitFailure(ctx, m.newEvent(msg, dropErr, attempt, FailureStageDrop, false))
 				m.logger.ErrorContext(ctx, "xkafka producer drop", logAttrs(msg, dropErr, 0)...)
 				return nil, dropErr
 			case ExhaustedPolicyBlock:
-				// Keep retrying forever.
+				// 继续无限重试
 			}
 		}
 
+		// 计算退避等待时间
 		wait := Backoff(cfg, attempt)
 		m.logger.WarnContext(ctx, "xkafka producer retrying", logAttrs(msg, err, wait)...)
+		// 退避等待，支持 context 取消
 		if err := backoff.Wait(ctx, wait); err != nil {
 			return nil, err
 		}
@@ -214,6 +233,7 @@ func Backoff(cfg Config, attempt int) time.Duration {
 	return pretry.Backoff(cfg, attempt)
 }
 
+// emitFailure 调用失败事件回调（如果已配置）。
 func (m *Middleware) emitFailure(ctx context.Context, event Event) {
 	if m.failureHook == nil {
 		return
@@ -221,6 +241,7 @@ func (m *Middleware) emitFailure(ctx context.Context, event Event) {
 	m.failureHook(ctx, event)
 }
 
+// newEvent 构建一个失败事件。
 func (m *Middleware) newEvent(
 	msg *produce.MessageContext,
 	err error,
@@ -243,6 +264,7 @@ func (m *Middleware) newEvent(
 	return event
 }
 
+// logAttrs 构建生产者重试日志的结构化属性列表。
 func logAttrs(msg *produce.MessageContext, err error, wait time.Duration) []any {
 	attrs := make([]any, 0, 8)
 	if msg != nil {

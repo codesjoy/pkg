@@ -29,29 +29,38 @@ import (
 )
 
 // PartitionConsumer wraps one Sarama partition consumer with ordered shard processing.
+// PartitionConsumer 封装 Sarama 分区消费者，提供有序分片处理和自动重连能力。
 type PartitionConsumer struct {
+	// cfg 是分区消费者的完整配置。
 	cfg PartitionConsumerConfig
-
+	// consumer 是底层 Sarama 分区消费者实例。
 	consumer sarama.Consumer
-	dlq      *xsarama.DLQWriter
-
+	// dlq 是死信队列写入器。
+	dlq *xsarama.DLQWriter
+	// closeOnce 保证 Close 操作只执行一次。
 	closeOnce sync.Once
-	closeErr  error
+	// closeErr 保存关闭时遇到的错误。
+	closeErr error
 }
 
 // NewPartitionConsumer creates a configured partition-mode Kafka consumer.
+// 根据配置创建 PartitionConsumer 实例，包括验证配置、创建消费者、创建 DLQ 写入器。
 func NewPartitionConsumer(cfg PartitionConsumerConfig) (*PartitionConsumer, error) {
+	// 验证配置完整性
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
+	// 创建 Sarama 分区消费者
 	consumer, err := xsarama.NewConsumer(cfg.Brokers, cfg.SaramaConfig)
 	if err != nil {
 		return nil, err
 	}
 
+	// 创建死信队列写入器
 	dlq, err := newDLQWriter(cfg.Brokers, cfg.SaramaConfig, cfg.DLQ)
 	if err != nil {
+		// 创建 DLQ 失败时回滚：关闭已创建的消费者
 		_ = consumer.Close()
 		return nil, err
 	}
@@ -60,12 +69,15 @@ func NewPartitionConsumer(cfg PartitionConsumerConfig) (*PartitionConsumer, erro
 }
 
 // Consume starts partition-mode consume loop with auto reconnect.
+// 启动分区消费循环，支持自动重连。委托 Runner 处理实际消费逻辑。
 func (c *PartitionConsumer) Consume(ctx context.Context, business consume.HandlerFunc) error {
 	var err error
+	// 参数校验：nil receiver、nil handler、规范化 context
 	if ctx, err = prepareConsumeCall(c == nil, "partition consumer is nil", ctx, business); err != nil {
 		return err
 	}
 
+	// 创建 Runner 并委托执行消费循环
 	runner := rtpartition.NewRunner(c.consumer, rtpartition.Config{
 		Topic:                   c.cfg.Topic,
 		Partition:               c.cfg.Partition,
@@ -84,6 +96,7 @@ func (c *PartitionConsumer) Consume(ctx context.Context, business consume.Handle
 }
 
 // Close releases partition consumer and owned DLQ producer.
+// 依次关闭分区消费者和 DLQ 写入器，使用 sync.Once 保证只关闭一次。
 func (c *PartitionConsumer) Close() error {
 	if c == nil {
 		return nil
@@ -91,11 +104,13 @@ func (c *PartitionConsumer) Close() error {
 
 	c.closeOnce.Do(func() {
 		var errs []error
+		// 关闭分区消费者
 		if c.consumer != nil {
 			if err := c.consumer.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}
+		// 关闭 DLQ 写入器
 		if c.dlq != nil {
 			if err := c.dlq.Close(); err != nil {
 				errs = append(errs, err)
@@ -107,6 +122,7 @@ func (c *PartitionConsumer) Close() error {
 	return c.closeErr
 }
 
+// buildConsumeChain 为指定 topic 构建消费者中间件链。
 func (c *PartitionConsumer) buildConsumeChain(
 	topic string,
 	business consume.HandlerFunc,
@@ -114,7 +130,10 @@ func (c *PartitionConsumer) buildConsumeChain(
 	return consume.Compose(c.handlersForTopic(topic), business)
 }
 
+// handlersForTopic 收集指定 topic 的消费者中间件处理器列表。
+// 注意：分区模式不支持按 topic 切换处理器，始终使用全局处理器。
 func (c *PartitionConsumer) handlersForTopic(_ string) []consume.Handler {
+	// 构建基础处理器：日志 + 重试
 	handlers := baseConsumeHandlers(
 		c.cfg.Logger,
 		c.cfg.LoggerHandlerEnabled,
@@ -130,10 +149,12 @@ func (c *PartitionConsumer) handlersForTopic(_ string) []consume.Handler {
 	return append(handlers, c.cfg.GlobalHandlers...)
 }
 
+// extractLogicalKey 从消息中提取用于分片路由的逻辑键。
 func (c *PartitionConsumer) extractLogicalKey(msg *sarama.ConsumerMessage) (string, error) {
 	return extractConsumeLogicalKey(c.cfg.KeyExtractor, msg)
 }
 
+// String 返回分区消费者的可读标识，格式为 "partition-consumer(topic:partition)"。
 func (c *PartitionConsumer) String() string {
 	if c == nil {
 		return "partition-consumer(nil)"

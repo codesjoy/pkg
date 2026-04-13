@@ -19,6 +19,7 @@ import (
 	"strings"
 )
 
+// normalizeStrings 对字符串切片进行去空白、去重、去空串处理。
 func normalizeStrings(items []string) []string {
 	if len(items) == 0 {
 		return nil
@@ -27,10 +28,13 @@ func normalizeStrings(items []string) []string {
 	result := make([]string, 0, len(items))
 	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
+		// 去除首尾空白
 		normalized := strings.TrimSpace(item)
+		// 跳过空串
 		if normalized == "" {
 			continue
 		}
+		// 跳过重复值
 		if _, exists := seen[normalized]; exists {
 			continue
 		}
@@ -40,6 +44,7 @@ func normalizeStrings(items []string) []string {
 	return result
 }
 
+// boolValue 安全读取 *bool，nil 时返回默认值。
 func boolValue(value *bool, defaultValue bool) bool {
 	if value == nil {
 		return defaultValue
@@ -47,6 +52,7 @@ func boolValue(value *bool, defaultValue bool) bool {
 	return *value
 }
 
+// normalizeContext 确保 context 不为 nil，nil 时替换为 Background。
 func normalizeContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()

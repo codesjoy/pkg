@@ -21,23 +21,28 @@ import (
 )
 
 // Exponential returns exponential backoff for attempt >= 1.
+// 计算指数退避时长：每次尝试乘以 multiplier，直到达到 max 或溢出。
 func Exponential(initial, max time.Duration, multiplier float64, attempt int) time.Duration {
 	if attempt <= 1 {
 		return initial
 	}
 
+	// 逐步乘法计算退避时长
 	delay := float64(initial)
 	for i := 1; i < attempt; i++ {
 		delay *= multiplier
+		// 提前截断：超过上限直接返回 max
 		if delay >= float64(max) {
 			return max
 		}
 	}
+	// 溢出保护：超过 int64 范围时返回 max
 	if delay >= float64(math.MaxInt64) {
 		return max
 	}
 
 	out := time.Duration(delay)
+	// 最终上限截断
 	if out > max {
 		return max
 	}
@@ -45,9 +50,11 @@ func Exponential(initial, max time.Duration, multiplier float64, attempt int) ti
 }
 
 // Wait sleeps for backoff duration or returns on context cancellation.
+// 等待指定时长，支持 context 取消提前返回。
 func Wait(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer func() {
+		// 清理未触发的 timer
 		if !timer.Stop() {
 			select {
 			case <-timer.C:
@@ -58,8 +65,10 @@ func Wait(ctx context.Context, d time.Duration) error {
 
 	select {
 	case <-ctx.Done():
+		// context 取消，提前返回
 		return ctx.Err()
 	case <-timer.C:
+		// 等待完成
 		return nil
 	}
 }

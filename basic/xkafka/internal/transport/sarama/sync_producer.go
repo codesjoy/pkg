@@ -26,20 +26,29 @@ import (
 )
 
 // SyncProducerConfig controls producer sender construction.
+// 同步生产者发送器的构造配置。
 type SyncProducerConfig struct {
-	Brokers  []string
-	Config   *ibmsarama.Config
+	// Brokers 是 Kafka 集群地址列表。
+	Brokers []string
+	// Config 是底层 Sarama 配置。
+	Config *ibmsarama.Config
+	// Producer 是外部传入的同步生产者，nil 时自动创建。
 	Producer ibmsarama.SyncProducer
 }
 
 // SyncProducerSender is the transport adapter for Sarama SyncProducer.
+// Sarama SyncProducer 的传输适配器。
 type SyncProducerSender struct {
+	// producer 是底层 Sarama 同步生产者。
 	producer ibmsarama.SyncProducer
-	owned    bool
+	// owned 标记是否由本模块创建（需要自行关闭）。
+	owned bool
 }
 
 // NewSyncProducerSender creates one sender.
+// 创建同步生产者发送器：如果外部提供了 producer 则直接使用，否则自动创建。
 func NewSyncProducerSender(cfg SyncProducerConfig) (*SyncProducerSender, error) {
+	// 外部传入 producer，直接使用
 	if cfg.Producer != nil {
 		return &SyncProducerSender{producer: cfg.Producer, owned: false}, nil
 	}
@@ -47,6 +56,7 @@ func NewSyncProducerSender(cfg SyncProducerConfig) (*SyncProducerSender, error) 
 		return nil, fmt.Errorf("brokers are required when sync producer is nil")
 	}
 
+	// 创建新的同步生产者
 	saramaCfg := ibmsarama.NewConfig()
 	if cfg.Config != nil {
 		saramaCfg = cfg.Config
@@ -72,6 +82,7 @@ func (s *SyncProducerSender) Close() error {
 }
 
 // Send sends one message and returns broker placement result.
+// 发送一条消息：context 检查、构建 ProducerMessage、发送、构建 Result。
 func (s *SyncProducerSender) Send(
 	ctx context.Context,
 	msg *produce.Message,
@@ -83,12 +94,14 @@ func (s *SyncProducerSender) Send(
 		return nil, fmt.Errorf("producer message is nil")
 	}
 
+	// context 取消检查
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
+	// 构建 Sarama ProducerMessage
 	producerMsg := &ibmsarama.ProducerMessage{
 		Topic:     msg.Topic,
 		Key:       ibmsarama.ByteEncoder(msg.Key),
@@ -96,11 +109,13 @@ func (s *SyncProducerSender) Send(
 		Timestamp: msg.Timestamp,
 		Headers:   msg.Headers,
 	}
+	// 发送消息
 	partition, offset, err := s.producer.SendMessage(producerMsg)
 	if err != nil {
 		return nil, fmt.Errorf("send message: %w", err)
 	}
 
+	// 构建发送结果
 	timestamp := producerMsg.Timestamp
 	if timestamp.IsZero() {
 		timestamp = time.Now()

@@ -35,14 +35,20 @@ const (
 )
 
 // Config controls consume trace middleware behavior.
+// 消费者追踪中间件的配置。
 type Config struct {
-	Tracer     trace.Tracer
+	// Tracer 是 OpenTelemetry Tracer 实例，nil 时使用全局默认。
+	Tracer trace.Tracer
+	// Propagator 是 trace context 传播器，nil 时使用全局默认。
 	Propagator propagation.TextMapPropagator
 }
 
 // Middleware traces consume handler execution with OpenTelemetry.
+// 消费者追踪中间件，从消息头提取 trace context 并创建 span。
 type Middleware struct {
-	tracer     trace.Tracer
+	// tracer 是 OpenTelemetry Tracer。
+	tracer trace.Tracer
+	// propagator 是 trace context 传播器。
 	propagator propagation.TextMapPropagator
 }
 
@@ -61,6 +67,7 @@ func New(cfg Config) *Middleware {
 }
 
 // Handle extracts trace context from message headers and traces one consume attempt.
+// 从消息头提取 trace context，创建 span，记录错误状态。
 func (m *Middleware) Handle(
 	ctx context.Context,
 	msg *consume.MessageContext,
@@ -73,16 +80,20 @@ func (m *Middleware) Handle(
 		ctx = context.Background()
 	}
 
+	// 从消息头提取 trace context
 	if msg != nil && msg.Message != nil {
 		carrier := newHeaderCarrier(&msg.Message.Headers)
 		ctx = m.propagator.Extract(ctx, &carrier)
 	}
 
+	// 创建 consumer span
 	spanCtx, span := m.tracer.Start(ctx, spanName(msg), trace.WithAttributes(spanAttrs(msg)...))
 	defer span.End()
 
+	// 调用下游处理器
 	err := next(spanCtx, msg)
 	if err != nil {
+		// 记录错误到 span
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
@@ -92,10 +103,12 @@ func (m *Middleware) Handle(
 	return nil
 }
 
+// spanName 生成 span 名称，格式为 "xkafka.consume {topic}"。
 func spanName(msg *consume.MessageContext) string {
 	return "xkafka.consume " + topicName(msg)
 }
 
+// topicName 安全提取消息的 topic 名称。
 func topicName(msg *consume.MessageContext) string {
 	if msg == nil || msg.Message == nil || msg.Message.Topic == "" {
 		return unknownTopic
@@ -103,6 +116,7 @@ func topicName(msg *consume.MessageContext) string {
 	return msg.Message.Topic
 }
 
+// spanAttrs 构建 span 的属性列表。
 func spanAttrs(msg *consume.MessageContext) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		attribute.String("messaging.system", "kafka"),
@@ -129,14 +143,17 @@ func spanAttrs(msg *consume.MessageContext) []attribute.KeyValue {
 	return attrs
 }
 
+// headerCarrier 适配 Kafka 消息头为 OpenTelemetry TextMapCarrier 接口。
 type headerCarrier struct {
 	headers *[]*sarama.RecordHeader
 }
 
+// newHeaderCarrier 创建 headerCarrier 实例。
 func newHeaderCarrier(headers *[]*sarama.RecordHeader) headerCarrier {
 	return headerCarrier{headers: headers}
 }
 
+// Get 从消息头中获取指定 key 的值（大小写不敏感）。
 func (c *headerCarrier) Get(key string) string {
 	if c == nil || c.headers == nil {
 		return ""
@@ -152,6 +169,7 @@ func (c *headerCarrier) Get(key string) string {
 	return ""
 }
 
+// Set 设置消息头中指定 key 的值（大小写不敏感），不存在则追加。
 func (c *headerCarrier) Set(key, value string) {
 	if c == nil || c.headers == nil {
 		return
@@ -171,6 +189,7 @@ func (c *headerCarrier) Set(key, value string) {
 	*c.headers = append(*c.headers, &sarama.RecordHeader{Key: []byte(key), Value: []byte(value)})
 }
 
+// Keys 返回所有消息头的 key 列表。
 func (c *headerCarrier) Keys() []string {
 	if c == nil || c.headers == nil {
 		return nil
