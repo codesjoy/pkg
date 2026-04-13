@@ -21,6 +21,18 @@ import (
 
 // AST Nodes.  These are based on the EBNF at https://google.aip.dev/assets/misc/ebnf-filtering.txt
 // Note that the syntax for functions is not currently supported.
+//
+// The AST models the AIP-160 expression grammar with the following precedence
+// (highest to lowest):
+//
+//   1. Parenthesized groups (composite expressions)
+//   2. NOT / negation (unary -)
+//   3. OR (disjunction, Factor)
+//   4. whitespace/implicit AND (sequence)
+//   5. AND (conjunction, Expression)
+//
+// Example: `a = 1 AND b = 2 OR c = 3 NOT d = 4`
+// parses as: AND(Sequence(Factor(OR(a=1, AND(Sequence(Factor(b=2), Factor(OR(c=3, NOT(d=4)))))))))
 
 // Filter is a possibly empty filter expression.
 type Filter struct {

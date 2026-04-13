@@ -23,6 +23,20 @@ type Condition struct {
 	IsEquality bool
 }
 
+// reorderedExpressionFactors attempts to reorder WHERE clause factors to match
+// the prefix of a composite index, improving query performance.
+//
+// Pipeline:
+//  1. Extract conditions: Identify which factors are simple equality/comparison
+//     conditions on filterable columns.
+//  2. Find best index: Score each composite index based on how many prefix
+//     columns are covered by conditions.
+//  3. Reorder: Sort conditions into equality-first, then range, then other,
+//     each sub-sorted by index column order.
+//  4. Reconstruct: Build a new factor list preserving non-condition factors'
+//     relative positions while placing reordered conditions first.
+//
+// Returns (nil, false) if no beneficial reordering is found.
 func (w *whereClause) reorderedExpressionFactors(factors []*Factor) ([]*Factor, bool) {
 	conditions, factorConditionIndexes, err := w.extractConditionsFromFactors(factors)
 	if err != nil {
@@ -42,6 +56,14 @@ func (w *whereClause) reorderedExpressionFactors(factors []*Factor) ([]*Factor, 
 	return w.reorderFactors(factors, conditions, factorConditionIndexes, reorderedConditions), true
 }
 
+// extractConditionsFromFactors walks the flat factor list and extracts conditions
+// that are eligible for index optimization. A factor is eligible if:
+//   - It has exactly one term (no OR)
+//   - The term is not negated
+//   - It is a simple restriction on a filterable, non-key-value column
+//   - The comparator is one of: =, <, >, <=, >=, or : (with exact match mode)
+//
+// Returns the extracted conditions and a mapping from factor index to condition index.
 func (w *whereClause) extractConditionsFromFactors(
 	factors []*Factor,
 ) ([]Condition, map[int]int, error) {
@@ -87,6 +109,8 @@ func (w *whereClause) extractConditionsFromFactors(
 	return conditions, factorConditionIndexes, nil
 }
 
+// restrictionEquality classifies a restriction as equality or range.
+// Returns (isEquality, ok) where ok is false if the restriction is not indexable.
 func (w *whereClause) restrictionEquality(column *Column, restriction *Restriction) (bool, bool) {
 	switch restriction.Comparator {
 	case "=":
@@ -107,6 +131,14 @@ func (w *whereClause) restrictionEquality(column *Column, restriction *Restricti
 	}
 }
 
+// reorderFactors rebuilds the factor list so that index-matching conditions appear
+// first (in their reordered positions), while non-condition factors retain their
+// original relative order at the end.
+//
+// Position mapping:
+//   - Condition factors get positions 0..N-1 based on their reordered index.
+//   - Non-condition factors get positions N, N+1, ... based on original factor index,
+//     ensuring they appear after all conditions.
 func (w *whereClause) reorderFactors(
 	factors []*Factor,
 	conditions []Condition,
@@ -162,6 +194,8 @@ func (w *whereClause) reorderFactors(
 	return reorderedFactors
 }
 
+// findBestCompositeIndex returns the index with the highest score, or nil if no
+// index covers at least one condition prefix column.
 func findBestCompositeIndex(conditions []Condition, indexes []CompositeIndex) *CompositeIndex {
 	if len(indexes) == 0 || len(conditions) == 0 {
 		return nil
@@ -180,6 +214,17 @@ func findBestCompositeIndex(conditions []Condition, indexes []CompositeIndex) *C
 	return bestIndex
 }
 
+// calculateIndexScore computes a heuristic score for how well the conditions match
+// the index prefix. The scoring formula rewards:
+//
+//	Prefix coverage: for each consecutive index column matched from position 0,
+//	                 add (indexLen - position) * 10. Earlier columns score higher.
+//	Equality bonus:  add 5 if the condition is an equality (=), since equality
+//	                 conditions narrow the search space more efficiently than range conditions.
+//
+// The score is 0 if the first index column is not covered (no prefix match at all).
+// Example: index (a, b, c), conditions {a=1, c>5} → score = 30 + 5 = 35
+// (only 'a' matches, since 'b' is missing the prefix is broken).
 func calculateIndexScore(conditions []Condition, index CompositeIndex) int {
 	if len(index.Columns) == 0 || len(conditions) == 0 {
 		return 0
@@ -195,10 +240,13 @@ func calculateIndexScore(conditions []Condition, index CompositeIndex) int {
 	for i, indexColumn := range index.Columns {
 		condition, found := conditionColumns[indexColumn]
 		if !found {
+			// Prefix is broken — stop scoring. Only a contiguous prefix matters.
 			break
 		}
 
+		// Prefix column weight: earlier columns are worth more.
 		score += (indexLen - i) * 10
+		// Equality is more selective than range; give it a bonus.
 		if condition.IsEquality {
 			score += 5
 		}
@@ -206,6 +254,15 @@ func calculateIndexScore(conditions []Condition, index CompositeIndex) int {
 	return score
 }
 
+// reorderConditions sorts conditions using a 3-bucket strategy optimized for
+// composite index utilization:
+//
+//  1. Equality conditions on index columns (sorted by index column order)
+//  2. Range conditions on index columns (sorted by index column order)
+//  3. All other conditions (preserving original order)
+//
+// This order allows the database optimizer to efficiently narrow using equality
+// lookups on the index prefix, then apply range scans, then filter the remainder.
 func reorderConditions(conditions []Condition, index *CompositeIndex) []Condition {
 	if index == nil || len(conditions) < 2 {
 		return conditions
@@ -216,8 +273,11 @@ func reorderConditions(conditions []Condition, index *CompositeIndex) []Conditio
 		indexPositions[column] = i
 	}
 
+	// Bucket 1: equality conditions on indexed columns.
 	equalityConditions := make([]Condition, 0, len(conditions))
+	// Bucket 2: range conditions on indexed columns.
 	rangeConditions := make([]Condition, 0, len(conditions))
+	// Bucket 3: everything else (non-indexed columns).
 	otherConditions := make([]Condition, 0, len(conditions))
 
 	for _, condition := range conditions {
@@ -232,6 +292,7 @@ func reorderConditions(conditions []Condition, index *CompositeIndex) []Conditio
 		}
 	}
 
+	// Sort each indexed bucket by index column order for prefix utilization.
 	sortByIndexOrder(equalityConditions, indexPositions)
 	sortByIndexOrder(rangeConditions, indexPositions)
 

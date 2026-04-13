@@ -210,6 +210,12 @@ func (t *TableBuilder) WithColumns(columns ...*Column) *TableBuilder {
 }
 
 // Build returns the built table.
+//
+// The build process:
+//  1. Builds a lookup map from field path to column for O(1) resolution.
+//  2. Collects columns marked as implicit filter targets.
+//  3. Panics if two columns share the same field path — this is a programmer error
+//     and should be caught during development, not at runtime in production.
 func (t *TableBuilder) Build() *Table {
 	columnByFieldPath := make(map[string]*Column)
 	implicitFilterColumns := make([]*Column, 0, len(t.columns))
@@ -225,6 +231,8 @@ func (t *TableBuilder) Build() *Table {
 	}
 }
 
+// registerColumn inserts the column into the lookup map keyed by lowercase field path.
+// Panics if a duplicate field path is detected — this indicates a misconfigured table schema.
 func registerColumn(columnByFieldPath map[string]*Column, column *Column) {
 	fieldPath := column.fieldPath.String()
 	if _, ok := columnByFieldPath[fieldPath]; ok {
@@ -233,6 +241,7 @@ func registerColumn(columnByFieldPath map[string]*Column, column *Column) {
 	columnByFieldPath[fieldPath] = column
 }
 
+// appendImplicitFilterColumn appends the column to the list if it is marked for implicit filtering.
 func appendImplicitFilterColumn(columns []*Column, column *Column) []*Column {
 	if !column.implicitFilter {
 		return columns

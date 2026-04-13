@@ -21,6 +21,8 @@ import (
 	"sync"
 )
 
+// builderPool caches strings.Builder instances to reduce heap allocations
+// across repeated WHERE clause generation calls.
 var builderPool = sync.Pool{
 	New: func() interface{} {
 		return &strings.Builder{}
@@ -36,8 +38,12 @@ func putBuilder(b *strings.Builder) {
 	builderPool.Put(b)
 }
 
-// whereClause constructs Standard SQL WHERE clause parts from
-// column definitions and a parsed AIP-160 filter.
+// whereClause generates parameterized SQL WHERE clause fragments from a parsed
+// AIP-160 filter AST and a Table schema. It is the core engine that translates
+// filter expressions into safe, injection-proof SQL.
+//
+// Lifecycle: A new whereClause is created per call to Table.WhereClause / WhereClauseWithOptions.
+// It is NOT safe for concurrent use.
 type whereClause struct {
 	table                            *Table
 	parameters                       []QueryParameter
@@ -63,6 +69,8 @@ type WhereClauseOptions struct {
 	EnableCompositeIndexOptimization bool
 }
 
+// isSupported returns true if the match mode works with the given SQL dialect.
+// FullText mode requires postgres or mysql; all other modes work on any dialect.
 func isSupported(mode MatchMode, dialect SQLDialect) bool {
 	switch mode {
 	case MatchModeExact, MatchModePrefix, MatchModeContains:
@@ -135,20 +143,37 @@ func (t *Table) whereClause(
 	return clause, query.parameters, nil
 }
 
+// expressionQuery translates an Expression AST node into a SQL WHERE fragment.
+//
+// The pipeline is:
+//  1. Flatten: Walk the AST and collect all Factor nodes into a flat list,
+//     inlining any non-negated parenthesized composites (which are transparent
+//     due to AND associativity).
+//  2. Optimize: If composite index optimization is enabled, attempt to reorder
+//     the flattened factors to match the best available index prefix.
+//  3. Generate: Join the factors with " AND " to produce the final SQL.
 func (w *whereClause) expressionQuery(expression *Expression) (string, error) {
+	// Step 1: Flatten the expression tree into a linear list of factors.
 	factors := flattenExpressionFactors(expression)
 	if len(factors) == 0 {
 		return "()", nil
 	}
+
+	// Step 2: Optionally reorder factors to match the best composite index prefix.
 	if w.enableCompositeIndexOptimization && len(factors) > 1 && len(w.table.CompositeIndexes) > 0 {
 		reorderedFactors, ok := w.reorderedExpressionFactors(factors)
 		if ok {
 			factors = reorderedFactors
 		}
 	}
+
+	// Step 3: Generate SQL from the (possibly reordered) factors.
 	return w.generateSQLFromFactors(factors)
 }
 
+// flattenExpressionFactors walks an Expression AST and returns a flat slice of all
+// Factor nodes. Non-negated parenthesized composites are recursively inlined because
+// they are semantically transparent under AND (e.g., "(a AND b) AND c" ≡ "a AND b AND c").
 func flattenExpressionFactors(expression *Expression) []*Factor {
 	if expression == nil {
 		return nil
@@ -182,12 +207,17 @@ func appendFlattenedSequenceFactors(dst []*Factor, sequence *Sequence) []*Factor
 	return dst
 }
 
+// appendFlattenedFactor adds a factor to the destination slice. If the factor contains
+// a single non-negated composite expression (i.e., a parenthesized group), it is
+// recursively flattened instead of being added as-is. This ensures that "(a AND b)"
+// is treated identically to "a AND b" at the same precedence level.
 func appendFlattenedFactor(dst []*Factor, factor *Factor) []*Factor {
 	if factor == nil {
 		return dst
 	}
 	if len(factor.Terms) == 1 {
 		term := factor.Terms[0]
+		// Inline non-negated composite: (a AND b) at top level is just a AND b.
 		if term != nil && !term.Negated && term.Simple != nil &&
 			term.Simple.Composite != nil && term.Simple.Restriction == nil {
 			return appendFlattenedExpressionFactors(dst, term.Simple.Composite)
@@ -218,6 +248,9 @@ func (w *whereClause) factorQuery(factor *Factor) (string, error) {
 	)
 }
 
+// joinQueries generates a SQL fragment by applying the query function to each item and
+// joining the results with the separator. Items are parenthesized when there are two or more.
+// Uses the pooled strings.Builder for efficiency.
 func joinQueries[T any](
 	items []T,
 	separator string,
@@ -261,6 +294,19 @@ func joinQueries[T any](
 	return result, nil
 }
 
+// tryFactorAsInQuery attempts to optimize a factor that consists entirely of equality
+// comparisons on the same column into a single SQL IN expression. For example:
+//
+//	"status = \"active\" OR status = \"pending\" OR status = \"closed\""
+//	→ "(status IN (@p_0, @p_1, @p_2))"
+//
+// This optimization is only applied when:
+//   - The factor has 2+ terms
+//   - Every term is a non-negated equality restriction
+//   - All restrictions reference the same column (by databaseName)
+//   - The column is not a key-value column
+//
+// Returns ("", false, nil) if the factor does not match the IN pattern.
 func (w *whereClause) tryFactorAsInQuery(factor *Factor) (string, bool, error) {
 	if factor == nil || len(factor.Terms) < 2 {
 		return "", false, nil
@@ -269,10 +315,12 @@ func (w *whereClause) tryFactorAsInQuery(factor *Factor) (string, bool, error) {
 	var column *Column
 	values := make([]string, 0, len(factor.Terms))
 	for _, term := range factor.Terms {
+		// All terms must be non-negated simple restrictions.
 		if term == nil || term.Negated || term.Simple == nil || term.Simple.Restriction == nil {
 			return "", false, nil
 		}
 		restriction := term.Simple.Restriction
+		// Must be an equality comparison on a simple member (no dotted fields).
 		if restriction.Comparator != "=" || restriction.Comparable == nil ||
 			restriction.Comparable.Member == nil {
 			return "", false, nil
@@ -288,12 +336,14 @@ func (w *whereClause) tryFactorAsInQuery(factor *Factor) (string, bool, error) {
 			return "", false, nil
 		}
 
+		// Look up the column and verify it's not a key-value column.
 		currentColumn, err := w.table.FilterableColumnByFieldPath(
 			NewFieldPath(restriction.Comparable.Member.Value),
 		)
 		if err != nil || currentColumn.keyValue {
 			return "", false, nil
 		}
+		// All terms must reference the same database column.
 		if column == nil {
 			column = currentColumn
 		} else if column.databaseName != currentColumn.databaseName {
@@ -315,6 +365,7 @@ func (w *whereClause) tryFactorAsInQuery(factor *Factor) (string, bool, error) {
 		return "", false, nil
 	}
 
+	// Generate: (column_name IN (@p_0, @p_1, ...))
 	builder := getBuilder()
 	builder.Grow(len(column.databaseName) + len(values)*8 + 16)
 	builder.WriteString("(")
@@ -361,6 +412,12 @@ func (w *whereClause) simpleQuery(simple *Simple) (string, error) {
 	return "", fmt.Errorf("invalid 'simple' clause in query filter")
 }
 
+// restrictionQuery dispatches a restriction to the appropriate SQL generator.
+//
+// Routing logic:
+//   - No comparator (bare value) → implicit restriction (global has-filter)
+//   - Column with dotted fields → key-value restriction
+//   - Plain column with comparator → standard comparison or has (:) match
 func (w *whereClause) restrictionQuery(restriction *Restriction) (string, error) {
 	if restriction.Comparable.Member == nil {
 		return "", fmt.Errorf("invalid comparable")
@@ -446,6 +503,9 @@ func (w *whereClause) restrictionQueryWithFields(
 	}
 }
 
+// buildExistsUnnestClause generates an EXISTS/UNNEST subquery for key-value column filtering:
+//
+//	(EXISTS (SELECT key, value FROM UNNEST(columnName) WHERE key = @key AND valueClause))
 func buildExistsUnnestClause(columnName, key, valueClause string) string {
 	builder := getBuilder()
 	builder.Grow(len(columnName) + len(key) + len(valueClause) + 68)
@@ -461,6 +521,12 @@ func buildExistsUnnestClause(columnName, key, valueClause string) string {
 	return result
 }
 
+// restrictionQueryForColumn handles the main comparator dispatch for a plain column:
+//
+//	"="  → equality (=)
+//	"!=" → inequality (<>)
+//	">", "<", ">=", "<=" → comparison (rejected for bool columns)
+//	":"  → has-operator (match mode selected by selectMatchMode)
 func (w *whereClause) restrictionQueryForColumn(
 	restriction *Restriction,
 	column *Column,
@@ -521,6 +587,9 @@ func (w *whereClause) implicitRestrictionMatchQuery(comparable *Comparable) (str
 	})
 }
 
+// joinImplicitRestrictionColumns generates an OR-joined clause across all implicit filter
+// columns. If only one implicit column exists, its clause is returned directly without
+// wrapping in parentheses.
 func (w *whereClause) joinImplicitRestrictionColumns(
 	clauseForColumn func(column *Column) (string, error),
 ) (string, error) {
@@ -552,6 +621,7 @@ func (w *whereClause) joinImplicitRestrictionColumns(
 	return result, nil
 }
 
+// comparisonClause builds a parameterized comparison expression: (lhs op rhs).
 func comparisonClause(lhs, operator, rhs string) string {
 	builder := getBuilder()
 	builder.Grow(len(lhs) + len(operator) + len(rhs) + 6)
@@ -589,6 +659,15 @@ func (w *whereClause) keyValueMatchClause(column *Column, arg *Arg) (string, err
 	return w.matchClause(column, arg, "value", false)
 }
 
+// matchClause generates the SQL fragment for a has (:) operator on the given column.
+// The generated SQL depends on the selected match mode:
+//
+//	MatchModeExact:     lhs = @param
+//	MatchModePrefix:    lhs LIKE 'prefix%'
+//	MatchModeContains:  lhs LIKE '%substring%'
+//	MatchModeFullText:  depends on dialect:
+//	  - postgres: to_tsvector('simple', lhs) @@ websearch_to_tsquery('simple', @param)
+//	  - mysql:    MATCH(lhs) AGAINST (@param IN BOOLEAN MODE)
 func (w *whereClause) matchClause(
 	column *Column,
 	arg *Arg,
@@ -637,6 +716,18 @@ func (w *whereClause) matchClause(
 	}
 }
 
+// selectMatchMode chooses the best match mode for a has (:) operator on the given column.
+//
+// Selection algorithm:
+//  1. If optimizeMatch is false, immediately return the fallback mode (MatchModeContains).
+//  2. If no match modes are configured on the column:
+//     a. StrictMode → error
+//     b. Otherwise → fallback mode
+//  3. Walk the column's configured match modes in preference order; return the first one
+//     that is valid and supported by the current dialect.
+//  4. If none are supported:
+//     a. StrictMode → error
+//     b. Otherwise → fallback mode
 func (w *whereClause) selectMatchMode(column *Column, allowFullText bool) (MatchMode, error) {
 	if !w.optimizeMatch {
 		return w.fallbackMode, nil
@@ -793,6 +884,9 @@ func (w *whereClause) prefixComparableValue(comparable *Comparable) (string, err
 	return w.bind(QuoteLike(comparable.Member.Value) + "%"), nil
 }
 
+// bind registers a query parameter and returns its SQL placeholder reference.
+// The placeholder name is formed as @<namePrefix><sequential_number>.
+// All user-supplied values flow through this method to prevent SQL injection.
 func (w *whereClause) bind(value string) string {
 	name := w.namePrefix + strconv.Itoa(w.nextValueName)
 	w.nextValueName++

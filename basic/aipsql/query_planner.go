@@ -12,6 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package aipsql query planner implementation.
+//
+// The QueryPlanner orchestrates the entire AIP-160/AIP-132 pipeline: it parses
+// filter and order_by text, resolves option overrides, generates WHERE/ORDER BY
+// SQL fragments, and computes pagination parameters. It is the primary high-level
+// entry point for services that need to translate AIP list request parameters
+// into executable SQL.
+//
+// Option override cascade (lowest to highest priority):
+//  1. Planner defaults (QueryPlannerOptions)
+//  2. Table-level overrides (TableSpec fields)
+//  3. Per-request overrides (QueryRequest fields)
+//
+// Thread safety: QueryPlanner is safe for concurrent use after construction.
+// Each PlanList call creates independent internal state.
 package aipsql
 
 import (
@@ -214,6 +229,16 @@ func (p *QueryPlanner) PlanList(ctx context.Context, req QueryRequest) (*QueryPl
 	return p.planList(ctx, req)
 }
 
+// planList implements the full planning pipeline:
+//
+//  1. Resolve options: Merge planner defaults, table, and request-level overrides.
+//  2. Parse filter: Parse AIP-160 filter text into an AST.
+//  3. Generate WHERE: Translate the filter AST into parameterized SQL.
+//  4. Parse order_by: Parse AIP-132 order_by text.
+//  5. Merge order: Combine request order with table default order.
+//  6. Derive fallback order: If no order specified, try to derive from composite indexes.
+//  7. Compute pagination: Generate seek or offset pagination clauses.
+//  8. Assemble plan: Combine all clauses into the final QueryPlan.
 func (p *QueryPlanner) planList(
 	ctx context.Context,
 	req QueryRequest,
@@ -466,6 +491,9 @@ func (p *QueryPlanner) normalizeTableSpec(spec TableSpec) (registeredTableSpec, 
 	}, nil
 }
 
+// resolveRequestOptions merges request-level option overrides on top of planner defaults.
+// Each option follows the cascade: request > planner default.
+// Returns an error if any resolved option is invalid.
 func (p *QueryPlanner) resolveRequestOptions(
 	req QueryRequest,
 ) (SQLDialect, bool, bool, string, error) {
@@ -510,6 +538,12 @@ func (p *QueryPlanner) resolvePageSize(spec registeredTableSpec, requestedSize i
 	return size
 }
 
+// deriveIndexBackedOrder attempts to derive a default ORDER BY from the first
+// composite index whose columns are all sortable. This provides a reasonable
+// default sort when neither the request nor the table spec specifies one.
+//
+// The tie-breaker column is excluded from the derived order since it is always
+// appended automatically.
 func (p *QueryPlanner) deriveIndexBackedOrder(spec registeredTableSpec) ([]OrderBy, bool) {
 	if len(spec.table.CompositeIndexes) == 0 {
 		return nil, false
@@ -548,6 +582,11 @@ func resolvePaginationMode(spec registeredTableSpec, req QueryRequest) (Paginati
 	return PaginationModeSeek, nil
 }
 
+// combineWhereClauses merges a filter clause and a seek clause into a single SQL
+// expression. Handles edge cases:
+//   - Both empty → ""
+//   - One empty → return the other (stripping trivial "(TRUE)" wrapper)
+//   - Both present → "(filter AND seek)"
 func combineWhereClauses(filterClause, seekClause string) string {
 	if seekClause == "" {
 		if filterClause == "" || filterClause == "(TRUE)" {
@@ -632,6 +671,9 @@ func copyOrderByList(order []OrderBy) []OrderBy {
 	return result
 }
 
+// sortableFieldPathByDatabaseColumn looks up a sortable column by its database name
+// and returns its field path. Used by deriveIndexBackedOrder to convert index column
+// names back to API-facing field paths.
 func sortableFieldPathByDatabaseColumn(table *Table, databaseColumn string) (FieldPath, bool) {
 	for _, column := range table.columns {
 		if column.databaseName == databaseColumn && column.sortable {

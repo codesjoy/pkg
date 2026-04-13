@@ -44,20 +44,33 @@ func ApplyWhere(db *gorm.DB, whereSQL string, params []aip.QueryParameter) *gorm
 }
 
 // ApplyPlan applies a QueryPlan's WHERE/ORDER/LIMIT/OFFSET clauses onto a gorm query.
+//
+// Clause application order:
+//  1. WHERE — filter predicate with named parameters
+//  2. ORDER BY — sort specification
+//  3. LIMIT — maximum number of rows to return
+//  4. OFFSET — number of rows to skip (only used for offset pagination mode)
+//
+// This order matches SQL semantics and ensures GORM chains the clauses correctly.
+// Returns the original db if either argument is nil.
 func ApplyPlan(db *gorm.DB, plan *aip.QueryPlan) *gorm.DB {
 	if db == nil || plan == nil {
 		return db
 	}
 
+	// Step 1: Apply WHERE clause with parameterized named args.
 	if strings.TrimSpace(plan.WhereClause) != "" {
 		db = db.Where(plan.WhereClause, NamedArgs(plan.Parameters)...)
 	}
+	// Step 2: Apply ORDER BY clause (already validated by the planner).
 	if strings.TrimSpace(plan.OrderByClause) != "" {
 		db = db.Order(plan.OrderByClause)
 	}
+	// Step 3: Apply LIMIT (page size, already capped by planner).
 	if plan.Limit > 0 {
 		db = db.Limit(plan.Limit)
 	}
+	// Step 4: Apply OFFSET (only non-zero for offset pagination mode).
 	if plan.Offset > 0 {
 		db = db.Offset(plan.Offset)
 	}

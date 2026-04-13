@@ -75,6 +75,8 @@ func validateDialect(dialect string) error {
 	}
 }
 
+// normalizeSQLDialect normalizes and validates the SQL dialect.
+// An empty string is treated as SQLDialectGeneric.
 func normalizeSQLDialect(dialect SQLDialect) (SQLDialect, error) {
 	switch strings.ToLower(string(dialect)) {
 	case "", string(SQLDialectGeneric):
@@ -186,6 +188,7 @@ const (
 	MatchModeContains MatchMode = "contains"
 )
 
+// isValidMatchMode returns true if the mode is one of the four recognized match modes.
 func isValidMatchMode(mode MatchMode) bool {
 	switch mode {
 	case MatchModeExact, MatchModePrefix, MatchModeFullText, MatchModeContains:
@@ -465,6 +468,7 @@ func (t *Table) findColumnByFieldPath(
 	return nil, t.collectFieldPaths(checkFunc)
 }
 
+// collectFieldPaths returns the field paths of all columns for which checkFunc returns true.
 func (t *Table) collectFieldPaths(checkFunc func(*Column) bool) []string {
 	fieldPaths := make([]string, 0, len(t.columns))
 	for _, column := range t.columns {

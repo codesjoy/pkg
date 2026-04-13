@@ -46,6 +46,23 @@ func ParseFilter(filter string) (*Filter, error) {
 	return newParser(filter).filter()
 }
 
+// parser implements a recursive-descent parser for AIP-160 filter expressions.
+// It uses a single-token lookahead (via filterLexer.Peek) to decide which
+// grammar production to apply at each step.
+//
+// The grammar (simplified from the EBNF spec) is:
+//
+//	filter     → [expression]
+//	expression → sequence {AND sequence}
+//	sequence   → factor {factor}          // implicit AND via whitespace
+//	factor     → term {OR term}
+//	term       → [NEGATE] simple
+//	simple     → restriction | composite
+//	restriction→ comparable [COMPARATOR arg]
+//	comparable → member
+//	member     → (TEXT|STRING) {DOT TEXT}
+//	composite  → LPAREN expression RPAREN
+//	arg        → comparable | composite
 type parser struct {
 	lexer filterLexer
 }
@@ -54,6 +71,7 @@ func newParser(input string) *parser {
 	return &parser{lexer: *newLexer(input)}
 }
 
+// expect consumes the next token and returns an error if it is not the expected kind.
 func (p *parser) expect(kind string) error {
 	t, err := p.lexer.Peek()
 	if err != nil {
@@ -66,6 +84,8 @@ func (p *parser) expect(kind string) error {
 	return err
 }
 
+// accept consumes the next token only if it matches the expected kind.
+// Returns the token on match, or nil without consuming on mismatch.
 func (p *parser) accept(kind string) (*token, error) {
 	t, err := p.lexer.Peek()
 	if err != nil {
@@ -77,6 +97,7 @@ func (p *parser) accept(kind string) (*token, error) {
 	return p.lexer.Next()
 }
 
+// filter parses the top-level filter rule: an optional expression followed by END.
 func (p *parser) filter() (*Filter, error) {
 	t, err := p.accept(kindEnd)
 	if err != nil {
@@ -92,6 +113,7 @@ func (p *parser) filter() (*Filter, error) {
 	return &Filter{Expression: e}, p.expect(kindEnd)
 }
 
+// expression parses the expression rule: one or more sequences joined by AND.
 func (p *parser) expression() (*Expression, error) {
 	s, err := p.sequence()
 	if err != nil {
@@ -103,6 +125,7 @@ func (p *parser) expression() (*Expression, error) {
 	return p.collectConjoinedSequences(s)
 }
 
+// sequence parses the sequence rule: one or more factors separated by whitespace (implicit AND).
 func (p *parser) sequence() (*Sequence, error) {
 	s := &Sequence{}
 	for {
@@ -121,6 +144,7 @@ func (p *parser) sequence() (*Sequence, error) {
 	return s, nil
 }
 
+// factor parses the factor rule: one or more terms joined by OR.
 func (p *parser) factor() (*Factor, error) {
 	t, err := p.term()
 	if err != nil {
@@ -132,6 +156,7 @@ func (p *parser) factor() (*Factor, error) {
 	return p.collectDisjoinedTerms(t)
 }
 
+// term parses the term rule: an optional negation (NOT or -) followed by a simple expression.
 func (p *parser) term() (*Term, error) {
 	n, err := p.accept(kindNegate)
 	if err != nil {
@@ -150,6 +175,8 @@ func (p *parser) term() (*Term, error) {
 	return &Term{Negated: n != nil, Simple: s}, nil
 }
 
+// simple parses the simple rule: either a restriction (field op value) or a
+// composite (parenthesized expression).
 func (p *parser) simple() (*Simple, error) {
 	r, err := p.restriction()
 	if err != nil {
@@ -168,6 +195,9 @@ func (p *parser) simple() (*Simple, error) {
 	return nil, nil
 }
 
+// restriction parses the restriction rule: a comparable optionally followed by
+// a comparator and an argument. A bare comparable without a comparator represents
+// a global restriction (implicit has-filter across implicitly filterable columns).
 func (p *parser) restriction() (*Restriction, error) {
 	comparable, err := p.comparable()
 	if err != nil {
@@ -193,6 +223,7 @@ func (p *parser) restriction() (*Restriction, error) {
 	return &Restriction{Comparable: comparable, Comparator: comparator.value, Arg: arg}, nil
 }
 
+// comparable parses the comparable rule: currently always a member (function calls not supported).
 func (p *parser) comparable() (*Comparable, error) {
 	m, err := p.member()
 	if err != nil {
@@ -204,6 +235,9 @@ func (p *parser) comparable() (*Comparable, error) {
 	return &Comparable{Member: m}, nil
 }
 
+// member parses the member rule: a string or text value optionally followed by
+// DOT-qualified field references. For example: "expr.type_map.1.type".
+// String tokens are unquoted during parsing; text tokens are kept as-is.
 func (p *parser) member() (*Member, error) {
 	v, err := p.accept(kindString)
 	if err != nil {
@@ -245,6 +279,7 @@ func (p *parser) member() (*Member, error) {
 	return m, nil
 }
 
+// composite parses a parenthesized sub-expression: LPAREN expression RPAREN.
 func (p *parser) composite() (*Expression, error) {
 	lparen, err := p.accept(kindLParen)
 	if err != nil {
@@ -263,6 +298,7 @@ func (p *parser) composite() (*Expression, error) {
 	return e, p.expect(kindRParen)
 }
 
+// arg parses the right-hand side of a restriction: either a comparable or a composite.
 func (p *parser) arg() (*Arg, error) {
 	comparable, err := p.comparable()
 	if err != nil {
@@ -281,6 +317,8 @@ func (p *parser) arg() (*Arg, error) {
 	return nil, nil
 }
 
+// collectConjoinedSequences collects additional sequences joined by AND after the first.
+// Returns an error if AND is not followed by a valid sequence.
 func (p *parser) collectConjoinedSequences(first *Sequence) (*Expression, error) {
 	expression := &Expression{
 		Sequences: []*Sequence{first},
@@ -305,6 +343,8 @@ func (p *parser) collectConjoinedSequences(first *Sequence) (*Expression, error)
 	}
 }
 
+// collectDisjoinedTerms collects additional terms joined by OR after the first.
+// Returns an error if OR is not followed by a valid term.
 func (p *parser) collectDisjoinedTerms(first *Term) (*Factor, error) {
 	factor := &Factor{
 		Terms: []*Term{first},

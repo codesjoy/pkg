@@ -12,6 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package aipsql pagination implementation.
+//
+// This file implements two pagination strategies:
+//
+// 1. Seek (cursor) pagination — Uses lexicographic comparison on ORDER BY columns
+//    to jump directly to the next page. More efficient for large datasets because
+//    it leverages database indexes instead of skipping rows.
+//
+//    Example generated SQL for ORDER BY created_at DESC, id DESC:
+//      WHERE (created_at < @seek_cmp_0)
+//         OR (created_at = @seek_eq_0 AND id < @seek_cmp_1)
+//
+// 2. Offset pagination — Uses traditional LIMIT/OFFSET. Simpler but degrades
+//    with large offsets because the database must scan and discard preceding rows.
+//
+// Page tokens are opaque strings: seek tokens use URL-safe base64-encoded JSON,
+// offset tokens are plain decimal integers.
 package aipsql
 
 import (
@@ -77,6 +94,8 @@ func DecodeOffsetPageToken(token string) (int, error) {
 	return offset, nil
 }
 
+// seekBinder is a lightweight parameter binder used during seek pagination clause
+// generation. It produces sequentially-named parameters (@prefix0, @prefix1, ...).
 type seekBinder struct {
 	prefix string
 	next   int
@@ -115,8 +134,17 @@ func (b *seekBinder) sortValue(column *Column, value string) (string, error) {
 // BuildSeekPaginationClause generates a lexicographical seek-pagination predicate
 // that can be appended to a WHERE clause.
 //
-// The generated predicate assumes ORDER BY uses the provided sort order plus the
-// tie breaker in ascending order.
+// The generated predicate produces n+1 OR-connected sub-predicates (where n is the
+// number of ORDER BY fields). Each sub-predicate handles one level of the lexicographic
+// comparison, plus a final tie-breaker clause.
+//
+// Example for ORDER BY created_at DESC, id DESC with tie-breaker row_id ASC:
+//
+//	((created_at < @p_seek_0)
+//	 OR (created_at = @p_seek_1 AND id < @p_seek_2)
+//	 OR (created_at = @p_seek_3 AND id = @p_seek_4 AND row_id > @p_seek_5))
+//
+// The comparison direction (< vs >) is determined by each field's DESC/ASC direction.
 func (t *Table) BuildSeekPaginationClause(
 	order []OrderBy,
 	lastSortValues []string,
@@ -185,6 +213,8 @@ func (t *Table) BuildSeekPaginationClause(
 		)
 	}
 
+	// Build the lexicographic comparison parts. For each column position i,
+	// generate: (col_0 = val_0 AND ... AND col_{i-1} = val_{i-1} AND col_i {<|>} val_i)
 	parts := make([]string, 0, len(seekColumns)+1)
 	for i := range seekColumns {
 		var part strings.Builder
@@ -211,6 +241,7 @@ func (t *Table) BuildSeekPaginationClause(
 		parts = append(parts, part.String())
 	}
 
+	// Build the tie-breaker part: all sort columns equal AND tie_breaker > value.
 	var tiePart strings.Builder
 	tiePart.WriteString("(")
 	for i, entry := range seekColumns {
@@ -236,6 +267,17 @@ func (t *Table) BuildSeekPaginationClause(
 // buildLexicographicComparison generates n OR-connected conditions for Seek pagination,
 // where n is the number of sort fields. Each condition represents one level of
 // lexicographic comparison.
+// buildLexicographicComparison generates a lexicographic comparison predicate for
+// seek pagination using named parameters.
+//
+// For ORDER BY fields [A, B, C] with values [a, b, c], generates:
+//
+//	((A > @seek_cmp_0)
+//	 OR (A = @seek_eq_1 AND B > @seek_cmp_2)
+//	 OR (A = @seek_eq_3 AND B = @seek_eq_4 AND C > @seek_cmp_5))
+//
+// The direction of the comparison operator (< vs >) is determined by each field's
+// Direction attribute (DESC → <, ASC → >).
 func buildLexicographicComparison(
 	fields []OrderByField,
 	values []interface{},
@@ -297,6 +339,8 @@ func buildLexicographicComparison(
 	return "(" + strings.Join(clauses, " OR ") + ")", params, nil
 }
 
+// getComparisonOperator returns "<" for DESC direction (we want rows that come
+// before the cursor value in descending order) and ">" for ASC.
 func getComparisonOperator(direction string) string {
 	if strings.ToUpper(direction) == "DESC" {
 		return "<"

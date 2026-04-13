@@ -12,6 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package aipsql ORDER BY clause implementation.
+//
+// This file implements AIP-132 order_by parsing and SQL generation using the
+// participle parser library. It supports:
+//   - Simple field paths: "name"
+//   - Dotted field paths: "address.city"
+//   - Backtick-quoted segments: "labels.`my-key`"
+//   - Descending order suffix: "name desc"
+//   - Comma-separated lists: "name desc, created_at"
 package aipsql
 
 import (
@@ -22,6 +31,8 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
+// orderByLexer tokenizes order_by expressions into spaces, identifiers, backtick-quoted
+// strings, and operator characters (dot, comma).
 var (
 	orderByLexer = lexer.MustSimple([]lexer.SimpleRule{
 		{Name: "Spaces", Pattern: `[ ]+`},
@@ -66,6 +77,9 @@ type FieldPath struct {
 }
 
 // NewFieldPath initializes a new field path with the given segments.
+// Segments that are valid identifiers (matching [a-zA-Z_][a-zA-Z_0-9]*) are
+// rendered verbatim; all other segments are backtick-quoted with internal
+// backticks escaped by doubling (e.g., "my-key" → "`my-key`", "a`b" → "`a``b`").
 func NewFieldPath(segments ...string) FieldPath {
 	var builder strings.Builder
 	for _, segment := range segments {
@@ -127,6 +141,8 @@ func ParseOrderBy(text string) ([]OrderBy, error) {
 	return result, nil
 }
 
+// parseOrderByList parses text using the participle-based orderByParser.
+// Normalizes participle error messages by stripping the "lexer: " prefix.
 func parseOrderByList(text string) (*orderByList, error) {
 	expr, err := orderByParser.ParseString("", text)
 	if err == nil {
@@ -281,19 +297,24 @@ func isStringLiteralChar(ch byte) bool {
 	return isStringLiteralFirstChar(ch) || (ch >= '0' && ch <= '9')
 }
 
+// orderByList is the top-level participle grammar node for an AIP-132 order_by clause.
+// It contains one or more orderByClause entries separated by commas.
 type orderByList struct {
 	SortOrder []*orderByClause `parser:"@@ ( Spaces? ',' @@ )* Spaces?"`
 }
 
+// orderByClause represents a single sort field with an optional direction.
 type orderByClause struct {
 	FieldPath *fieldPath `parser:"@@"`
 	Order     *order     `parser:"@@"`
 }
 
+// order captures the optional DESC suffix (ASC is the default).
 type order struct {
 	Desc bool `parser:"@( Spaces 'desc' )?"`
 }
 
+// fieldPath represents a dotted field path with one or more segments.
 type fieldPath struct {
 	Segments []*segment `parser:"Spaces? @@ ( '.' @@ )*"`
 }
@@ -307,11 +328,14 @@ func (f *fieldPath) Path() []string {
 	return result
 }
 
+// segment is either a plain identifier or a backtick-quoted string in the field path.
 type segment struct {
 	StringValue  *string `parser:"@String"`
 	QuotedString *string `parser:"| @QuotedString"`
 }
 
+// Value returns the unquoted segment text. Backtick-quoted strings have their
+// surrounding backticks stripped and doubled-backtick escapes (``) normalized to single backticks.
 func (s *segment) Value() string {
 	if s.QuotedString != nil {
 		unquotedString := (*s.QuotedString)[1 : len(*s.QuotedString)-1]

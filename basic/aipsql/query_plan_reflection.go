@@ -97,6 +97,18 @@ func (p *QueryPlan) seekTokenValue(row reflect.Value, fieldPath FieldPath) (stri
 	return text, nil
 }
 
+// resolveFieldPathValue resolves a field path against a struct value using a 3-tier
+// resolution strategy for each segment:
+//
+//  1. GORM tag: Check if any struct field has gorm:"column:<name>" matching the segment
+//     (or the leaf database column name). This handles GORM model mappings.
+//
+//  2. JSON tag: Check if any struct field has json:"<name>" matching the segment.
+//     This handles the common case where API field names differ from Go field names.
+//
+//  3. Go field name: Convert the segment from snake_case/camelCase to Go exported name
+//     (e.g., "created_at" → "CreatedAt", "user_id" → "UserID") using initialism-aware
+//     conversion via fieldPathSegmentToGoName.
 func (p *QueryPlan) resolveFieldPathValue(
 	row reflect.Value,
 	fieldPath FieldPath,
@@ -140,6 +152,8 @@ func (p *QueryPlan) databaseColumnName(fieldPath FieldPath) string {
 	return column.databaseName
 }
 
+// dereferenceRowValue unwraps pointer layers to reach the underlying struct value.
+// Returns an error if a nil pointer is encountered or the final value is not a struct.
 func dereferenceRowValue(value reflect.Value) (reflect.Value, error) {
 	current := value
 	for current.Kind() == reflect.Pointer {
@@ -154,6 +168,9 @@ func dereferenceRowValue(value reflect.Value) (reflect.Value, error) {
 	return current, nil
 }
 
+// selectStructField finds a struct field matching the given segment using the
+// 3-tier resolution strategy: GORM tag → JSON tag → Go field name.
+// The gormCandidates list is checked first to support GORM column name mapping.
 func selectStructField(
 	structValue reflect.Value,
 	segment string,
@@ -207,6 +224,8 @@ func matchesCandidate(name string, candidates []string) bool {
 	return false
 }
 
+// parseGORMColumnName extracts the column name from a GORM struct tag.
+// For example, parseGORMColumnName(`gorm:"column:user_id;type:varchar"`) returns "user_id".
 func parseGORMColumnName(tag string) string {
 	for _, part := range strings.Split(tag, ";") {
 		part = strings.TrimSpace(part)
@@ -224,6 +243,8 @@ func parseGORMColumnName(tag string) string {
 	return ""
 }
 
+// parseJSONFieldName extracts the field name from a JSON struct tag.
+// Returns "" for ignored fields (json:"-") and empty tags.
 func parseJSONFieldName(tag string) string {
 	if tag == "" {
 		return ""
@@ -235,6 +256,15 @@ func parseJSONFieldName(tag string) string {
 	return name
 }
 
+// fieldPathSegmentToGoName converts a snake_case or kebab-case segment to a Go exported
+// field name using title-case conversion. For example:
+//
+//	"created_at" → "CreatedAt"
+//	"user_id"    → "UserID"        (ID is a common initialism)
+//	"html_content" → "HTMLContent" (HTML is a common initialism)
+//	"my-field"   → "MyField"
+//
+// Common initialisms (ID, URL, HTTP, etc.) are kept fully uppercase as per Go convention.
 func fieldPathSegmentToGoName(segment string) string {
 	parts := strings.FieldsFunc(segment, func(r rune) bool {
 		return r == '_' || r == '-'
@@ -275,6 +305,11 @@ func isCommonInitialism(value string) bool {
 	}
 }
 
+// stringifySeekTokenValue converts a reflected value to its string representation for
+// inclusion in a seek page token. Supports:
+//   - string, bool, int/uint variants, float32/float64, []byte
+//   - time.Time → RFC3339Nano format
+//   - Other types → fmt.Sprint fallback
 func stringifySeekTokenValue(value reflect.Value) (string, error) {
 	current := value
 	for current.Kind() == reflect.Pointer {
