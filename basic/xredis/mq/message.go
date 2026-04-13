@@ -85,6 +85,8 @@ type MessageContext struct {
 // HandlerFunc handles one consumed message.
 type HandlerFunc func(context.Context, *MessageContext) error
 
+// encodeMessage converts a Message into redis.XAddArgs for XADD, placing the
+// payload under cfg.PayloadField and headers under cfg.HeaderPrefix-prefixed keys.
 func encodeMessage(stream string, cfg PublisherConfig, msg *Message) *redis.XAddArgs {
 	values := make([]interface{}, 0, 2+len(msg.Headers)*2)
 	values = append(values, cfg.PayloadField, string(msg.Payload))
@@ -104,6 +106,8 @@ func encodeMessage(stream string, cfg PublisherConfig, msg *Message) *redis.XAdd
 	}
 }
 
+// decodeMessage extracts a Message from a raw Redis XMessage, separating the
+// payload field from header fields based on the configured prefix.
 func decodeMessage(
 	stream string,
 	headerPrefix string,
@@ -130,6 +134,7 @@ func decodeMessage(
 	return msg
 }
 
+// asBytes converts a Redis stream value to a byte slice.
 func asBytes(value interface{}) []byte {
 	switch typed := value.(type) {
 	case nil:
@@ -143,6 +148,7 @@ func asBytes(value interface{}) []byte {
 	}
 }
 
+// asString converts a Redis stream value to a string.
 func asString(value interface{}) string {
 	switch typed := value.(type) {
 	case nil:

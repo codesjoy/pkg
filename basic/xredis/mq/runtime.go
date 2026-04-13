@@ -22,10 +22,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// queuedMessage wraps a MessageContext for dispatch to a shard worker.
 type queuedMessage struct {
 	msgCtx *MessageContext
 }
 
+// consumeRuntime manages a pool of shard workers that process messages in
+// parallel while preserving per-shard ordering.
 type consumeRuntime struct {
 	client  redis.UniversalClient
 	callCtx context.Context
@@ -43,6 +46,8 @@ type consumeRuntime struct {
 	shutdownOnce sync.Once
 }
 
+// newConsumeRuntime creates a runtime with a buffered channel per shard and
+// launches a worker goroutine for each.
 func newConsumeRuntime(
 	callCtx context.Context,
 	client redis.UniversalClient,
@@ -70,6 +75,7 @@ func newConsumeRuntime(
 	return rt
 }
 
+// enqueue dispatches a message to the shard queue corresponding to its Shard field.
 func (r *consumeRuntime) enqueue(task *queuedMessage) error {
 	if task == nil || task.msgCtx == nil {
 		return nil
@@ -89,6 +95,9 @@ func (r *consumeRuntime) enqueue(task *queuedMessage) error {
 	}
 }
 
+// runShardWorker processes messages from a single shard queue, calling the
+// handler and ACKing on success. On handler failure, it sets a fatal error
+// and cancels the runtime.
 func (r *consumeRuntime) runShardWorker(queue <-chan *queuedMessage) {
 	defer r.wg.Done()
 
@@ -115,6 +124,7 @@ func (r *consumeRuntime) runShardWorker(queue <-chan *queuedMessage) {
 	}
 }
 
+// handleTask invokes the handler and ACKs the message on success.
 func (r *consumeRuntime) handleTask(task *queuedMessage) error {
 	if err := r.handler(r.callCtx, task.msgCtx); err != nil {
 		if errors.Is(err, context.Canceled) && r.callCtx.Err() != nil {
@@ -137,6 +147,7 @@ func (r *consumeRuntime) handleTask(task *queuedMessage) error {
 	return nil
 }
 
+// ackStream returns the shard stream for ACKing, falling back to the base stream.
 func ackStream(msgCtx *MessageContext) string {
 	if msgCtx == nil {
 		return ""
@@ -147,6 +158,7 @@ func ackStream(msgCtx *MessageContext) string {
 	return msgCtx.Stream
 }
 
+// setFatal records the first fatal error that caused a worker to stop.
 func (r *consumeRuntime) setFatal(err error) {
 	if err == nil {
 		return
@@ -159,12 +171,15 @@ func (r *consumeRuntime) setFatal(err error) {
 	}
 }
 
+// fatal returns the stored fatal error, if any.
 func (r *consumeRuntime) fatal() error {
 	r.fatalMu.RLock()
 	defer r.fatalMu.RUnlock()
 	return r.fatalErr
 }
 
+// shutdown cancels the runtime context, closes all shard queues, and waits
+// for workers to finish.
 func (r *consumeRuntime) shutdown() {
 	r.shutdownOnce.Do(func() {
 		r.cancel()

@@ -23,9 +23,13 @@ import (
 )
 
 const (
-	defaultPayloadField           = "payload"
-	defaultHeaderPrefix           = "header:"
-	defaultOrderKeyHeader         = "x-order-key"
+	// defaultPayloadField is the stream field name used to store the message body.
+	defaultPayloadField = "payload"
+	// defaultHeaderPrefix is prepended to header keys in the stream entry.
+	defaultHeaderPrefix = "header:"
+	// defaultOrderKeyHeader is the header key that carries the ordering key.
+	defaultOrderKeyHeader = "x-order-key"
+
 	defaultBlock                  = time.Second
 	defaultCount            int64 = 1
 	defaultGroupStartID           = "0"
@@ -52,16 +56,19 @@ func (cfg *PublisherConfig) Validate() error {
 		return nil
 	}
 
+	// Trim whitespace from all string fields.
 	cfg.DefaultStream = strings.TrimSpace(cfg.DefaultStream)
 	cfg.PayloadField = strings.TrimSpace(cfg.PayloadField)
 	cfg.HeaderPrefix = strings.TrimSpace(cfg.HeaderPrefix)
 	cfg.OrderKeyHeader = strings.TrimSpace(cfg.OrderKeyHeader)
 	cfg.ShardStreamPrefix = strings.TrimSpace(cfg.ShardStreamPrefix)
 
+	// Reject negative shard counts.
 	if cfg.OrderedShardCount < 0 {
 		return fmt.Errorf("mq ordered shard count must be non-negative")
 	}
 
+	// Apply defaults for empty fields.
 	if cfg.PayloadField == "" {
 		cfg.PayloadField = defaultPayloadField
 	}
@@ -71,6 +78,7 @@ func (cfg *PublisherConfig) Validate() error {
 	if cfg.OrderKeyHeader == "" {
 		cfg.OrderKeyHeader = defaultOrderKeyHeader
 	}
+	// Final sanity check after defaults are applied.
 	if cfg.PayloadField == "" {
 		return fmt.Errorf("mq payload field is required")
 	}
@@ -105,6 +113,7 @@ func (cfg *ConsumerConfig) Validate() error {
 		return ErrConsumerStreamRequired
 	}
 
+	// Trim whitespace from all string fields.
 	cfg.Stream = strings.TrimSpace(cfg.Stream)
 	cfg.Group = strings.TrimSpace(cfg.Group)
 	cfg.Consumer = strings.TrimSpace(cfg.Consumer)
@@ -114,6 +123,7 @@ func (cfg *ConsumerConfig) Validate() error {
 	cfg.OrderKeyHeader = strings.TrimSpace(cfg.OrderKeyHeader)
 	cfg.ShardStreamPrefix = strings.TrimSpace(cfg.ShardStreamPrefix)
 
+	// Validate required fields.
 	if cfg.Stream == "" {
 		return ErrConsumerStreamRequired
 	}
@@ -123,6 +133,7 @@ func (cfg *ConsumerConfig) Validate() error {
 	if cfg.Consumer == "" {
 		return ErrConsumerNameRequired
 	}
+	// Reject negative numeric fields.
 	if cfg.Block < 0 {
 		return fmt.Errorf("mq block must be non-negative")
 	}
@@ -148,6 +159,7 @@ func (cfg *ConsumerConfig) Validate() error {
 		return fmt.Errorf("mq idle backoff must be non-negative")
 	}
 
+	// Apply defaults for zero-valued fields.
 	if cfg.Block == 0 {
 		cfg.Block = defaultBlock
 	}
@@ -184,10 +196,12 @@ func (cfg *ConsumerConfig) Validate() error {
 	if cfg.IdleBackoff == 0 {
 		cfg.IdleBackoff = defaultIdleBackoff
 	}
+	// Deduplicate and sort owned shards if provided.
 	if len(cfg.OwnedShards) > 0 {
 		cfg.OwnedShards = normalizeOwnedShards(cfg.OwnedShards)
 	}
 
+	// Post-default validation: ensure all values are positive.
 	if cfg.Count <= 0 {
 		return fmt.Errorf("mq count must be > 0, got %d", cfg.Count)
 	}
@@ -212,6 +226,7 @@ func (cfg *ConsumerConfig) Validate() error {
 	if cfg.PayloadField == "" {
 		return fmt.Errorf("mq payload field is required")
 	}
+	// Validate owned shard indices against ordered shard count.
 	if len(cfg.OwnedShards) > 0 {
 		if cfg.OrderedShardCount <= 0 {
 			return fmt.Errorf("mq ordered shard count must be > 0 when owned shards are set")
@@ -229,6 +244,7 @@ func (cfg *ConsumerConfig) Validate() error {
 	return nil
 }
 
+// normalizeOwnedShards deduplicates and sorts the owned shard indices.
 func normalizeOwnedShards(shards []int) []int {
 	seen := make(map[int]struct{}, len(shards))
 	normalized := make([]int, 0, len(shards))
@@ -243,6 +259,7 @@ func normalizeOwnedShards(shards []int) []int {
 	return normalized
 }
 
+// shardLabel converts a shard index to its string label.
 func shardLabel(shard int) string {
 	return strconv.Itoa(shard)
 }

@@ -21,6 +21,8 @@ import (
 	"time"
 )
 
+// closedLeaseDone is a pre-closed channel used as the Done return value
+// for nil Lease pointers.
 var closedLeaseDone = func() <-chan struct{} {
 	done := make(chan struct{})
 	close(done)
@@ -29,14 +31,21 @@ var closedLeaseDone = func() <-chan struct{} {
 
 // Lease represents an acquired lock instance.
 type Lease struct {
-	locker  *Locker
-	key     string
+	// locker is the Locker that created this lease.
+	locker *Locker
+	// key is the logical lock key provided by the caller.
+	key string
+	// fullKey includes the prefix and is the actual Redis key.
 	fullKey string
-	ttl     time.Duration
-	token   string
+	// ttl is the lock time-to-live.
+	ttl time.Duration
+	// token uniquely identifies the lock holder.
+	token string
 
+	// done is closed when the lease finishes (released or lost).
 	done chan struct{}
 
+	// finishOnce ensures finish logic runs exactly once.
 	finishOnce sync.Once
 
 	mu              sync.Mutex
@@ -87,6 +96,7 @@ func (l *Lease) Release(ctx context.Context) error {
 		return ErrLockNotHeld
 	}
 
+	// Stop the background auto-renew goroutine before releasing.
 	l.stopAutoRenew()
 
 	if err := l.ensureUsable(); err != nil {
@@ -95,6 +105,7 @@ func (l *Lease) Release(ctx context.Context) error {
 
 	err := l.locker.strategy.release(ctx, l)
 	if err != nil {
+		// Mark the lease as finished if the lock is no longer held.
 		if errors.Is(err, ErrLockNotHeld) {
 			l.finish(ErrLockNotHeld)
 		}
@@ -137,6 +148,8 @@ func (l *Lease) KeepAlive(ctx context.Context, interval time.Duration) error {
 	return l.keepAliveLoop(ctx, interval)
 }
 
+// keepAliveLoop periodically refreshes the lock TTL until ctx is done or
+// a refresh fails.
 func (l *Lease) keepAliveLoop(ctx context.Context, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -156,6 +169,8 @@ func (l *Lease) keepAliveLoop(ctx context.Context, interval time.Duration) error
 	}
 }
 
+// startAutoRenew launches a background goroutine that periodically refreshes
+// the lock TTL.
 func (l *Lease) startAutoRenew(interval time.Duration) error {
 	if l == nil {
 		return ErrLockNotHeld
@@ -167,9 +182,12 @@ func (l *Lease) startAutoRenew(interval time.Duration) error {
 		return err
 	}
 
+	// Create an independent context so auto-renew is not tied to the caller's ctx.
 	renewCtx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
+	// Register the cancel and done channel under the lock, checking for a race
+	// with Release.
 	l.mu.Lock()
 	if l.released {
 		l.mu.Unlock()
@@ -180,6 +198,7 @@ func (l *Lease) startAutoRenew(interval time.Duration) error {
 	l.autoRenewDone = done
 	l.mu.Unlock()
 
+	// Start the background keep-alive loop.
 	go func() {
 		defer close(done)
 		defer l.clearAutoRenew(done)
@@ -192,6 +211,7 @@ func (l *Lease) startAutoRenew(interval time.Duration) error {
 	return nil
 }
 
+// stopAutoRenew cancels the auto-renew goroutine and waits for it to finish.
 func (l *Lease) stopAutoRenew() {
 	if l == nil {
 		return
@@ -210,6 +230,7 @@ func (l *Lease) stopAutoRenew() {
 	}
 }
 
+// ensureUsable checks that the lease is still held and the locker is valid.
 func (l *Lease) ensureUsable() error {
 	if l == nil {
 		return ErrLockNotHeld
@@ -223,12 +244,15 @@ func (l *Lease) ensureUsable() error {
 	return nil
 }
 
+// isReleased returns whether the lease has been released or lost.
 func (l *Lease) isReleased() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.released
 }
 
+// clearAutoRenew clears the auto-renew state if the done channel matches,
+// preventing a stale goroutine from overwriting a newer auto-renew cycle.
 func (l *Lease) clearAutoRenew(done chan struct{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -238,6 +262,8 @@ func (l *Lease) clearAutoRenew(done chan struct{}) {
 	}
 }
 
+// finish marks the lease as released with the given terminal error and
+// closes the done channel. Safe to call multiple times via sync.Once.
 func (l *Lease) finish(err error) {
 	l.finishOnce.Do(func() {
 		l.mu.Lock()

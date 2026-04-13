@@ -64,23 +64,29 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 	bindings := consumerBindings(c.cfg)
 	bindingIndex := bindingByStream(bindings)
 
+	// Mark the consumer as active; prevents concurrent Consume calls.
 	if err := c.activate(); err != nil {
 		return err
 	}
 	defer c.deactivate()
 
+	// Auto-create the consumer group on each shard stream if configured.
 	if c.cfg.AutoCreateGroup {
 		if err := c.ensureGroups(ctx, bindings); err != nil {
 			return err
 		}
 	}
 
+	// Create the shard-queue runtime when multiple shards are in use.
 	runtime := c.newRuntime(ctx, handler)
 	if runtime != nil {
 		defer runtime.shutdown()
 	}
 
+	// Main consume loop: alternate between claiming pending messages and
+	// reading new deliveries.
 	for {
+		// Check for cancellation, close, or runtime errors before each iteration.
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -91,6 +97,7 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 		default:
 		}
 
+		// First priority: claim pending (idle) messages from other consumers.
 		claimed, err := c.claimPending(ctx, bindings)
 		if err != nil {
 			return err
@@ -102,6 +109,7 @@ func (c *Consumer) Consume(ctx context.Context, handler HandlerFunc) error {
 			continue
 		}
 
+		// Second priority: read new deliveries via XREADGROUP.
 		deliveries, err := c.readDeliveries(ctx, bindings, bindingIndex, runtime)
 		if err != nil {
 			return err
@@ -129,16 +137,19 @@ func (c *Consumer) Close() error {
 	return nil
 }
 
+// isClosed returns whether the consumer has been closed.
 func (c *Consumer) isClosed() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.closed
 }
 
+// orderedMode returns true when the consumer is using ordered shard ownership.
 func (c *Consumer) orderedMode() bool {
 	return len(c.cfg.OwnedShards) > 0
 }
 
+// runtimeQueueIDs returns the shard IDs that should back runtime queues.
 func (c *Consumer) runtimeQueueIDs() []int {
 	if c.orderedMode() {
 		return append([]int(nil), c.cfg.OwnedShards...)
@@ -150,6 +161,8 @@ func (c *Consumer) runtimeQueueIDs() []int {
 	return queueIDs
 }
 
+// ensureGroups creates consumer groups on each shard stream, tolerating
+// the BUSYGROUP error that indicates the group already exists.
 func (c *Consumer) ensureGroups(ctx context.Context, bindings []streamBinding) error {
 	for _, binding := range bindings {
 		err := c.client.XGroupCreateMkStream(
@@ -166,6 +179,7 @@ func (c *Consumer) ensureGroups(ctx context.Context, bindings []streamBinding) e
 	return nil
 }
 
+// activate marks the consumer as active; returns an error if closed or already active.
 func (c *Consumer) activate() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -181,12 +195,15 @@ func (c *Consumer) activate() error {
 	return nil
 }
 
+// deactivate clears the active flag when Consume returns.
 func (c *Consumer) deactivate() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.active = false
 }
 
+// newRuntime creates a consumeRuntime for multi-shard parallel processing.
+// Returns nil when only a single shard is used (no queue needed).
 func (c *Consumer) newRuntime(ctx context.Context, handler HandlerFunc) *consumeRuntime {
 	queueIDs := c.runtimeQueueIDs()
 	if len(queueIDs) <= 1 && !c.orderedMode() {
@@ -204,6 +221,7 @@ func (c *Consumer) newRuntime(ctx context.Context, handler HandlerFunc) *consume
 	return runtime
 }
 
+// runtimeDoneErr determines the cause of a runtime shutdown.
 func (c *Consumer) runtimeDoneErr(ctx context.Context, runtime *consumeRuntime) error {
 	if err := runtime.fatal(); err != nil {
 		return err
@@ -217,11 +235,13 @@ func (c *Consumer) runtimeDoneErr(ctx context.Context, runtime *consumeRuntime) 
 	return runtime.ctx.Err()
 }
 
+// queuedDelivery pairs a raw Redis message with its stream binding.
 type queuedDelivery struct {
 	binding streamBinding
 	raw     redis.XMessage
 }
 
+// claimPending uses XAUTOCLAIM to take over idle messages across all bindings.
 func (c *Consumer) claimPending(
 	ctx context.Context,
 	bindings []streamBinding,
@@ -249,6 +269,8 @@ func (c *Consumer) claimPending(
 	return deliveries, nil
 }
 
+// readDeliveries reads new messages via XREADGROUP and maps them to their
+// stream bindings.
 func (c *Consumer) readDeliveries(
 	ctx context.Context,
 	bindings []streamBinding,
@@ -293,6 +315,8 @@ func (c *Consumer) readDeliveries(
 	return deliveries, nil
 }
 
+// handleMessages dispatches deliveries to the handler either directly or
+// through the shard-queue runtime.
 func (c *Consumer) handleMessages(
 	ctx context.Context,
 	handler HandlerFunc,
@@ -321,6 +345,7 @@ func (c *Consumer) handleMessages(
 	return nil
 }
 
+// buildMessageContext constructs a MessageContext from a raw delivery.
 func (c *Consumer) buildMessageContext(
 	ctx context.Context,
 	binding streamBinding,
@@ -355,10 +380,12 @@ func (c *Consumer) buildMessageContext(
 	}, nil
 }
 
+// logicalKey resolves the ordering key for a message.
 func (c *Consumer) logicalKey(message *Message, fallback string) string {
 	return resolveLogicalKey(messageHeaders(message), c.cfg.OrderKeyHeader, fallback)
 }
 
+// ackDelivery sends XACK for a single delivery.
 func (c *Consumer) ackDelivery(ctx context.Context, delivery queuedDelivery) error {
 	return c.client.XAck(
 		ctx,
@@ -368,6 +395,8 @@ func (c *Consumer) ackDelivery(ctx context.Context, delivery queuedDelivery) err
 	).Err()
 }
 
+// readContext returns the runtime context when available, enabling graceful
+// cancellation during XREADGROUP blocking waits.
 func (c *Consumer) readContext(ctx context.Context, runtime *consumeRuntime) context.Context {
 	if runtime == nil {
 		return ctx
@@ -375,10 +404,12 @@ func (c *Consumer) readContext(ctx context.Context, runtime *consumeRuntime) con
 	return runtime.ctx
 }
 
+// waitForMore sleeps briefly when no messages are available to avoid busy-looping.
 func (c *Consumer) waitForMore(ctx context.Context) error {
 	return sleepContext(ctx, c.cfg.IdleBackoff)
 }
 
+// runtimeEnqueueErr determines the root cause of an enqueue failure.
 func (c *Consumer) runtimeEnqueueErr(
 	ctx context.Context,
 	runtime *consumeRuntime,
@@ -396,6 +427,7 @@ func (c *Consumer) runtimeEnqueueErr(
 	return err
 }
 
+// runtimeDone returns a channel that is closed when the runtime context ends.
 func runtimeDone(runtime *consumeRuntime) <-chan struct{} {
 	if runtime == nil {
 		return nil
@@ -403,6 +435,8 @@ func runtimeDone(runtime *consumeRuntime) <-chan struct{} {
 	return runtime.ctx.Done()
 }
 
+// deliveryCount queries the pending entries list to get the retry count for
+// a specific message.
 func (c *Consumer) deliveryCount(ctx context.Context, stream, id string) (int64, error) {
 	pending, err := c.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: stream,

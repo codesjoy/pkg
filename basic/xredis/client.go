@@ -39,13 +39,16 @@ func (c *Client) Raw() redis.UniversalClient {
 
 // New builds a redis client and applies options in the exact call order.
 func New(cfg Config, opts ...Option) (*Client, error) {
+	// Validate config before creating the underlying client.
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
+	// Construct the underlying go-redis universal client.
 	base := redis.NewUniversalClient(&cfg.UniversalOptions)
 	client := &Client{UniversalClient: base}
 
+	// Apply all options; close the client if any option fails.
 	if err := applyOptions(client, opts); err != nil {
 		return nil, closeClientOnError(client.UniversalClient, err)
 	}
@@ -106,6 +109,8 @@ func WithOpenTelemetry(cfg otelmiddleware.Config) Option {
 	}
 }
 
+// closeClientOnError closes the client and returns the original error,
+// appending the close error if one occurs.
 func closeClientOnError(client redis.UniversalClient, err error) error {
 	if client == nil {
 		return err
@@ -116,6 +121,7 @@ func closeClientOnError(client redis.UniversalClient, err error) error {
 	return err
 }
 
+// applyOptions applies each Option in order; returns on the first error.
 func applyOptions(client *Client, opts []Option) error {
 	for idx, option := range opts {
 		if option == nil {
@@ -128,10 +134,14 @@ func applyOptions(client *Client, opts []Option) error {
 	return nil
 }
 
+// clientReady returns true when both the Client wrapper and its underlying
+// UniversalClient are non-nil.
 func clientReady(client *Client) bool {
 	return client != nil && client.UniversalClient != nil
 }
 
+// isNilHook checks whether a redis.Hook value is nil, handling
+// wrapped pointer/interface types that require reflection.
 func isNilHook(hook redis.Hook) bool {
 	if hook == nil {
 		return true

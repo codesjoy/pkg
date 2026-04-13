@@ -85,37 +85,46 @@ func (l *Locker) Acquire(
 		return nil, err
 	}
 
+	// Retry loop: keep trying until success, context cancellation, or a non-ErrNotObtained error.
 	for {
 		lease, err := l.tryAcquire(ctx, key, ttl, acquireCfg)
 		if !errors.Is(err, ErrNotObtained) {
 			return lease, err
 		}
 
+		// Wait with jitter before the next attempt.
 		if err := sleepContext(ctx, l.retryDelay()); err != nil {
 			return nil, err
 		}
 	}
 }
 
+// tryAcquire performs a single acquisition attempt via the configured strategy.
 func (l *Locker) tryAcquire(
 	ctx context.Context,
 	key string,
 	ttl time.Duration,
 	acquireCfg acquireConfig,
 ) (*Lease, error) {
+	// Generate a unique token to identify this lock holder.
 	token, err := newToken()
 	if err != nil {
 		return nil, err
 	}
 
+	// Build the full Redis key (prefix + user key) and construct the lease.
 	fullKey := l.prefixedKey(key)
 	lease := newLease(l, key, fullKey, ttl, token)
+
+	// Attempt to acquire the lock through the strategy (single-node or Redlock).
 	if err := l.strategy.tryAcquire(ctx, lease); err != nil {
 		return nil, err
 	}
+	// If auto-renew is not requested, return the lease as-is.
 	if !acquireCfg.autoRenew {
 		return lease, nil
 	}
+	// Start the background keep-alive goroutine; release the lock on failure.
 	if err := lease.startAutoRenew(acquireCfg.autoRenewInterval); err != nil {
 		_ = lease.Release(context.Background())
 		return nil, err
@@ -124,6 +133,7 @@ func (l *Locker) tryAcquire(
 	return lease, nil
 }
 
+// newLease constructs a Lease with an open done channel.
 func newLease(
 	locker *Locker,
 	key string,
@@ -141,6 +151,7 @@ func newLease(
 	}
 }
 
+// newLockStrategy selects single-node or Redlock strategy based on config.
 func newLockStrategy(client redis.UniversalClient, cfg Config) (lockStrategy, error) {
 	if cfg.Redlock == nil {
 		return &singleNodeStrategy{client: client}, nil
@@ -148,6 +159,7 @@ func newLockStrategy(client redis.UniversalClient, cfg Config) (lockStrategy, er
 	return newRedlockStrategy(client, *cfg.Redlock), nil
 }
 
+// validateAcquireInput checks that the locker, key, and ttl are valid.
 func (l *Locker) validateAcquireInput(key string, ttl time.Duration) error {
 	if l == nil || isNilClient(l.client) || l.strategy == nil {
 		return ErrNilClient
@@ -161,10 +173,12 @@ func (l *Locker) validateAcquireInput(key string, ttl time.Duration) error {
 	return nil
 }
 
+// prefixedKey prepends the configured prefix to the user-supplied key.
 func (l *Locker) prefixedKey(key string) string {
 	return l.cfg.Prefix + key
 }
 
+// retryDelay returns the configured retry interval plus a random jitter.
 func (l *Locker) retryDelay() time.Duration {
 	return l.cfg.RetryInterval + randomDuration(l.cfg.RetryJitter)
 }
@@ -202,6 +216,7 @@ func WithAutoRenewInterval(interval time.Duration) AcquireOption {
 	}
 }
 
+// buildAcquireConfig applies AcquireOptions and resolves the auto-renew interval.
 func buildAcquireConfig(ttl time.Duration, opts []AcquireOption) (acquireConfig, error) {
 	cfg := acquireConfig{}
 
@@ -228,6 +243,8 @@ func buildAcquireConfig(ttl time.Duration, opts []AcquireOption) (acquireConfig,
 	return cfg, nil
 }
 
+// isNilClient checks whether a redis.UniversalClient value is nil,
+// handling wrapped pointer/interface types via reflection.
 func isNilClient(client redis.UniversalClient) bool {
 	if client == nil {
 		return true
@@ -242,6 +259,7 @@ func isNilClient(client redis.UniversalClient) bool {
 	}
 }
 
+// newToken generates a cryptographically random hex token for lock ownership.
 func newToken() (string, error) {
 	buf := make([]byte, 16)
 	if _, err := cryptorand.Read(buf); err != nil {
@@ -250,6 +268,7 @@ func newToken() (string, error) {
 	return hexEncodeToString(buf), nil
 }
 
+// randomDuration returns a uniformly random duration in [0, max].
 func randomDuration(max time.Duration) time.Duration {
 	if max <= 0 {
 		return 0
@@ -263,6 +282,7 @@ func randomDuration(max time.Duration) time.Duration {
 	return time.Duration(n.Int64())
 }
 
+// sleepContext waits for the given delay or until ctx is cancelled.
 func sleepContext(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		select {
@@ -284,6 +304,8 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
+// hexEncodeToString encodes raw bytes to a hex string without allocating
+// a format string for each byte.
 func hexEncodeToString(buf []byte) string {
 	const hex = "0123456789abcdef"
 

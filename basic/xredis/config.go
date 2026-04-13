@@ -48,6 +48,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// normalizeAddrs trims whitespace from each address and removes empty entries.
 func normalizeAddrs(addrs []string) []string {
 	if len(addrs) == 0 {
 		return nil

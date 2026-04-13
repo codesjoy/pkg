@@ -46,6 +46,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// hook implements redis.Hook for structured logging of Redis commands.
 type hook struct {
 	logger        *slog.Logger
 	slowThreshold time.Duration
@@ -66,10 +67,12 @@ func New(cfg Config) redis.Hook {
 	}
 }
 
+// DialHook passes through without logging; dial events are typically noisy.
 func (h *hook) DialHook(next redis.DialHook) redis.DialHook {
 	return next
 }
 
+// ProcessHook logs errors and slow commands for individual Redis commands.
 func (h *hook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
 		start := time.Now()
@@ -96,6 +99,7 @@ func (h *hook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	}
 }
 
+// ProcessPipelineHook logs errors and slow commands for Redis pipeline batches.
 func (h *hook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
 		start := time.Now()
@@ -122,6 +126,7 @@ func (h *hook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.Process
 	}
 }
 
+// shouldSkip returns true when the command should be excluded from logging.
 func (h *hook) shouldSkip(cmd redis.Cmder) bool {
 	if h.commandFilter == nil || cmd == nil {
 		return false
@@ -129,6 +134,8 @@ func (h *hook) shouldSkip(cmd redis.Cmder) bool {
 	return h.commandFilter(cmd)
 }
 
+// shouldSkipPipeline returns true only when every command in the pipeline
+// is filtered out by the command filter.
 func (h *hook) shouldSkipPipeline(cmds []redis.Cmder) bool {
 	if h.commandFilter == nil || len(cmds) == 0 {
 		return false
@@ -144,6 +151,7 @@ func (h *hook) shouldSkipPipeline(cmds []redis.Cmder) bool {
 	return true
 }
 
+// commandAttrs builds slog attributes for a single command log entry.
 func (h *hook) commandAttrs(cmd redis.Cmder, duration time.Duration) []any {
 	attrs := make([]any, 0, 4)
 	attrs = append(attrs,
@@ -156,6 +164,7 @@ func (h *hook) commandAttrs(cmd redis.Cmder, duration time.Duration) []any {
 	return attrs
 }
 
+// pipelineAttrs builds slog attributes for a pipeline log entry.
 func (h *hook) pipelineAttrs(cmds []redis.Cmder, duration time.Duration) []any {
 	names := make([]string, 0, len(cmds))
 	for _, cmd := range cmds {
@@ -184,6 +193,8 @@ func (h *hook) pipelineAttrs(cmds []redis.Cmder, duration time.Duration) []any {
 	return attrs
 }
 
+// commandName returns the Redis command name, falling back to the type name
+// when neither FullName nor Name is available.
 func commandName(cmd redis.Cmder) string {
 	if cmd == nil {
 		return "unknown"
@@ -197,6 +208,7 @@ func commandName(cmd redis.Cmder) string {
 	return fmt.Sprintf("%T", cmd)
 }
 
+// normalizeConfig fills zero-valued fields with defaults.
 func normalizeConfig(cfg Config) Config {
 	normalized := cfg
 	if normalized.Logger == nil {

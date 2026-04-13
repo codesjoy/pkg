@@ -22,16 +22,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// lockStrategy abstracts lock operations for single-node and Redlock modes.
 type lockStrategy interface {
 	tryAcquire(context.Context, *Lease) error
 	release(context.Context, *Lease) error
 	refresh(context.Context, *Lease) error
 }
 
+// singleNodeStrategy delegates lock operations to a single Redis node.
 type singleNodeStrategy struct {
 	client redis.UniversalClient
 }
 
+// tryAcquire uses SET NX to atomically set the key only if it does not exist.
 func (s *singleNodeStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
 	obtained, err := s.client.SetNX(ctx, lease.fullKey, lease.token, lease.ttl).Result()
 	if err != nil {
@@ -43,6 +46,7 @@ func (s *singleNodeStrategy) tryAcquire(ctx context.Context, lease *Lease) error
 	return nil
 }
 
+// release runs a Lua script that deletes the key only if the token matches.
 func (s *singleNodeStrategy) release(ctx context.Context, lease *Lease) error {
 	deleted, err := releaseScript.Run(ctx, s.client, []string{lease.fullKey}, lease.token).Int64()
 	if err != nil {
@@ -54,6 +58,7 @@ func (s *singleNodeStrategy) release(ctx context.Context, lease *Lease) error {
 	return nil
 }
 
+// refresh runs a Lua script that extends the TTL only if the token matches.
 func (s *singleNodeStrategy) refresh(ctx context.Context, lease *Lease) error {
 	extended, err := refreshScript.Run(
 		ctx,
@@ -71,6 +76,7 @@ func (s *singleNodeStrategy) refresh(ctx context.Context, lease *Lease) error {
 	return nil
 }
 
+// redlockStrategy implements the Redlock algorithm across multiple Redis nodes.
 type redlockStrategy struct {
 	nodes          []redis.UniversalClient
 	quorum         int
@@ -78,6 +84,7 @@ type redlockStrategy struct {
 	clockDrift     time.Duration
 }
 
+// newRedlockStrategy builds a Redlock strategy with the primary node plus peers.
 func newRedlockStrategy(primary redis.UniversalClient, cfg RedlockConfig) *redlockStrategy {
 	nodes := make([]redis.UniversalClient, 0, 1+len(cfg.Peers))
 	nodes = append(nodes, primary)
@@ -91,6 +98,9 @@ func newRedlockStrategy(primary redis.UniversalClient, cfg RedlockConfig) *redlo
 	}
 }
 
+// tryAcquire attempts to acquire the lock on a quorum of nodes and checks
+// that the remaining validity is positive after accounting for elapsed time
+// and clock drift.
 func (s *redlockStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
 	startedAt := time.Now()
 	successCount := s.countSuccesses(
@@ -114,6 +124,7 @@ func (s *redlockStrategy) tryAcquire(ctx context.Context, lease *Lease) error {
 	return ErrNotObtained
 }
 
+// release runs the release Lua script on all nodes and requires quorum success.
 func (s *redlockStrategy) release(ctx context.Context, lease *Lease) error {
 	successCount := s.countSuccesses(
 		ctx,
@@ -129,6 +140,7 @@ func (s *redlockStrategy) release(ctx context.Context, lease *Lease) error {
 	return nil
 }
 
+// refresh runs the refresh Lua script on all nodes and requires quorum success.
 func (s *redlockStrategy) refresh(ctx context.Context, lease *Lease) error {
 	successCount := s.countSuccesses(
 		ctx,
@@ -149,6 +161,7 @@ func (s *redlockStrategy) refresh(ctx context.Context, lease *Lease) error {
 	return nil
 }
 
+// cleanupAcquire rolls back a failed acquire by releasing the lock on all nodes.
 func (s *redlockStrategy) cleanupAcquire(lease *Lease) {
 	s.countSuccesses(
 		context.Background(),
@@ -160,6 +173,8 @@ func (s *redlockStrategy) cleanupAcquire(lease *Lease) {
 	)
 }
 
+// countSuccesses runs fn concurrently on all nodes with per-node timeouts
+// and returns the number of successful results.
 func (s *redlockStrategy) countSuccesses(
 	ctx context.Context,
 	fn func(context.Context, redis.UniversalClient) bool,
@@ -192,6 +207,8 @@ func (s *redlockStrategy) countSuccesses(
 	return success
 }
 
+// releaseScript atomically deletes the key only when the stored token matches,
+// preventing another holder from releasing a lock it does not own.
 var releaseScript = redis.NewScript(`
 if redis.call("get", KEYS[1]) == ARGV[1] then
 	return redis.call("del", KEYS[1])
@@ -199,6 +216,7 @@ end
 return 0
 `)
 
+// refreshScript atomically extends the TTL only when the stored token matches.
 var refreshScript = redis.NewScript(`
 if redis.call("get", KEYS[1]) == ARGV[1] then
 	return redis.call("pexpire", KEYS[1], ARGV[2])

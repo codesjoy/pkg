@@ -49,11 +49,13 @@ func (p *Publisher) Publish(ctx context.Context, msg *Message) (*PublishResult, 
 	}
 	ctx = normalizeContext(ctx)
 
+	// Resolve the target shard stream for this message.
 	binding, _, err := orderedPublishBinding(p.cfg, msg)
 	if err != nil {
 		return nil, err
 	}
 
+	// Encode and send via XADD.
 	id, err := p.client.XAdd(ctx, encodeMessage(binding.ShardStream, p.cfg, msg)).Result()
 	if err != nil {
 		return nil, err
@@ -77,10 +79,12 @@ func (p *Publisher) PublishBatch(
 		return nil, ErrNilPublisher
 	}
 	ctx = normalizeContext(ctx)
+	// Return early for empty input.
 	if len(msgs) == 0 {
 		return nil, nil
 	}
 
+	// Publish each message; stop on the first error.
 	results := make([]*PublishResult, len(msgs))
 	for i, msg := range msgs {
 		result, err := p.Publish(ctx, msg)

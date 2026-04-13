@@ -24,6 +24,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// normalizeContext returns context.Background() when ctx is nil.
 func normalizeContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -31,6 +32,8 @@ func normalizeContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// isNilClient checks whether a redis.UniversalClient value is nil,
+// handling wrapped pointer/interface types via reflection.
 func isNilClient(client redis.UniversalClient) bool {
 	if client == nil {
 		return true
@@ -45,6 +48,7 @@ func isNilClient(client redis.UniversalClient) bool {
 	}
 }
 
+// sleepContext waits for the given delay or until ctx is cancelled.
 func sleepContext(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		select {
@@ -66,11 +70,14 @@ func sleepContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
+// isBusyGroupError checks whether the error indicates a BUSYGROUP response
+// from XGROUP CREATE (group already exists).
 func isBusyGroupError(err error) bool {
 	return err != nil && len(err.Error()) >= len("BUSYGROUP") &&
 		err.Error()[:len("BUSYGROUP")] == "BUSYGROUP"
 }
 
+// shardForKey maps a key to a shard index using FNV-1a hashing.
 func shardForKey(key string, shardCount int) int {
 	if shardCount <= 1 {
 		return 0
@@ -81,16 +88,19 @@ func shardForKey(key string, shardCount int) int {
 	return int(h.Sum32() % uint32(shardCount))
 }
 
+// trimSpaceOrEmpty trims whitespace from the value.
 func trimSpaceOrEmpty(value string) string {
 	return strings.TrimSpace(value)
 }
 
+// streamBinding associates a logical base stream with its physical shard stream.
 type streamBinding struct {
 	BaseStream  string
 	ShardStream string
 	Shard       int
 }
 
+// resolveBaseStream returns the message stream if set, otherwise the default.
 func resolveBaseStream(msg *Message, defaultStream string) string {
 	if msg != nil {
 		if stream := trimSpaceOrEmpty(msg.Stream); stream != "" {
@@ -100,6 +110,8 @@ func resolveBaseStream(msg *Message, defaultStream string) string {
 	return trimSpaceOrEmpty(defaultStream)
 }
 
+// resolveLogicalKey returns the ordering key from headers if present,
+// otherwise falls back to the provided value.
 func resolveLogicalKey(headers map[string]string, orderKeyHeader string, fallback string) string {
 	if headers != nil {
 		if key := trimSpaceOrEmpty(headers[orderKeyHeader]); key != "" {
@@ -109,6 +121,8 @@ func resolveLogicalKey(headers map[string]string, orderKeyHeader string, fallbac
 	return fallback
 }
 
+// shardStreamName builds the physical shard stream name from a prefix or
+// falls back to "<baseStream>:shard:<n>".
 func shardStreamName(baseStream, shardStreamPrefix string, shard int) string {
 	if prefix := trimSpaceOrEmpty(shardStreamPrefix); prefix != "" {
 		return prefix + ":" + shardLabel(shard)
@@ -116,6 +130,8 @@ func shardStreamName(baseStream, shardStreamPrefix string, shard int) string {
 	return baseStream + ":shard:" + shardLabel(shard)
 }
 
+// orderedPublishBinding resolves the target stream binding and logical key
+// for a publish operation, applying sharding when OrderedShardCount > 0.
 func orderedPublishBinding(cfg PublisherConfig, msg *Message) (streamBinding, string, error) {
 	baseStream := resolveBaseStream(msg, cfg.DefaultStream)
 	if baseStream == "" {
@@ -138,6 +154,8 @@ func orderedPublishBinding(cfg PublisherConfig, msg *Message) (streamBinding, st
 	}, logicalKey, nil
 }
 
+// consumerBindings builds stream bindings for the consumer: either from
+// OwnedShards (ordered mode) or a single binding to the base stream.
 func consumerBindings(cfg ConsumerConfig) []streamBinding {
 	if len(cfg.OwnedShards) == 0 {
 		return []streamBinding{{
@@ -158,6 +176,7 @@ func consumerBindings(cfg ConsumerConfig) []streamBinding {
 	return bindings
 }
 
+// bindingByStream indexes bindings by their ShardStream name for fast lookup.
 func bindingByStream(bindings []streamBinding) map[string]streamBinding {
 	index := make(map[string]streamBinding, len(bindings))
 	for _, binding := range bindings {
@@ -166,6 +185,8 @@ func bindingByStream(bindings []streamBinding) map[string]streamBinding {
 	return index
 }
 
+// readGroupStreams builds the alternating stream-name / ">" slice expected by
+// XREADGROUP for reading new messages across all bound shard streams.
 func readGroupStreams(bindings []streamBinding) []string {
 	args := make([]string, 0, len(bindings)*2)
 	for _, binding := range bindings {
@@ -177,6 +198,7 @@ func readGroupStreams(bindings []streamBinding) []string {
 	return args
 }
 
+// messageHeaders safely returns the message headers map, or nil if msg is nil.
 func messageHeaders(msg *Message) map[string]string {
 	if msg == nil {
 		return nil

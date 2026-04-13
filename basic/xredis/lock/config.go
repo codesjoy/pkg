@@ -63,22 +63,27 @@ func (c *Config) Validate() error {
 		return nil
 	}
 
+	// Apply default prefix when empty.
 	if c.Prefix == "" {
 		c.Prefix = defaultPrefix
 	}
+	// Reject negative retry intervals.
 	if c.RetryInterval < 0 {
 		return ErrInvalidRetryInterval
 	}
+	// Reject negative jitter values.
 	if c.RetryJitter < 0 {
 		return fmt.Errorf("%w: retry jitter must be non-negative", ErrInvalidRetryInterval)
 	}
 
+	// Fill default retry interval and jitter when not set.
 	if c.RetryInterval == 0 {
 		c.RetryInterval = defaultRetryInterval
 		if c.RetryJitter == 0 {
 			c.RetryJitter = defaultRetryJitter
 		}
 	}
+	// Normalize the Redlock sub-config if present (copy to avoid mutating caller).
 	if c.Redlock != nil {
 		normalized := *c.Redlock
 		c.Redlock = &normalized
@@ -102,20 +107,24 @@ func (c *RedlockConfig) Validate() error {
 	if c == nil {
 		return nil
 	}
+	// Redlock requires at least 3 independent clients (primary + 2 peers).
 	if len(c.Peers) < 2 {
 		return fmt.Errorf("redlock requires at least 3 independent clients")
 	}
+	// Verify no peer is nil.
 	for idx, peer := range c.Peers {
 		if isNilClient(peer) {
 			return fmt.Errorf("redlock peer at index %d: %w", idx, ErrNilClient)
 		}
 	}
+	// Reject negative durations.
 	if c.PerNodeTimeout < 0 {
 		return fmt.Errorf("redlock per-node timeout must be non-negative")
 	}
 	if c.ClockDrift < 0 {
 		return fmt.Errorf("redlock clock drift must be non-negative")
 	}
+	// Fill defaults for zero-valued fields.
 	if c.PerNodeTimeout == 0 {
 		c.PerNodeTimeout = defaultRedlockPerNodeTimeout
 	}

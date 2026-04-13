@@ -82,6 +82,7 @@ func Apply(client redis.UniversalClient, cfg Config) error {
 	return nil
 }
 
+// buildTracingOptions converts Config into redisotel tracing instrumentation options.
 func buildTracingOptions(cfg Config) []redisotel.TracingOption {
 	opts := make([]redisotel.TracingOption, 0, 8)
 	opts = append(opts,
@@ -106,6 +107,7 @@ func buildTracingOptions(cfg Config) []redisotel.TracingOption {
 	return opts
 }
 
+// buildMetricsOptions converts Config into redisotel metrics instrumentation options.
 func buildMetricsOptions(cfg Config) []redisotel.MetricsOption {
 	opts := make([]redisotel.MetricsOption, 0, 4)
 	opts = append(opts, redisotel.WithDBSystem(cfg.DBSystem))
@@ -120,6 +122,7 @@ func buildMetricsOptions(cfg Config) []redisotel.MetricsOption {
 	return opts
 }
 
+// normalizeConfig fills zero-valued fields with sensible defaults.
 func normalizeConfig(cfg Config) Config {
 	normalized := cfg
 	if normalized.DBSystem == "" {
