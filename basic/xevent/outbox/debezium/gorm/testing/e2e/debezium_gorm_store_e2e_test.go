@@ -35,6 +35,7 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/codesjoy/pkg/basic/xevent/outbox/debezium"
 	debeziumgorm "github.com/codesjoy/pkg/basic/xevent/outbox/debezium/gorm"
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
 	dockercontainer "github.com/docker/docker/api/types/container"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
@@ -557,8 +558,8 @@ func waitForDB(ctx context.Context, driverName, dsn string) error {
 
 func resetTable(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.Migrator().DropTable(&debezium.Record{}))
-	require.NoError(t, db.AutoMigrate(&debezium.Record{}))
+	require.NoError(t, db.Migrator().DropTable(&shared.DBRecord{}))
+	require.NoError(t, db.AutoMigrate(&shared.DBRecord{}))
 }
 
 func registerRunningConnector(t *testing.T) string {
@@ -592,7 +593,7 @@ func registerRunningConnector(t *testing.T) string {
 		"transforms":                                             "outbox",
 		"transforms.outbox.type":                                 "io.debezium.transforms.outbox.EventRouter",
 		"transforms.outbox.table.op.invalid.behavior":            "fatal",
-		"transforms.outbox.table.field.event.id":                 "id",
+		"transforms.outbox.table.field.event.id":                 "message_id",
 		"transforms.outbox.route.by.field":                       "topic",
 		"transforms.outbox.route.topic.replacement":              "${routedByValue}",
 		"transforms.outbox.table.field.event.key":                "partition_key",

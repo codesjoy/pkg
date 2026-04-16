@@ -22,6 +22,7 @@ import (
 	"github.com/codesjoy/pkg/basic/xevent"
 )
 
+// defaultTableName is the physical table used when no override is provided.
 const defaultTableName = "xevent_outbox_records"
 
 var (
@@ -43,6 +44,8 @@ const (
 	StatusSent Status = "sent"
 	// StatusFailed indicates the record exhausted retries.
 	StatusFailed Status = "failed"
+	// StatusHandedOff indicates the record has been migrated to the cdc path.
+	StatusHandedOff Status = "handed_off"
 )
 
 // Record is the persisted outbox payload.
@@ -91,39 +94,57 @@ type Store interface {
 
 // ClaimRequest controls one claim batch.
 type ClaimRequest struct {
-	Owner    string
-	Now      time.Time
+	// Owner identifies the claimant and must be non-empty.
+	Owner string
+	// Now is the reference time for eligibility checks.
+	Now time.Time
+	// ClaimTTL is how long the claim remains valid before automatic release.
 	ClaimTTL time.Duration
-	Limit    int
+	// Limit caps the number of records returned in one batch.
+	Limit int
 }
 
 // MarkSentRequest finalizes one successful send.
 type MarkSentRequest struct {
-	ID     uint64
-	Owner  string
-	Now    time.Time
+	// ID is the database primary key of the record to mark.
+	ID uint64
+	// Owner must match the current claim owner.
+	Owner string
+	// Now is the reference time for the update.
+	Now time.Time
+	// SentAt records when the message was successfully published.
 	SentAt time.Time
 }
 
 // RetryRequest reschedules one failed send.
 type RetryRequest struct {
-	ID              uint64
-	Owner           string
-	Now             time.Time
+	// ID is the database primary key of the record to retry.
+	ID uint64
+	// Owner must match the current claim owner.
+	Owner string
+	// Now is the reference time for the update.
+	Now time.Time
+	// NextAvailableAt is when the record becomes eligible again.
 	NextAvailableAt time.Time
-	LastError       string
+	// LastError describes the failure that triggered the retry.
+	LastError string
 }
 
 // FailRequest marks one exhausted record as failed.
 type FailRequest struct {
-	ID        uint64
-	Owner     string
-	Now       time.Time
+	// ID is the database primary key of the record to mark as failed.
+	ID uint64
+	// Owner must match the current claim owner.
+	Owner string
+	// Now is the reference time for the update.
+	Now time.Time
+	// LastError describes the terminal failure reason.
 	LastError string
 }
 
 // AppendOptions configures appended outbox records.
 type AppendOptions struct {
+	// AvailableAt controls when the record becomes eligible for claiming.
 	AvailableAt time.Time
 }
 
@@ -225,6 +246,7 @@ func cloneRecord(record Record) Record {
 	return cloned
 }
 
+// cloneBytes returns a shallow-independent copy of src.
 func cloneBytes(src []byte) []byte {
 	if src == nil {
 		return nil
@@ -287,6 +309,8 @@ func normalizeFailRequest(req FailRequest) (FailRequest, error) {
 	return req, nil
 }
 
+// normalizeTime returns fallback when value is zero, otherwise returns value
+// normalised to UTC.
 func normalizeTime(value time.Time, fallback func() time.Time) time.Time {
 	if value.IsZero() {
 		return fallback().UTC()
@@ -294,6 +318,8 @@ func normalizeTime(value time.Time, fallback func() time.Time) time.Time {
 	return value.UTC()
 }
 
+// normalizeContext returns context.Background when ctx is nil, otherwise
+// returns ctx unchanged.
 func normalizeContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()

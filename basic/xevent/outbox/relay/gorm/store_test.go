@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
 	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -54,9 +55,7 @@ func (e *testEvent) UnmarshalPayload(data []byte) error {
 
 func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -121,9 +120,7 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 
 func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -155,9 +152,7 @@ func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 
 func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -193,9 +188,7 @@ func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 
 func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB: db,
 		SessionFromContext: func(context.Context) *gorm.DB {
@@ -245,9 +238,7 @@ func TestGORMStoreAppendRejectsNilRecord(t *testing.T) {
 
 func TestGORMStoreClaimRespectsAvailabilityAndPartitionOrdering(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 
 	now := time.Date(2026, 3, 26, 10, 0, 0, 0, time.UTC)
 	records := []outbox.Record{
@@ -285,9 +276,7 @@ func TestGORMStoreClaimRespectsAvailabilityAndPartitionOrdering(t *testing.T) {
 		},
 	}
 	for i := range records {
-		if err := db.Create(&records[i]).Error; err != nil {
-			t.Fatalf("Create(%d) returned error: %v", i, err)
-		}
+		insertRelayRecord(t, db, &records[i])
 	}
 
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
@@ -350,9 +339,7 @@ func TestGORMStoreClaimRespectsAvailabilityAndPartitionOrdering(t *testing.T) {
 
 func TestGORMStoreClaimReclaimsExpiredSending(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 
 	now := time.Date(2026, 3, 26, 12, 0, 0, 0, time.UTC)
 	expired := now.Add(-time.Minute)
@@ -367,9 +354,7 @@ func TestGORMStoreClaimReclaimsExpiredSending(t *testing.T) {
 		ClaimUntil:   &expired,
 		AvailableAt:  now.Add(-2 * time.Minute),
 	}
-	if err := db.Create(&record).Error; err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
+	insertRelayRecord(t, db, &record)
 
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
 	if err != nil {
@@ -398,9 +383,7 @@ func TestGORMStoreClaimReclaimsExpiredSending(t *testing.T) {
 
 func TestGORMStoreRetryAndMarkFailed(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
 	if err != nil {
 		t.Fatalf("NewGORMStore returned error: %v", err)
@@ -430,12 +413,8 @@ func TestGORMStoreRetryAndMarkFailed(t *testing.T) {
 		ClaimUntil:   &claimUntil,
 		AvailableAt:  now.Add(-time.Minute),
 	}
-	if err := db.Create(&retryRecord).Error; err != nil {
-		t.Fatalf("Create retry returned error: %v", err)
-	}
-	if err := db.Create(&failedRecord).Error; err != nil {
-		t.Fatalf("Create failed returned error: %v", err)
-	}
+	insertRelayRecord(t, db, &retryRecord)
+	insertRelayRecord(t, db, &failedRecord)
 
 	nextAvailableAt := now.Add(5 * time.Minute)
 	if err := store.Retry(context.Background(), outbox.RetryRequest{
@@ -491,9 +470,7 @@ func TestGORMStoreRetryAndMarkFailed(t *testing.T) {
 
 func TestGORMStoreTransitionOwnershipErrors(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
 	if err != nil {
 		t.Fatalf("NewGORMStore returned error: %v", err)
@@ -511,9 +488,7 @@ func TestGORMStoreTransitionOwnershipErrors(t *testing.T) {
 		ClaimUntil:   &claimUntil,
 		AvailableAt:  now.Add(-time.Minute),
 	}
-	if err := db.Create(&record).Error; err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
+	insertRelayRecord(t, db, &record)
 
 	tests := []struct {
 		name    string
@@ -726,9 +701,7 @@ func TestGORMStoreNormalizeRequestsAndHelpers(t *testing.T) {
 
 func TestGORMStoreClaimSelectedRecordsReturnsNilWhenUpdateMatchesNothing(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&outbox.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
 	if err != nil {
 		t.Fatalf("NewGORMStore returned error: %v", err)
@@ -743,9 +716,7 @@ func TestGORMStoreClaimSelectedRecordsReturnsNilWhenUpdateMatchesNothing(t *test
 		Status:       outbox.StatusPending,
 		AvailableAt:  now.Add(time.Hour),
 	}
-	if err := db.Create(&record).Error; err != nil {
-		t.Fatalf("Create returned error: %v", err)
-	}
+	insertRelayRecord(t, db, &record)
 
 	claimed, err := store.claimSelectedRecords(db, []uint64{record.ID}, outbox.ClaimRequest{
 		Owner:    "relay-1",
@@ -780,4 +751,20 @@ func testWithTransaction(ctx context.Context, tx *gorm.DB) context.Context {
 func testTransactionFromContext(ctx context.Context) *gorm.DB {
 	tx, _ := ctx.Value(testTxContextKey{}).(*gorm.DB)
 	return tx
+}
+
+func autoMigrateTestSchema(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.AutoMigrate(&shared.DBRecord{}); err != nil {
+		t.Fatalf("AutoMigrate returned error: %v", err)
+	}
+}
+
+func insertRelayRecord(t *testing.T, db *gorm.DB, record *outbox.Record) {
+	t.Helper()
+	stored := shared.RelayRecordToDBRecord(*record, time.Now().UTC())
+	if err := db.Table(record.TableName()).Create(&stored).Error; err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	*record = shared.DBRecordToRelayRecord(stored)
 }

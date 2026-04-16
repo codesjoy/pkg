@@ -27,6 +27,8 @@ import (
 
 	"github.com/codesjoy/pkg/basic/xevent/outbox/debezium"
 	debeziumgorm "github.com/codesjoy/pkg/basic/xevent/outbox/debezium/gorm"
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -130,7 +132,7 @@ func TestAppendRollbackAndDeleteBefore(t *testing.T) {
 		}
 
 		var count int64
-		if err := tx.Model(&debezium.Record{}).Where("id = ?", committed.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&debezium.Record{}).Where("message_id = ?", committed.ID).Count(&count).Error; err != nil {
 			return err
 		}
 		require.EqualValues(t, 1, count)
@@ -169,7 +171,7 @@ func TestAppendRollbackAndDeleteBefore(t *testing.T) {
 		Payload:      []byte("old"),
 		CreatedAt:    time.Now().UTC().Add(-48 * time.Hour),
 	}
-	require.NoError(t, db.Create(&oldRecord).Error)
+	insertDebeziumRecord(t, db, &oldRecord)
 
 	deleted, err := store.DeleteBefore(
 		context.Background(),
@@ -181,9 +183,54 @@ func TestAppendRollbackAndDeleteBefore(t *testing.T) {
 
 	require.NoError(
 		t,
-		db.Model(&debezium.Record{}).Where("id = ?", oldRecord.ID).Count(&count).Error,
+		db.Model(&debezium.Record{}).Where("message_id = ?", oldRecord.ID).Count(&count).Error,
 	)
 	require.EqualValues(t, 0, count)
+}
+
+func TestCutoverRelayBacklog(t *testing.T) {
+	db := mustPostgresDB(t)
+	resetTable(t, db)
+
+	now := time.Date(2026, 4, 11, 20, 30, 0, 0, time.UTC)
+	relayRecord := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_cutover",
+		PartitionKey: "order-7",
+		Payload:      []byte("cutover"),
+		Topic:        "orders",
+		Status:       outbox.StatusPending,
+		AvailableAt:  now.Add(-time.Minute),
+	}
+	insertRelayRecord(t, db, &relayRecord)
+
+	moved, err := debeziumgorm.CutoverRelayBacklog(context.Background(), debeziumgorm.CutoverConfig{
+		DB:        db,
+		BatchSize: 10,
+		Now:       now,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, moved)
+
+	var relayRow shared.DBRecord
+	require.NoError(
+		t,
+		db.Table((shared.DBRecord{}).TableName()).
+			Where("id = ? AND mode = ?", relayRecord.ID, shared.ModeRelay).
+			First(&relayRow).Error,
+	)
+	require.Equal(t, string(outbox.StatusHandedOff), relayRow.Status)
+
+	var cdcRows []shared.DBRecord
+	require.NoError(
+		t,
+		db.Table((shared.DBRecord{}).TableName()).
+			Where("mode = ?", shared.ModeCDC).
+			Find(&cdcRows).Error,
+	)
+	require.Len(t, cdcRows, 1)
+	require.NotNil(t, cdcRows[0].HandoffFromID)
+	require.Equal(t, relayRecord.ID, *cdcRows[0].HandoffFromID)
 }
 
 func withTransaction(ctx context.Context, tx *gorm.DB) context.Context {
@@ -254,8 +301,23 @@ func configureSQLDB(t *testing.T, db *gorm.DB) {
 
 func resetTable(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.Migrator().DropTable(&debezium.Record{}))
-	require.NoError(t, db.AutoMigrate(&debezium.Record{}))
+	require.NoError(t, db.Migrator().DropTable(&shared.DBRecord{}))
+	require.NoError(t, db.AutoMigrate(&shared.DBRecord{}))
+}
+
+func insertDebeziumRecord(t *testing.T, db *gorm.DB, record *debezium.Record) {
+	t.Helper()
+	stored, err := shared.DebeziumRecordToDBRecord(*record, time.Now().UTC())
+	require.NoError(t, err)
+	require.NoError(t, db.Table(record.TableName()).Create(&stored).Error)
+	*record = shared.DBRecordToDebeziumRecord(stored)
+}
+
+func insertRelayRecord(t *testing.T, db *gorm.DB, record *outbox.Record) {
+	t.Helper()
+	stored := shared.RelayRecordToDBRecord(*record, time.Now().UTC())
+	require.NoError(t, db.Table(record.TableName()).Create(&stored).Error)
+	*record = shared.DBRecordToRelayRecord(stored)
 }
 
 func startPostgresHarness(ctx context.Context) (*dbHarness, error) {

@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/codesjoy/pkg/basic/xevent/outbox/debezium"
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
+	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -61,9 +63,7 @@ func (e *testEvent) UnmarshalPayload(data []byte) error {
 
 func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -86,7 +86,7 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 		}
 
 		var count int64
-		if err := tx.Model(&debezium.Record{}).Where("id = ?", appended.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&debezium.Record{}).Where("message_id = ?", appended.ID).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 1 {
@@ -102,7 +102,7 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 	}
 
 	var stored debezium.Record
-	if err := db.First(&stored, "id = ?", appended.ID).Error; err != nil {
+	if err := db.First(&stored, "message_id = ?", appended.ID).Error; err != nil {
 		t.Fatalf("First returned error: %v", err)
 	}
 	if stored.Topic != "orders" {
@@ -127,9 +127,7 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 
 func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -152,7 +150,7 @@ func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 	}
 
 	var stored debezium.Record
-	if err := db.First(&stored, "id = ?", record.ID).Error; err != nil {
+	if err := db.First(&stored, "message_id = ?", record.ID).Error; err != nil {
 		t.Fatalf("First returned error: %v", err)
 	}
 	if stored.Topic != "orders.direct" {
@@ -162,9 +160,7 @@ func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 
 func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB:                 db,
 		SessionFromContext: testTransactionFromContext,
@@ -200,9 +196,7 @@ func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 
 func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{
 		DB: db,
 		SessionFromContext: func(context.Context) *gorm.DB {
@@ -223,7 +217,7 @@ func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("id = ?", record.ID).Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).Where("message_id = ?", record.ID).Count(&count).Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 1 {
@@ -271,9 +265,7 @@ func TestGORMStoreAppendValidatesRequiredFields(t *testing.T) {
 
 func TestGORMStoreDeleteBefore(t *testing.T) {
 	db := openTestDB(t)
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
-		t.Fatalf("AutoMigrate returned error: %v", err)
-	}
+	autoMigrateTestSchema(t, db)
 	store, err := NewGORMStore(GORMStoreConfig{DB: db})
 	if err != nil {
 		t.Fatalf("NewGORMStore returned error: %v", err)
@@ -310,9 +302,7 @@ func TestGORMStoreDeleteBefore(t *testing.T) {
 		},
 	}
 	for i := range records {
-		if err := db.Create(&records[i]).Error; err != nil {
-			t.Fatalf("Create(%d) returned error: %v", i, err)
-		}
+		insertDebeziumRecord(t, db, &records[i])
 	}
 
 	deleted, err := store.DeleteBefore(context.Background(), now, 1)
@@ -324,7 +314,7 @@ func TestGORMStoreDeleteBefore(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("id = ?", "a").Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).Where("message_id = ?", "a").Count(&count).Error; err != nil {
 		t.Fatalf("Count(a) returned error: %v", err)
 	}
 	if count != 0 {
@@ -340,7 +330,7 @@ func TestGORMStoreDeleteBefore(t *testing.T) {
 	}
 
 	var remaining []string
-	if err := db.Model(&debezium.Record{}).Order("id ASC").Pluck("id", &remaining).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).Order("message_id ASC").Pluck("message_id", &remaining).Error; err != nil {
 		t.Fatalf("Pluck returned error: %v", err)
 	}
 	if len(remaining) != 1 || remaining[0] != "c" {
@@ -357,6 +347,138 @@ func TestGORMStoreDeleteBeforeRejectsInvalidLimit(t *testing.T) {
 
 	if _, err := store.DeleteBefore(context.Background(), time.Now(), 0); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestCutoverRelayBacklog(t *testing.T) {
+	db := openTestDB(t)
+	autoMigrateTestSchema(t, db)
+
+	now := time.Date(2026, 4, 11, 20, 0, 0, 0, time.UTC)
+	expired := now.Add(-time.Minute)
+	active := now.Add(time.Minute)
+
+	pending := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_pending",
+		PartitionKey: "order-1",
+		Payload:      []byte("pending"),
+		Topic:        "orders",
+		Status:       outbox.StatusPending,
+		AvailableAt:  now.Add(-time.Minute),
+	}
+	expiredSending := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_expired",
+		PartitionKey: "order-2",
+		Payload:      []byte("expired"),
+		Topic:        "orders",
+		Status:       outbox.StatusSending,
+		ClaimOwner:   "relay-old",
+		ClaimUntil:   &expired,
+		AvailableAt:  now.Add(-2 * time.Minute),
+	}
+	activeSending := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_active",
+		PartitionKey: "order-3",
+		Payload:      []byte("active"),
+		Topic:        "orders",
+		Status:       outbox.StatusSending,
+		ClaimOwner:   "relay-live",
+		ClaimUntil:   &active,
+		AvailableAt:  now.Add(-2 * time.Minute),
+	}
+	insertRelayRecord(t, db, &pending)
+	insertRelayRecord(t, db, &expiredSending)
+	insertRelayRecord(t, db, &activeSending)
+
+	moved, err := CutoverRelayBacklog(context.Background(), CutoverConfig{
+		DB:        db,
+		BatchSize: 10,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("CutoverRelayBacklog returned error: %v", err)
+	}
+	if moved != 2 {
+		t.Fatalf("expected 2 moved rows, got %d", moved)
+	}
+
+	var relayRows []shared.DBRecord
+	if err := db.Table((shared.DBRecord{}).TableName()).
+		Where("mode = ?", shared.ModeRelay).
+		Order("id ASC").
+		Find(&relayRows).Error; err != nil {
+		t.Fatalf("Find relay rows returned error: %v", err)
+	}
+	if len(relayRows) != 3 {
+		t.Fatalf("expected 3 relay rows, got %d", len(relayRows))
+	}
+	for _, row := range relayRows {
+		switch row.EventID {
+		case "evt_pending", "evt_expired":
+			if row.Status != string(outbox.StatusHandedOff) {
+				t.Fatalf("expected handed_off status for %s, got %q", row.EventID, row.Status)
+			}
+		case "evt_active":
+			if row.Status != string(outbox.StatusSending) {
+				t.Fatalf("expected active relay row to stay sending, got %q", row.Status)
+			}
+		}
+	}
+
+	var cdcRows []shared.DBRecord
+	if err := db.Table((shared.DBRecord{}).TableName()).
+		Where("mode = ?", shared.ModeCDC).
+		Order("handoff_from_id ASC").
+		Find(&cdcRows).Error; err != nil {
+		t.Fatalf("Find cdc rows returned error: %v", err)
+	}
+	if len(cdcRows) != 2 {
+		t.Fatalf("expected 2 cdc rows, got %d", len(cdcRows))
+	}
+	if cdcRows[0].HandoffFromID == nil || *cdcRows[0].HandoffFromID != pending.ID {
+		t.Fatalf("unexpected first handoff source: %#v", cdcRows[0].HandoffFromID)
+	}
+	if cdcRows[1].HandoffFromID == nil || *cdcRows[1].HandoffFromID != expiredSending.ID {
+		t.Fatalf("unexpected second handoff source: %#v", cdcRows[1].HandoffFromID)
+	}
+
+	moved, err = CutoverRelayBacklog(context.Background(), CutoverConfig{
+		DB:        db,
+		BatchSize: 10,
+		Now:       now,
+	})
+	if err != nil {
+		t.Fatalf("CutoverRelayBacklog(second) returned error: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("expected idempotent second cutover, got moved=%d", moved)
+	}
+}
+
+func TestCutoverRelayBacklogRejectsMissingTopic(t *testing.T) {
+	db := openTestDB(t)
+	autoMigrateTestSchema(t, db)
+
+	now := time.Date(2026, 4, 11, 21, 0, 0, 0, time.UTC)
+	record := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_missing_topic",
+		PartitionKey: "order-9",
+		Payload:      []byte("payload"),
+		Status:       outbox.StatusPending,
+		AvailableAt:  now.Add(-time.Minute),
+	}
+	insertRelayRecord(t, db, &record)
+
+	if _, err := CutoverRelayBacklog(context.Background(), CutoverConfig{
+		DB:        db,
+		BatchSize: 10,
+		Now:       now,
+	}); err == nil {
+		t.Fatal("expected missing topic error")
 	}
 }
 
@@ -411,4 +533,32 @@ func testWithTransaction(ctx context.Context, tx *gorm.DB) context.Context {
 func testTransactionFromContext(ctx context.Context) *gorm.DB {
 	tx, _ := ctx.Value(testTxContextKey{}).(*gorm.DB)
 	return tx
+}
+
+func autoMigrateTestSchema(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.AutoMigrate(&shared.DBRecord{}); err != nil {
+		t.Fatalf("AutoMigrate returned error: %v", err)
+	}
+}
+
+func insertDebeziumRecord(t *testing.T, db *gorm.DB, record *debezium.Record) {
+	t.Helper()
+	stored, err := shared.DebeziumRecordToDBRecord(*record, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DebeziumRecordToDBRecord returned error: %v", err)
+	}
+	if err := db.Table(record.TableName()).Create(&stored).Error; err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	*record = shared.DBRecordToDebeziumRecord(stored)
+}
+
+func insertRelayRecord(t *testing.T, db *gorm.DB, record *outbox.Record) {
+	t.Helper()
+	stored := shared.RelayRecordToDBRecord(*record, time.Now().UTC())
+	if err := db.Table(record.TableName()).Create(&stored).Error; err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	*record = shared.DBRecordToRelayRecord(stored)
 }

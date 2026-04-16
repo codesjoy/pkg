@@ -20,24 +20,44 @@ import (
 	"strings"
 	"time"
 
-	"github.com/codesjoy/pkg/basic/xevent"
 	"github.com/codesjoy/pkg/basic/xevent/outbox/debezium"
-	"github.com/google/uuid"
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
 	"gorm.io/gorm"
 )
 
+// defaultCutoverBatchSize is the number of records migrated per cutover
+// transaction when BatchSize is not set.
+const defaultCutoverBatchSize = 128
+
 // GORMStoreConfig configures the GORM-backed Debezium append-only store.
 type GORMStoreConfig struct {
-	DB                 *gorm.DB
-	TableName          string
+	// DB is the GORM database handle used for all operations.
+	DB *gorm.DB
+	// TableName overrides the default outbox table name when non-empty.
+	TableName string
+	// SessionFromContext optionally extracts a per-request GORM session from ctx.
 	SessionFromContext func(context.Context) *gorm.DB
 }
 
-// GORMStore persists Debezium outbox records through GORM.
+// CutoverConfig configures one relay backlog handoff into cdc rows.
+type CutoverConfig struct {
+	// DB is the GORM database handle used for the cutover operation.
+	DB *gorm.DB
+	// TableName overrides the default outbox table name when non-empty.
+	TableName string
+	// SessionFromContext optionally extracts a per-request GORM session from ctx.
+	SessionFromContext func(context.Context) *gorm.DB
+	// BatchSize limits how many records are migrated per transaction.
+	BatchSize int
+	// Now is the reference time for eligibility checks.
+	Now time.Time
+}
+
+// GORMStore persists Debezium outbox records through the shared store.
 type GORMStore struct {
-	db                 *gorm.DB
-	tableName          string
-	sessionFromContext func(context.Context) *gorm.DB
+	db        *gorm.DB
+	store     *shared.GORMStore
+	tableName string
 }
 
 var _ debezium.Store = (*GORMStore)(nil)
@@ -53,122 +73,102 @@ func NewGORMStore(cfg GORMStoreConfig) (*GORMStore, error) {
 		tableName = (debezium.Record{}).TableName()
 	}
 
+	store, err := shared.NewGORMStore(shared.GORMStoreConfig{
+		DB:                 cfg.DB,
+		TableName:          tableName,
+		SessionFromContext: cfg.SessionFromContext,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return &GORMStore{
-		db:                 cfg.DB,
-		tableName:          tableName,
-		sessionFromContext: cfg.SessionFromContext,
+		db:        cfg.DB,
+		store:     store,
+		tableName: tableName,
 	}, nil
 }
 
 // Append inserts one Debezium outbox row using the current GORM handle.
 func (s *GORMStore) Append(ctx context.Context, record *debezium.Record) error {
-	if record == nil {
-		return errors.New("xevent outbox debezium record is nil")
-	}
-	ctx = normalizeContext(ctx)
-
-	stored, err := prepareStoredRecord(*record, time.Now().UTC())
+	store, err := s.sharedStore()
 	if err != nil {
 		return err
 	}
-	if err := s.session(ctx).Table(s.tableName).Create(&stored).Error; err != nil {
-		return err
-	}
-	*record = cloneRecord(stored)
-	return nil
+	return store.AppendDebezium(ctx, record)
 }
 
 // DeleteBefore deletes up to limit rows whose created_at is older than cutoff.
 // It is intended for retention tasks only and must not be used as part of the
 // publish path.
 func (s *GORMStore) DeleteBefore(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
-	ctx = normalizeContext(ctx)
-	if limit <= 0 {
-		return 0, errors.New("xevent outbox debezium delete limit must be > 0")
+	store, err := s.sharedStore()
+	if err != nil {
+		return 0, err
 	}
-
-	cutoff = cutoff.UTC()
-	var deleted int64
-	err := s.session(ctx).Transaction(func(tx *gorm.DB) error {
-		var ids []string
-		if err := tx.Table(s.tableName).
-			Model(&debezium.Record{}).
-			Where("created_at < ?", cutoff).
-			Order("created_at ASC").
-			Order("id ASC").
-			Limit(limit).
-			Pluck("id", &ids).Error; err != nil {
-			return err
-		}
-		if len(ids) == 0 {
-			return nil
-		}
-
-		result := tx.Table(s.tableName).Where("id IN ?", ids).Delete(&debezium.Record{})
-		if result.Error != nil {
-			return result.Error
-		}
-		deleted = result.RowsAffected
-		return nil
-	})
-	return deleted, err
+	return store.DeleteDebeziumBefore(ctx, cutoff, limit)
 }
 
+// CutoverRelayBacklog inserts cdc rows for eligible relay backlog entries and
+// marks the source relay rows as handed off.
+func CutoverRelayBacklog(ctx context.Context, cfg CutoverConfig) (int64, error) {
+	if cfg.DB == nil {
+		return 0, errors.New("xevent outbox debezium gorm db is nil")
+	}
+
+	tableName := strings.TrimSpace(cfg.TableName)
+	if tableName == "" {
+		tableName = (debezium.Record{}).TableName()
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = defaultCutoverBatchSize
+	}
+
+	store, err := shared.NewGORMStore(shared.GORMStoreConfig{
+		DB:                 cfg.DB,
+		TableName:          tableName,
+		SessionFromContext: cfg.SessionFromContext,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return store.CutoverRelayBacklog(ctx, shared.CutoverRequest{
+		Now:       cfg.Now,
+		BatchSize: cfg.BatchSize,
+	})
+}
+
+// prepareStoredRecord converts a debezium Record through the shared DBRecord
+// layer and back, filling in defaults and normalising timestamps.
 func prepareStoredRecord(record debezium.Record, now time.Time) (debezium.Record, error) {
-	stored := cloneRecord(record)
-	if err := validateRecord(stored); err != nil {
+	stored, err := shared.DebeziumRecordToDBRecord(record, now)
+	if err != nil {
 		return debezium.Record{}, err
 	}
-	if strings.TrimSpace(stored.ID) == "" {
-		stored.ID = uuid.NewString()
-	}
-	if stored.CreatedAt.IsZero() {
-		stored.CreatedAt = now.UTC()
-	} else {
-		stored.CreatedAt = stored.CreatedAt.UTC()
-	}
-	return stored, nil
+	return shared.DBRecordToDebeziumRecord(stored), nil
 }
 
-func cloneRecord(record debezium.Record) debezium.Record {
-	cloned := record
-	cloned.Payload = cloneBytes(record.Payload)
-	if !record.CreatedAt.IsZero() {
-		cloned.CreatedAt = record.CreatedAt.UTC()
-	}
-	return cloned
-}
-
-func cloneBytes(src []byte) []byte {
-	if src == nil {
-		return nil
-	}
-	return append([]byte(nil), src...)
-}
-
+// normalizeContext delegates to shared.NormalizeContext.
 func normalizeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return context.Background()
-	}
-	return ctx
+	return shared.NormalizeContext(ctx)
 }
 
-func (s *GORMStore) session(ctx context.Context) *gorm.DB {
-	ctx = normalizeContext(ctx)
-	if s.sessionFromContext != nil {
-		if session := s.sessionFromContext(ctx); session != nil {
-			return session.WithContext(ctx)
-		}
+// sharedStore lazily initialises and returns the underlying shared.GORMStore.
+func (s *GORMStore) sharedStore() (*shared.GORMStore, error) {
+	if s.store != nil {
+		return s.store, nil
 	}
-	return s.db.WithContext(ctx)
-}
-
-func validateRecord(record debezium.Record) error {
-	if strings.TrimSpace(record.EventType) == "" {
-		return xevent.ErrEventTypeRequired
+	if s.db == nil {
+		return nil, errors.New("xevent outbox debezium gorm db is nil")
 	}
-	if strings.TrimSpace(record.Topic) == "" {
-		return debezium.ErrTopicRequired
+	store, err := shared.NewGORMStore(shared.GORMStoreConfig{
+		DB:        s.db,
+		TableName: s.tableName,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	s.store = store
+	return s.store, nil
 }

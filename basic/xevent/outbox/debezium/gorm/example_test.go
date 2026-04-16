@@ -59,7 +59,7 @@ func ExampleAppendEvent() {
 	if err != nil {
 		panic(err)
 	}
-	if err := db.AutoMigrate(&debezium.Record{}); err != nil {
+	if err := createExampleSchema(db); err != nil {
 		panic(err)
 	}
 
@@ -80,4 +80,33 @@ func ExampleAppendEvent() {
 
 	// Output:
 	// orders order.created
+}
+
+func createExampleSchema(db *gorm.DB) error {
+	return db.Exec(`
+CREATE TABLE xevent_outbox_records (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL,
+  handoff_from_id INTEGER NULL UNIQUE,
+  topic TEXT NOT NULL,
+  partition_key TEXT NOT NULL DEFAULT '',
+  event_type TEXT NOT NULL,
+  event_id TEXT NOT NULL DEFAULT '',
+  payload BLOB NOT NULL,
+  available_at DATETIME NOT NULL,
+  status TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  claim_owner TEXT NOT NULL DEFAULT '',
+  claim_until DATETIME NULL,
+  sent_at DATETIME NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+CREATE INDEX idx_xevent_outbox_mode_status_partition_available_id
+  ON xevent_outbox_records (mode, status, partition_key, available_at, id);
+CREATE INDEX idx_xevent_outbox_mode_created_at
+  ON xevent_outbox_records (mode, created_at);
+`).Error
 }

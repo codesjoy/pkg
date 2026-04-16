@@ -118,8 +118,8 @@ func TestGORMStoreClaimPostgresUsesReturningSQL(t *testing.T) {
 
 	mock.ExpectQuery(
 		regexp.QuoteMeta("WITH distinct_partitions AS (") +
-			`[\s\S]*` + regexp.QuoteMeta("WHERE status = 'pending'") +
-			`[\s\S]*` + regexp.QuoteMeta("WHERE status = 'sending'") +
+			`[\s\S]*` + regexp.QuoteMeta("WHERE mode = 'relay' AND status = 'pending'") +
+			`[\s\S]*` + regexp.QuoteMeta("WHERE mode = 'relay' AND status = 'sending'") +
 			`[\s\S]*` + regexp.QuoteMeta("LEFT JOIN LATERAL") +
 			`[\s\S]*` + regexp.QuoteMeta("RETURNING records.*"),
 	).

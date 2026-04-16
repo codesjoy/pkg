@@ -24,21 +24,27 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultTableName = "xevent_debezium_outbox_records"
+// defaultTableName is the physical table used when no override is provided.
+const defaultTableName = "xevent_outbox_records"
 
 // ErrTopicRequired indicates the final Kafka topic is missing.
 var ErrTopicRequired = errors.New("xevent outbox debezium topic is required")
 
 // Record is the append-only outbox row consumed by Debezium.
 type Record struct {
-	ID string `gorm:"primaryKey;size:36"`
+	// Identity: logical message identifier.
+	ID string `gorm:"column:message_id;size:36;not null;default:''"`
 
+	// Event metadata: describes the domain event and its routing.
 	Topic        string `gorm:"size:255;not null;index"`
 	PartitionKey string `gorm:"size:255;not null;default:''"`
 	EventType    string `gorm:"size:255;not null"`
 	EventID      string `gorm:"size:255;not null;default:''"`
-	Payload      []byte `gorm:"not null"`
 
+	// Payload: the serialised event body.
+	Payload []byte `gorm:"not null"`
+
+	// Timestamps: lifecycle milestones.
 	CreatedAt time.Time `gorm:"not null;index"`
 }
 
@@ -54,6 +60,7 @@ type Store interface {
 
 // AppendOptions configures Debezium outbox appends.
 type AppendOptions struct {
+	// Topic provides a fallback topic when the outbound does not carry one.
 	Topic string
 }
 
@@ -112,6 +119,8 @@ func NewRecord(outbound *xevent.Outbound, opts AppendOptions) (*Record, error) {
 	}, nil
 }
 
+// prepareStoredRecord deep-copies the record and fills in zero-valued fields
+// (ID, CreatedAt) with sensible defaults.
 func prepareStoredRecord(record Record, now time.Time) Record {
 	stored := cloneRecord(record)
 	if strings.TrimSpace(stored.ID) == "" {
@@ -125,6 +134,8 @@ func prepareStoredRecord(record Record, now time.Time) Record {
 	return stored
 }
 
+// cloneRecord returns a deep copy of the record with Payload duplicated and
+// timestamps normalised to UTC.
 func cloneRecord(record Record) Record {
 	cloned := record
 	cloned.Payload = cloneBytes(record.Payload)
@@ -134,6 +145,7 @@ func cloneRecord(record Record) Record {
 	return cloned
 }
 
+// cloneBytes returns a shallow-independent copy of src.
 func cloneBytes(src []byte) []byte {
 	if src == nil {
 		return nil

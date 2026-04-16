@@ -43,43 +43,72 @@ event, with the final Kafka topic already resolved before insert.
 
 ## Schema
 
-You can use GORM migrations, but the following SQL is suitable when schema
-changes are managed explicitly.
+`debeziumgorm` now writes cdc rows into the shared `xevent_outbox_records`
+table. cdc writes use `mode = 'cdc'`; relay-only runtime columns stay empty for
+those rows. Apply schema migrations before starting application code or the
+Debezium connector. The committed SQL templates live at:
+
+- [`../../examples/shared-postgres.sql`](../../examples/shared-postgres.sql)
+- [`../../examples/shared-mysql.sql`](../../examples/shared-mysql.sql)
 
 ### PostgreSQL
 
 ```sql
-CREATE TABLE xevent_debezium_outbox_records (
-  id VARCHAR(36) PRIMARY KEY,
+CREATE TABLE xevent_outbox_records (
+  id BIGSERIAL PRIMARY KEY,
+  message_id VARCHAR(36) NOT NULL DEFAULT '',
+  mode VARCHAR(16) NOT NULL,
+  handoff_from_id BIGINT NULL,
   topic VARCHAR(255) NOT NULL,
   partition_key VARCHAR(255) NOT NULL DEFAULT '',
   event_type VARCHAR(255) NOT NULL,
   event_id VARCHAR(255) NOT NULL DEFAULT '',
   payload BYTEA NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL
+  available_at TIMESTAMPTZ NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  claim_owner VARCHAR(255) NOT NULL DEFAULT '',
+  claim_until TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  CONSTRAINT idx_xevent_outbox_handoff_from_id UNIQUE (handoff_from_id)
 );
 
-CREATE INDEX idx_xevent_debezium_outbox_topic
-  ON xevent_debezium_outbox_records (topic);
+CREATE INDEX idx_xevent_outbox_mode_status_partition_available_id
+  ON xevent_outbox_records (mode, status, partition_key, available_at, id);
 
-CREATE INDEX idx_xevent_debezium_outbox_created_at
-  ON xevent_debezium_outbox_records (created_at);
+CREATE INDEX idx_xevent_outbox_mode_created_at
+  ON xevent_outbox_records (mode, created_at);
 ```
 
 ### MySQL
 
 ```sql
-CREATE TABLE xevent_debezium_outbox_records (
-  id VARCHAR(36) NOT NULL,
+CREATE TABLE xevent_outbox_records (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  message_id VARCHAR(36) NOT NULL DEFAULT '',
+  mode VARCHAR(16) NOT NULL,
+  handoff_from_id BIGINT UNSIGNED NULL,
   topic VARCHAR(255) NOT NULL,
   partition_key VARCHAR(255) NOT NULL DEFAULT '',
   event_type VARCHAR(255) NOT NULL,
   event_id VARCHAR(255) NOT NULL DEFAULT '',
   payload LONGBLOB NOT NULL,
+  available_at DATETIME(6) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT '',
+  attempts INT NOT NULL DEFAULT 0,
+  last_error LONGTEXT NULL,
+  claim_owner VARCHAR(255) NOT NULL DEFAULT '',
+  claim_until DATETIME(6) NULL,
+  sent_at DATETIME(6) NULL,
   created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
   PRIMARY KEY (id),
-  KEY idx_xevent_debezium_outbox_topic (topic),
-  KEY idx_xevent_debezium_outbox_created_at (created_at)
+  UNIQUE KEY idx_xevent_outbox_handoff_from_id (handoff_from_id),
+  KEY idx_xevent_outbox_mode_status_partition_available_id (mode, status, partition_key, available_at, id),
+  KEY idx_xevent_outbox_mode_created_at (mode, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
@@ -114,8 +143,8 @@ if txErr != nil {
 
 ## Retention
 
-`DeleteBefore` is a retention helper for old rows. It works with both MySQL and
-PostgreSQL, but it is not part of the publish path.
+`DeleteBefore` is a retention helper for old `mode = 'cdc'` rows only. It works
+with both MySQL and PostgreSQL, but it is not part of the publish path.
 
 ```go
 deleted, err := store.DeleteBefore(context.Background(), time.Now().Add(-24*time.Hour), 1000)
@@ -162,13 +191,13 @@ shape aligned with `xevent/kafka` as closely as Debezium allows:
     "database.sslmode": "disable",
     "topic.prefix": "app-db",
     "schema.include.list": "public",
-    "table.include.list": "public.xevent_debezium_outbox_records",
+    "table.include.list": "public.xevent_outbox_records",
     "publication.autocreate.mode": "filtered",
     "tombstones.on.delete": "false",
     "transforms": "outbox",
     "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
     "transforms.outbox.table.op.invalid.behavior": "fatal",
-    "transforms.outbox.table.field.event.id": "id",
+    "transforms.outbox.table.field.event.id": "message_id",
     "transforms.outbox.route.by.field": "topic",
     "transforms.outbox.route.topic.replacement": "${routedByValue}",
     "transforms.outbox.table.field.event.key": "partition_key",
@@ -184,6 +213,15 @@ shape aligned with `xevent/kafka` as closely as Debezium allows:
 The same template is committed at
 [`examples/postgres-connector.json`](./examples/postgres-connector.json).
 
+## Cutover Preconditions
+
+Before calling `debeziumgorm.CutoverRelayBacklog(...)`:
+
+1. Stop all relay workers.
+2. Wait at least one relay `ClaimTTL`.
+3. Run the cutover helper.
+4. Start the Debezium connector with the shared-table config shown above.
+
 ## Verify
 
 Automated:
@@ -195,7 +233,7 @@ go test -tags=e2e ./testing/e2e -v
 
 Manual:
 
-1. Confirm a row lands in `xevent_debezium_outbox_records`.
+1. Confirm a row lands in `xevent_outbox_records` with `mode = 'cdc'`.
 2. Confirm the row already contains the final `topic`.
 3. Start the PostgreSQL connector with an outbox-only table include list.
 4. Consume from the target Kafka topic and verify:

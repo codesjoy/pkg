@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codesjoy/pkg/basic/xevent/outbox/internal/shared"
 	outbox "github.com/codesjoy/pkg/basic/xevent/outbox/relay"
 	outboxgorm "github.com/codesjoy/pkg/basic/xevent/outbox/relay/gorm"
 	_ "github.com/go-sql-driver/mysql"
@@ -227,11 +228,15 @@ func TestGORMStoreAutoMigrateCreatesMinimalIndexesAcrossDialects(t *testing.T) {
 			indexes := outboxIndexes(t, db)
 			require.Equal(
 				t,
-				[]string{"status", "partition_key", "available_at", "id"},
-				indexes["idx_xevent_outbox_status_partition_available_id"],
+				[]string{"mode", "status", "partition_key", "available_at", "id"},
+				indexes["idx_xevent_outbox_mode_status_partition_available_id"],
 			)
+			require.Equal(t, []string{"mode", "created_at"}, indexes["idx_xevent_outbox_mode_created_at"])
+			require.Equal(t, []string{"handoff_from_id"}, indexes["idx_xevent_outbox_handoff_from_id"])
 
-			delete(indexes, "idx_xevent_outbox_status_partition_available_id")
+			delete(indexes, "idx_xevent_outbox_mode_status_partition_available_id")
+			delete(indexes, "idx_xevent_outbox_mode_created_at")
+			delete(indexes, "idx_xevent_outbox_handoff_from_id")
 			require.Empty(t, indexes)
 		})
 	}
@@ -275,7 +280,7 @@ func TestGORMStoreClaimReclaimsExpiredSendingAcrossDialects(t *testing.T) {
 				ClaimUntil:   &expired,
 				AvailableAt:  now.Add(-2 * time.Minute),
 			}
-			require.NoError(t, db.Create(&record).Error)
+			insertRelayRecord(t, db, &record)
 
 			store, err := outboxgorm.NewGORMStore(outboxgorm.GORMStoreConfig{
 				DB:      db,
@@ -527,15 +532,22 @@ func configureSQLDB(t *testing.T, db *gorm.DB) {
 
 func resetOutboxTable(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.Migrator().DropTable(&outbox.Record{}))
-	require.NoError(t, db.AutoMigrate(&outbox.Record{}))
+	require.NoError(t, db.Migrator().DropTable(&shared.DBRecord{}))
+	require.NoError(t, db.AutoMigrate(&shared.DBRecord{}))
 }
 
 func createRecords(t *testing.T, db *gorm.DB, records []outbox.Record) {
 	t.Helper()
 	for i := range records {
-		require.NoError(t, db.Create(&records[i]).Error)
+		insertRelayRecord(t, db, &records[i])
 	}
+}
+
+func insertRelayRecord(t *testing.T, db *gorm.DB, record *outbox.Record) {
+	t.Helper()
+	stored := shared.RelayRecordToDBRecord(*record, time.Now().UTC())
+	require.NoError(t, db.Table(record.TableName()).Create(&stored).Error)
+	*record = shared.DBRecordToRelayRecord(stored)
 }
 
 func recordTableName() string {
