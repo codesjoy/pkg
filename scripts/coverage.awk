@@ -20,13 +20,18 @@
     coverage = $NF
     gsub(/%/, "", coverage)
 
-    printf("test coverage is %s%% (quality gate is %s%%)\n", coverage, target)
+    prefix = ""
+    if (module != "") {
+        prefix = module " "
+    }
+
+    printf("%stest coverage is %s%% (quality gate is %s%%)\n", prefix, coverage, target)
 
     if (coverage + 0 < target + 0) {  # 强制转换为数字
-        printf("test coverage does not meet expectations: %d%%, please add test cases!\n", target)
+        printf("%stest coverage does not meet expectations: %d%%, please add test cases!\n", prefix, target)
         exit 1
     } else {
-        printf("test coverage passed!\n")
+        printf("%stest coverage passed!\n", prefix)
     }
     exit 0
 }

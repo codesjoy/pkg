@@ -393,7 +393,7 @@ go.test.coverage.check: | $(COVERAGE_DIR)
 			continue; \
 		fi; \
 		cd "$(ROOT_DIR)/$$module" && GOWORK=off $(GO) tool cover -func=$$profile_file | grep -E "^total:" | \
-		awk -v target=$(COVERAGE) -f $(ROOT_DIR)/scripts/coverage.awk || exit 1; \
+		awk -v target=$(COVERAGE) -v module="$$module" -f $(ROOT_DIR)/scripts/coverage.awk || exit 1; \
 	done
 	@$(LOG_SUCCESS) "Coverage quality gate passed!"
 
