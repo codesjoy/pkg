@@ -89,11 +89,112 @@ func TestSyncProducerSenderSendBatchReportCanceledBeforeStart(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-type fakeSyncProducer struct {
-	sendMessagesFn func([]*ibmsarama.ProducerMessage) error
+func TestNewSyncProducerSenderUsesInjectedProducer(t *testing.T) {
+	producer := &fakeSyncProducer{}
+
+	sender, err := NewSyncProducerSender(SyncProducerConfig{Producer: producer})
+	require.NoError(t, err)
+	require.Same(t, producer, sender.producer)
+	require.False(t, sender.owned)
 }
 
-func (f *fakeSyncProducer) SendMessage(_ *ibmsarama.ProducerMessage) (int32, int64, error) {
+func TestNewSyncProducerSenderRejectsMissingBrokers(t *testing.T) {
+	sender, err := NewSyncProducerSender(SyncProducerConfig{})
+	require.Nil(t, sender)
+	require.EqualError(t, err, "brokers are required when sync producer is nil")
+}
+
+func TestSyncProducerSenderSendValidatesInputs(t *testing.T) {
+	result, err := (*SyncProducerSender)(nil).Send(context.Background(), &produce.Message{})
+	require.Nil(t, result)
+	require.EqualError(t, err, "sync producer is not configured")
+
+	sender := &SyncProducerSender{producer: &fakeSyncProducer{}}
+	result, err = sender.Send(context.Background(), nil)
+	require.Nil(t, result)
+	require.EqualError(t, err, "producer message is nil")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err = sender.Send(ctx, &produce.Message{Topic: "orders"})
+	require.Nil(t, result)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestSyncProducerSenderSend(t *testing.T) {
+	now := time.Date(2026, 4, 11, 11, 0, 0, 0, time.UTC)
+	producer := &fakeSyncProducer{
+		sendMessageFn: func(msg *ibmsarama.ProducerMessage) (int32, int64, error) {
+			require.Equal(t, "orders", msg.Topic)
+			key, err := msg.Key.Encode()
+			require.NoError(t, err)
+			require.Equal(t, []byte("order-1"), key)
+			value, err := msg.Value.Encode()
+			require.NoError(t, err)
+			require.Equal(t, []byte("payload"), value)
+			require.Equal(t, now, msg.Timestamp)
+			require.Len(t, msg.Headers, 1)
+			return 3, 42, nil
+		},
+	}
+	sender := &SyncProducerSender{producer: producer}
+
+	result, err := sender.Send(context.Background(), &produce.Message{
+		Topic:     "orders",
+		Key:       []byte("order-1"),
+		Value:     []byte("payload"),
+		Timestamp: now,
+		Headers: []ibmsarama.RecordHeader{{
+			Key:   []byte("trace"),
+			Value: []byte("abc"),
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "orders", result.Topic)
+	require.Equal(t, int32(3), result.Partition)
+	require.Equal(t, int64(42), result.Offset)
+	require.Equal(t, now, result.Timestamp)
+	require.NotNil(t, producer.lastMessage)
+}
+
+func TestSyncProducerSenderSendWrapsProducerError(t *testing.T) {
+	sender := &SyncProducerSender{
+		producer: &fakeSyncProducer{
+			sendMessageFn: func(*ibmsarama.ProducerMessage) (int32, int64, error) {
+				return 0, 0, errors.New("broker down")
+			},
+		},
+	}
+
+	result, err := sender.Send(context.Background(), &produce.Message{Topic: "orders"})
+	require.Nil(t, result)
+	require.EqualError(t, err, "send message: broker down")
+}
+
+func TestSyncProducerSenderCloseOnlyOwnedProducer(t *testing.T) {
+	producer := &fakeSyncProducer{}
+	require.NoError(t, (&SyncProducerSender{producer: producer}).Close())
+	require.Equal(t, 0, producer.closeCalls)
+
+	sender := &SyncProducerSender{producer: producer, owned: true}
+	require.NoError(t, sender.Close())
+	require.Equal(t, 1, producer.closeCalls)
+}
+
+type fakeSyncProducer struct {
+	sendMessageFn  func(*ibmsarama.ProducerMessage) (int32, int64, error)
+	sendMessagesFn func([]*ibmsarama.ProducerMessage) error
+	closeFn        func() error
+	lastMessage    *ibmsarama.ProducerMessage
+	closeCalls     int
+}
+
+func (f *fakeSyncProducer) SendMessage(msg *ibmsarama.ProducerMessage) (int32, int64, error) {
+	f.lastMessage = msg
+	if f.sendMessageFn != nil {
+		return f.sendMessageFn(msg)
+	}
 	return 0, 0, nil
 }
 
@@ -104,7 +205,13 @@ func (f *fakeSyncProducer) SendMessages(msgs []*ibmsarama.ProducerMessage) error
 	return nil
 }
 
-func (*fakeSyncProducer) Close() error { return nil }
+func (f *fakeSyncProducer) Close() error {
+	f.closeCalls++
+	if f.closeFn != nil {
+		return f.closeFn()
+	}
+	return nil
+}
 
 func (*fakeSyncProducer) TxnStatus() ibmsarama.ProducerTxnStatusFlag { return 0 }
 
