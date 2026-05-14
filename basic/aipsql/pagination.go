@@ -16,16 +16,16 @@
 //
 // This file implements two pagination strategies:
 //
-// 1. Seek (cursor) pagination — Uses lexicographic comparison on ORDER BY columns
-//    to jump directly to the next page. More efficient for large datasets because
-//    it leverages database indexes instead of skipping rows.
+//  1. Seek (cursor) pagination — Uses lexicographic comparison on ORDER BY columns
+//     to jump directly to the next page. More efficient for large datasets because
+//     it leverages database indexes instead of skipping rows.
 //
-//    Example generated SQL for ORDER BY created_at DESC, id DESC:
-//      WHERE (created_at < @seek_cmp_0)
-//         OR (created_at = @seek_eq_0 AND id < @seek_cmp_1)
+//     Example generated SQL for ORDER BY created_at DESC, id DESC:
+//     WHERE (created_at < @seek_cmp_0)
+//     OR (created_at = @seek_eq_0 AND id < @seek_cmp_1)
 //
-// 2. Offset pagination — Uses traditional LIMIT/OFFSET. Simpler but degrades
-//    with large offsets because the database must scan and discard preceding rows.
+//  2. Offset pagination — Uses traditional LIMIT/OFFSET. Simpler but degrades
+//     with large offsets because the database must scan and discard preceding rows.
 //
 // Page tokens are opaque strings: seek tokens use URL-safe base64-encoded JSON,
 // offset tokens are plain decimal integers.

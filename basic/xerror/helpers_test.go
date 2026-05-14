@@ -84,8 +84,16 @@ func TestCanonicalWrapHelpers(t *testing.T) {
 		{name: "WrapNotFound", fn: WrapNotFound, code: code.Code_NOT_FOUND},
 		{name: "WrapAlreadyExists", fn: WrapAlreadyExists, code: code.Code_ALREADY_EXISTS},
 		{name: "WrapPermissionDenied", fn: WrapPermissionDenied, code: code.Code_PERMISSION_DENIED},
-		{name: "WrapResourceExhausted", fn: WrapResourceExhausted, code: code.Code_RESOURCE_EXHAUSTED},
-		{name: "WrapFailedPrecondition", fn: WrapFailedPrecondition, code: code.Code_FAILED_PRECONDITION},
+		{
+			name: "WrapResourceExhausted",
+			fn:   WrapResourceExhausted,
+			code: code.Code_RESOURCE_EXHAUSTED,
+		},
+		{
+			name: "WrapFailedPrecondition",
+			fn:   WrapFailedPrecondition,
+			code: code.Code_FAILED_PRECONDITION,
+		},
 		{name: "WrapAborted", fn: WrapAborted, code: code.Code_ABORTED},
 		{name: "WrapOutOfRange", fn: WrapOutOfRange, code: code.Code_OUT_OF_RANGE},
 		{name: "WrapUnimplemented", fn: WrapUnimplemented, code: code.Code_UNIMPLEMENTED},
