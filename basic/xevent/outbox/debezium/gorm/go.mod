@@ -4,9 +4,8 @@ go 1.25.7
 
 require (
 	github.com/IBM/sarama v1.46.3
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260411093916-410ede6f4c84
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260416080825-edb1025a75ee
 	github.com/docker/docker v28.5.1+incompatible
-	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
@@ -41,6 +40,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260411093916-410ede6f4c84
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260416080825-edb1025a75ee
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/stretchr/testify v1.11.1

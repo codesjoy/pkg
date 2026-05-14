@@ -231,8 +231,16 @@ func TestGORMStoreAutoMigrateCreatesMinimalIndexesAcrossDialects(t *testing.T) {
 				[]string{"mode", "status", "partition_key", "available_at", "id"},
 				indexes["idx_xevent_outbox_mode_status_partition_available_id"],
 			)
-			require.Equal(t, []string{"mode", "created_at"}, indexes["idx_xevent_outbox_mode_created_at"])
-			require.Equal(t, []string{"handoff_from_id"}, indexes["idx_xevent_outbox_handoff_from_id"])
+			require.Equal(
+				t,
+				[]string{"mode", "created_at"},
+				indexes["idx_xevent_outbox_mode_created_at"],
+			)
+			require.Equal(
+				t,
+				[]string{"handoff_from_id"},
+				indexes["idx_xevent_outbox_handoff_from_id"],
+			)
 
 			delete(indexes, "idx_xevent_outbox_mode_status_partition_available_id")
 			delete(indexes, "idx_xevent_outbox_mode_created_at")
@@ -615,7 +623,9 @@ func mySQLOutboxIndexes(t *testing.T, db *gorm.DB) map[string][]string {
 	var rows []indexRow
 	require.NoError(
 		t,
-		db.Raw(fmt.Sprintf("SHOW INDEX FROM %s", quotedTable(db, recordTableName()))).Scan(&rows).Error,
+		db.Raw(fmt.Sprintf("SHOW INDEX FROM %s", quotedTable(db, recordTableName()))).
+			Scan(&rows).
+			Error,
 	)
 
 	got := make(map[string][]string)

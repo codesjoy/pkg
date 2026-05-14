@@ -112,7 +112,10 @@ func (s *GORMStore) AppendRelay(ctx context.Context, record *outbox.Record) erro
 
 // ClaimRelay reserves one batch of eligible relay records ordered by
 // available_at then id, using the dialect-appropriate locking strategy.
-func (s *GORMStore) ClaimRelay(ctx context.Context, req outbox.ClaimRequest) ([]outbox.Record, error) {
+func (s *GORMStore) ClaimRelay(
+	ctx context.Context,
+	req outbox.ClaimRequest,
+) ([]outbox.Record, error) {
 	ctx = NormalizeContext(ctx)
 
 	req, err := normalizeRelayClaimRequest(req)
@@ -254,7 +257,11 @@ func (s *GORMStore) AppendDebezium(ctx context.Context, record *debezium.Record)
 
 // DeleteDebeziumBefore deletes up to limit CDC rows whose created_at is older
 // than cutoff, returning the number of rows deleted.
-func (s *GORMStore) DeleteDebeziumBefore(ctx context.Context, cutoff time.Time, limit int) (int64, error) {
+func (s *GORMStore) DeleteDebeziumBefore(
+	ctx context.Context,
+	cutoff time.Time,
+	limit int,
+) (int64, error) {
 	ctx = NormalizeContext(ctx)
 	if limit <= 0 {
 		return 0, errors.New("xevent outbox debezium delete limit must be > 0")
@@ -277,7 +284,9 @@ func (s *GORMStore) DeleteDebeziumBefore(ctx context.Context, cutoff time.Time, 
 			return nil
 		}
 
-		result := tx.Table(s.tableName).Where("mode = ? AND id IN ?", ModeCDC, ids).Delete(&DBRecord{})
+		result := tx.Table(s.tableName).
+			Where("mode = ? AND id IN ?", ModeCDC, ids).
+			Delete(&DBRecord{})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -652,7 +661,11 @@ RETURNING records.*`,
 }
 
 // selectClaimCandidates executes raw SQL and scans the result into DBRecords.
-func (s *GORMStore) selectClaimCandidates(tx *gorm.DB, sqlText string, args ...any) ([]DBRecord, error) {
+func (s *GORMStore) selectClaimCandidates(
+	tx *gorm.DB,
+	sqlText string,
+	args ...any,
+) ([]DBRecord, error) {
 	candidates := make([]DBRecord, 0)
 	if err := tx.Raw(sqlText, args...).Scan(&candidates).Error; err != nil {
 		return nil, err

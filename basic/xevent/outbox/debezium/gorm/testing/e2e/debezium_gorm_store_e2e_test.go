@@ -568,7 +568,10 @@ func registerRunningConnector(t *testing.T) string {
 
 	connectorName := uniqueName("connector")
 	historyTopic := uniqueName("schema_history")
-	require.NoError(t, createCompactedTopicWithContext(context.Background(), e2eHarness.brokers, historyTopic, 1))
+	require.NoError(
+		t,
+		createCompactedTopicWithContext(context.Background(), e2eHarness.brokers, historyTopic, 1),
+	)
 
 	cfg := map[string]string{
 		"connector.class":             "io.debezium.connector.postgresql.PostgresConnector",
@@ -620,7 +623,11 @@ func registerConnector(t *testing.T, name string, cfg map[string]string) {
 	data, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	req, err := http.NewRequest(http.MethodPost, e2eHarness.connectURL+"/connectors", bytes.NewReader(data))
+	req, err := http.NewRequest(
+		http.MethodPost,
+		e2eHarness.connectURL+"/connectors",
+		bytes.NewReader(data),
+	)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -630,7 +637,12 @@ func registerConnector(t *testing.T, name string, cfg map[string]string) {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
 		payload, _ := io.ReadAll(resp.Body)
-		t.Fatalf("register connector %s failed: status=%d body=%s", name, resp.StatusCode, strings.TrimSpace(string(payload)))
+		t.Fatalf(
+			"register connector %s failed: status=%d body=%s",
+			name,
+			resp.StatusCode,
+			strings.TrimSpace(string(payload)),
+		)
 	}
 }
 
@@ -662,7 +674,12 @@ func waitForConnectorRunning(t *testing.T, name string) {
 			if err != nil {
 				t.Fatalf("timed out waiting for connector %s: %v", name, err)
 			}
-			t.Fatalf("timed out waiting for connector %s to be running: connector=%s tasks=%v", name, status.Connector.State, status.Tasks)
+			t.Fatalf(
+				"timed out waiting for connector %s to be running: connector=%s tasks=%v",
+				name,
+				status.Connector.State,
+				status.Tasks,
+			)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -681,7 +698,12 @@ func deleteConnector(t *testing.T, name string) {
 
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
 		payload, _ := io.ReadAll(resp.Body)
-		t.Fatalf("delete connector %s failed: status=%d body=%s", name, resp.StatusCode, strings.TrimSpace(string(payload)))
+		t.Fatalf(
+			"delete connector %s failed: status=%d body=%s",
+			name,
+			resp.StatusCode,
+			strings.TrimSpace(string(payload)),
+		)
 	}
 }
 
@@ -701,7 +723,11 @@ type connectorTaskStatus struct {
 
 func connectorStatus(name string) (connectorStatusResponse, error) {
 	var status connectorStatusResponse
-	req, err := http.NewRequest(http.MethodGet, e2eHarness.connectURL+"/connectors/"+name+"/status", nil)
+	req, err := http.NewRequest(
+		http.MethodGet,
+		e2eHarness.connectURL+"/connectors/"+name+"/status",
+		nil,
+	)
 	if err != nil {
 		return status, err
 	}
@@ -714,7 +740,11 @@ func connectorStatus(name string) (connectorStatusResponse, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(resp.Body)
-		return status, fmt.Errorf("status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(payload)))
+		return status, fmt.Errorf(
+			"status=%d body=%s",
+			resp.StatusCode,
+			strings.TrimSpace(string(payload)),
+		)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
@@ -726,14 +756,27 @@ func connectorStatus(name string) (connectorStatusResponse, error) {
 func createTopic(t *testing.T, topic string, partitions int32) {
 	t.Helper()
 	require.NotNil(t, e2eHarness)
-	require.NoError(t, createTopicWithContext(context.Background(), e2eHarness.brokers, topic, partitions))
+	require.NoError(
+		t,
+		createTopicWithContext(context.Background(), e2eHarness.brokers, topic, partitions),
+	)
 }
 
-func createTopicWithContext(ctx context.Context, brokers []string, topic string, partitions int32) error {
+func createTopicWithContext(
+	ctx context.Context,
+	brokers []string,
+	topic string,
+	partitions int32,
+) error {
 	return createTopicWithConfig(ctx, brokers, topic, partitions, nil)
 }
 
-func createCompactedTopicWithContext(ctx context.Context, brokers []string, topic string, partitions int32) error {
+func createCompactedTopicWithContext(
+	ctx context.Context,
+	brokers []string,
+	topic string,
+	partitions int32,
+) error {
 	value := "compact"
 	return createTopicWithConfig(ctx, brokers, topic, partitions, map[string]*string{
 		"cleanup.policy": &value,
@@ -842,7 +885,12 @@ func assertNoMessage(t *testing.T, topic string, timeout time.Duration) {
 
 	select {
 	case msg := <-partitionConsumer.Messages():
-		t.Fatalf("expected no kafka message on topic %s, got key=%q value=%q", topic, string(msg.Key), string(msg.Value))
+		t.Fatalf(
+			"expected no kafka message on topic %s, got key=%q value=%q",
+			topic,
+			string(msg.Key),
+			string(msg.Value),
+		)
 	case err := <-partitionConsumer.Errors():
 		t.Fatalf("consume topic %s failed: %v", topic, err)
 	case <-time.After(timeout):

@@ -45,9 +45,9 @@ const (
 // DBRecord is the shared physical outbox row.
 type DBRecord struct {
 	// Identity: auto-incremented primary key and logical identifiers.
-	ID            uint64 `gorm:"primaryKey;autoIncrement;index:idx_xevent_outbox_mode_status_partition_available_id,priority:5"`
-	MessageID     string `gorm:"column:message_id;size:36;not null;default:''"`
-	Mode          Mode   `gorm:"type:varchar(16);not null;index:idx_xevent_outbox_mode_status_partition_available_id,priority:1;index:idx_xevent_outbox_mode_created_at,priority:1"`
+	ID            uint64  `gorm:"primaryKey;autoIncrement;index:idx_xevent_outbox_mode_status_partition_available_id,priority:5"`
+	MessageID     string  `gorm:"column:message_id;size:36;not null;default:''"`
+	Mode          Mode    `gorm:"type:varchar(16);not null;index:idx_xevent_outbox_mode_status_partition_available_id,priority:1;index:idx_xevent_outbox_mode_created_at,priority:1"`
 	HandoffFromID *uint64 `gorm:"uniqueIndex:idx_xevent_outbox_handoff_from_id"`
 
 	// Event metadata: describes the domain event carried by this row.

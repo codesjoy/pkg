@@ -61,6 +61,19 @@ func (e *testEvent) UnmarshalPayload(data []byte) error {
 	return json.Unmarshal(data, e)
 }
 
+func TestNewGORMStoreRejectsNilDB(t *testing.T) {
+	store, err := NewGORMStore(GORMStoreConfig{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if store != nil {
+		t.Fatalf("expected nil store, got %#v", store)
+	}
+	if err.Error() != "xevent outbox debezium gorm db is nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 	db := openTestDB(t)
 	autoMigrateTestSchema(t, db)
@@ -222,6 +235,52 @@ func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected fallback write, got count=%d", count)
+	}
+}
+
+func TestGORMStoreAppendLazilyInitializesSharedStore(t *testing.T) {
+	db := openTestDB(t)
+	autoMigrateTestSchema(t, db)
+	store := &GORMStore{db: db}
+
+	record := debezium.Record{
+		Topic:        "orders",
+		PartitionKey: "order-1",
+		EventType:    "order.created",
+		EventID:      "evt_lazy",
+		Payload:      []byte("payload"),
+	}
+	if err := store.Append(context.Background(), &record); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+	if store.store == nil {
+		t.Fatal("expected shared store to be initialized")
+	}
+	if record.ID == "" {
+		t.Fatal("expected generated record id")
+	}
+
+	var count int64
+	if err := db.Model(&debezium.Record{}).Where("message_id = ?", record.ID).Count(&count).Error; err != nil {
+		t.Fatalf("Count returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected inserted row, got count=%d", count)
+	}
+}
+
+func TestGORMStoreAppendRejectsNilDBDuringLazyInit(t *testing.T) {
+	store := &GORMStore{}
+	err := store.Append(context.Background(), &debezium.Record{
+		Topic:     "orders",
+		EventType: "order.created",
+		Payload:   []byte("payload"),
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "xevent outbox debezium gorm db is nil" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -458,6 +517,60 @@ func TestCutoverRelayBacklog(t *testing.T) {
 	}
 }
 
+func TestCutoverRelayBacklogRejectsNilDB(t *testing.T) {
+	moved, err := CutoverRelayBacklog(context.Background(), CutoverConfig{})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if moved != 0 {
+		t.Fatalf("expected 0 moved rows, got %d", moved)
+	}
+	if err.Error() != "xevent outbox debezium gorm db is nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCutoverRelayBacklogUsesDefaultBatchSize(t *testing.T) {
+	db := openTestDB(t)
+	autoMigrateTestSchema(t, db)
+
+	now := time.Date(2026, 4, 11, 22, 0, 0, 0, time.UTC)
+	record := outbox.Record{
+		EventType:    "order.created",
+		EventID:      "evt_default_batch",
+		PartitionKey: "order-default",
+		Payload:      []byte("payload"),
+		Topic:        "orders",
+		Status:       outbox.StatusPending,
+		AvailableAt:  now.Add(-time.Minute),
+	}
+	insertRelayRecord(t, db, &record)
+
+	moved, err := CutoverRelayBacklog(context.Background(), CutoverConfig{
+		DB:  db,
+		Now: now,
+	})
+	if err != nil {
+		t.Fatalf("CutoverRelayBacklog returned error: %v", err)
+	}
+	if moved != 1 {
+		t.Fatalf("expected 1 moved row, got %d", moved)
+	}
+
+	var cdcRows []shared.DBRecord
+	if err := db.Table((shared.DBRecord{}).TableName()).
+		Where("mode = ?", shared.ModeCDC).
+		Find(&cdcRows).Error; err != nil {
+		t.Fatalf("Find cdc rows returned error: %v", err)
+	}
+	if len(cdcRows) != 1 {
+		t.Fatalf("expected 1 cdc row, got %d", len(cdcRows))
+	}
+	if cdcRows[0].HandoffFromID == nil || *cdcRows[0].HandoffFromID != record.ID {
+		t.Fatalf("unexpected handoff source: %#v", cdcRows[0].HandoffFromID)
+	}
+}
+
 func TestCutoverRelayBacklogRejectsMissingTopic(t *testing.T) {
 	db := openTestDB(t)
 	autoMigrateTestSchema(t, db)
@@ -479,6 +592,16 @@ func TestCutoverRelayBacklogRejectsMissingTopic(t *testing.T) {
 		Now:       now,
 	}); err == nil {
 		t.Fatal("expected missing topic error")
+	}
+}
+
+func TestPrepareStoredRecordRejectsMissingTopic(t *testing.T) {
+	_, err := prepareStoredRecord(debezium.Record{
+		EventType: "order.created",
+		Payload:   []byte("payload"),
+	}, time.Now())
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }
 
