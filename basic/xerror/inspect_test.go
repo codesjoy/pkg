@@ -22,6 +22,24 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
+type testCodeCarrier struct {
+	code code.Code
+}
+
+func (e *testCodeCarrier) Error() string   { return "code carrier" }
+func (e *testCodeCarrier) Code() code.Code { return e.code }
+
+type testReasonCarrier struct {
+	reason   string
+	domain   string
+	metadata map[string]string
+}
+
+func (e *testReasonCarrier) Error() string               { return "reason carrier" }
+func (e *testReasonCarrier) Reason() string              { return e.reason }
+func (e *testReasonCarrier) Domain() string              { return e.domain }
+func (e *testReasonCarrier) Metadata() map[string]string { return e.metadata }
+
 func TestIsCode(t *testing.T) {
 	base := Wrap(errors.New("boom"), code.Code_INTERNAL, "")
 	wrapped := fmt.Errorf("wrapped: %w", base)
@@ -103,6 +121,25 @@ func TestCodeOf(t *testing.T) {
 	}
 }
 
+func TestCodeOfCarrier(t *testing.T) {
+	carrier := &testCodeCarrier{code: code.Code_NOT_FOUND}
+	wrapped := fmt.Errorf("wrapped: %w", carrier)
+
+	gotCode, ok := CodeOf(wrapped)
+	if !ok || gotCode != code.Code_NOT_FOUND {
+		t.Fatalf("unexpected carrier code: code=%v ok=%v", gotCode, ok)
+	}
+	if !IsCode(wrapped, code.Code_NOT_FOUND) {
+		t.Fatal("expected IsCode to match CodeCarrier")
+	}
+
+	var typedNil *testCodeCarrier
+	var err error = typedNil
+	if _, ok := CodeOf(err); ok {
+		t.Fatal("expected CodeOf to reject typed-nil CodeCarrier")
+	}
+}
+
 func TestReasonOf(t *testing.T) {
 	base := WrapWithReason(
 		errors.New("boom"),
@@ -144,6 +181,51 @@ func TestReasonOf(t *testing.T) {
 	_, _, _, ok = ReasonOf(errors.New("standard error"))
 	if ok {
 		t.Fatal("expected ReasonOf to fail for non-xerror")
+	}
+}
+
+func TestReasonOfCarrier(t *testing.T) {
+	carrier := &testReasonCarrier{
+		reason:   "USER_NOT_FOUND",
+		domain:   "user.v1",
+		metadata: map[string]string{"user_id": "42"},
+	}
+	wrapped := fmt.Errorf("wrapped: %w", carrier)
+	target := &testReason{
+		reason: "USER_NOT_FOUND",
+		domain: "user.v1",
+		code:   code.Code_NOT_FOUND,
+	}
+
+	reason, domain, metadata, ok := ReasonOf(wrapped)
+	if !ok || reason != target.Reason() || domain != target.Domain() {
+		t.Fatalf(
+			"unexpected carrier reason: reason=%q domain=%q ok=%v",
+			reason,
+			domain,
+			ok,
+		)
+	}
+	if !IsReason(wrapped, target) {
+		t.Fatal("expected IsReason to match ReasonCarrier")
+	}
+
+	metadata["user_id"] = "changed"
+	if carrier.metadata["user_id"] != "42" {
+		t.Fatalf("carrier metadata was mutated: %#v", carrier.metadata)
+	}
+
+	if _, ok := CodeOf(wrapped); ok {
+		t.Fatal("reason-only carrier must not satisfy CodeCarrier")
+	}
+	if _, _, _, ok := ReasonOf(&testCodeCarrier{}); ok {
+		t.Fatal("code-only carrier must not satisfy ReasonCarrier")
+	}
+
+	var typedNil *testReasonCarrier
+	var err error = typedNil
+	if _, _, _, ok := ReasonOf(err); ok {
+		t.Fatal("expected ReasonOf to reject typed-nil ReasonCarrier")
 	}
 }
 

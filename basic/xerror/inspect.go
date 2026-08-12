@@ -20,60 +20,68 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/code"
 )
 
-// IsCode reports whether err (or wrapped err) is Error with target code.
+// IsCode reports whether err or a wrapped error carries target code.
 func IsCode(err error, target code.Code) bool {
-	e, ok := asError(err)
+	carrier, ok := asCodeCarrier(err)
 	if !ok {
 		return false
 	}
-	return e.Code() == target
+	return carrier.Code() == target
 }
 
-// IsReason reports whether err (or wrapped err) is Error with target reason.
+// IsReason reports whether err or a wrapped error carries target reason.
 func IsReason(err error, target Reason) bool {
 	if isNilReason(target) {
 		return false
 	}
 
-	e, ok := asError(err)
+	carrier, ok := asReasonCarrier(err)
 	if !ok {
 		return false
 	}
 
-	return e.Reason() == target.Reason() && e.Domain() == target.Domain()
+	return carrier.Reason() == target.Reason() && carrier.Domain() == target.Domain()
 }
 
-// CodeOf returns code from err when it carries Error.
+// CodeOf returns the canonical code carried by err or a wrapped error.
 func CodeOf(err error) (code.Code, bool) {
-	e, ok := asError(err)
+	carrier, ok := asCodeCarrier(err)
 	if !ok {
 		return code.Code_UNKNOWN, false
 	}
-	return e.Code(), true
+	return carrier.Code(), true
 }
 
-// ReasonOf returns reason payload from err when it carries Error and reason.
+// ReasonOf returns reason metadata carried by err or a wrapped error.
 func ReasonOf(err error) (reason string, domain string, metadata map[string]string, ok bool) {
-	e, ok := asError(err)
+	carrier, ok := asReasonCarrier(err)
 	if !ok {
 		return "", "", nil, false
 	}
-	if e.Reason() == "" {
+	if carrier.Reason() == "" {
 		return "", "", nil, false
 	}
-	return e.Reason(), e.Domain(), e.Metadata(), true
+	return carrier.Reason(), carrier.Domain(), cloneMetadata(carrier.Metadata()), true
 }
 
-func asError(err error) (*Error, bool) {
+func asCodeCarrier(err error) (CodeCarrier, bool) {
 	if err == nil {
 		return nil, false
 	}
-	var e *Error
-	if !errors.As(err, &e) {
+	var carrier CodeCarrier
+	if !errors.As(err, &carrier) || isNilCarrier(carrier) {
 		return nil, false
 	}
-	if e == nil {
+	return carrier, true
+}
+
+func asReasonCarrier(err error) (ReasonCarrier, bool) {
+	if err == nil {
 		return nil, false
 	}
-	return e, true
+	var carrier ReasonCarrier
+	if !errors.As(err, &carrier) || isNilCarrier(carrier) {
+		return nil, false
+	}
+	return carrier, true
 }

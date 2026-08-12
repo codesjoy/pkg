@@ -29,6 +29,18 @@ type Reason interface {
 	Code() code.Code
 }
 
+// CodeCarrier is implemented by errors that expose a canonical code.
+type CodeCarrier interface {
+	Code() code.Code
+}
+
+// ReasonCarrier is implemented by errors that expose domain reason metadata.
+type ReasonCarrier interface {
+	Reason() string
+	Domain() string
+	Metadata() map[string]string
+}
+
 // Error is a domain error carrying canonical code and optional reason metadata.
 type Error struct {
 	code     code.Code
@@ -38,6 +50,11 @@ type Error struct {
 	metadata map[string]string
 	cause    error
 }
+
+var (
+	_ CodeCarrier   = (*Error)(nil)
+	_ ReasonCarrier = (*Error)(nil)
+)
 
 // New creates a new Error with canonical code and message.
 func New(c code.Code, message string) *Error {
@@ -153,11 +170,15 @@ func cloneMetadata(src map[string]string) map[string]string {
 }
 
 func isNilReason(r Reason) bool {
-	if r == nil {
+	return isNilCarrier(r)
+}
+
+func isNilCarrier(carrier any) bool {
+	if carrier == nil {
 		return true
 	}
 
-	v := reflect.ValueOf(r)
+	v := reflect.ValueOf(carrier)
 	switch v.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return v.IsNil()
