@@ -49,6 +49,13 @@ func (e *testEvent) UnmarshalPayload(data []byte) error {
 	return json.Unmarshal(data, e)
 }
 
+type testTopicEvent struct {
+	testEvent
+	TopicName string `json:"-"`
+}
+
+func (e *testTopicEvent) Topic() string { return e.TopicName }
+
 type fakeProducer struct {
 	mu    sync.Mutex
 	last  *produce.Message
@@ -109,8 +116,8 @@ func TestNewPublisherValidate(t *testing.T) {
 	}
 
 	_, err = NewPublisher(PublisherConfig{Producer: &xkafka.Producer{}})
-	if !errors.Is(err, ErrTopicRequired) {
-		t.Fatalf("expected ErrTopicRequired, got %v", err)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
@@ -259,6 +266,28 @@ func TestPublisherSendUsesOutboundTopicOverride(t *testing.T) {
 	}
 }
 
+func TestPublisherSendUsesOutboundTopicWithoutDefault(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_3",
+		Payload:   []byte(`{}`),
+		Topic:     " custom-orders ",
+	})
+	if err != nil {
+		t.Fatalf("Send returned error: %v", err)
+	}
+	if producer.last.Topic != "custom-orders" {
+		t.Fatalf("expected topic %q, got %q", "custom-orders", producer.last.Topic)
+	}
+}
+
 func TestPublisherSendFallsBackToDefaultTopic(t *testing.T) {
 	producer := &fakeProducer{}
 	publisher := &Publisher{
@@ -278,6 +307,67 @@ func TestPublisherSendFallsBackToDefaultTopic(t *testing.T) {
 	}
 	if producer.last.Topic != "default-topic" {
 		t.Fatalf("expected default topic %q, got %q", "default-topic", producer.last.Topic)
+	}
+}
+
+func TestPublisherSendRequiresResolvedTopic(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Send(context.Background(), &xevent.Outbound{
+		EventType: "order.created",
+		EventID:   "evt_4",
+		Payload:   []byte(`{}`),
+	})
+	if !errors.Is(err, ErrTopicRequired) {
+		t.Fatalf("expected ErrTopicRequired, got %v", err)
+	}
+	if producer.last != nil {
+		t.Fatal("expected producer not to be called")
+	}
+}
+
+func TestPublisherPublishRequiresResolvedTopic(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Publish(context.Background(), &testEvent{Name: "alice"})
+	if !errors.Is(err, ErrTopicRequired) {
+		t.Fatalf("expected ErrTopicRequired, got %v", err)
+	}
+	if producer.last != nil {
+		t.Fatal("expected producer not to be called")
+	}
+}
+
+func TestPublisherPublishUsesEventTopicWithoutDefault(t *testing.T) {
+	producer := &fakeProducer{}
+	publisher := &Publisher{
+		producer:        producer,
+		eventTypeHeader: defaultEventTypeHeader,
+		eventIDHeader:   defaultEventIDHeader,
+	}
+
+	err := publisher.Publish(context.Background(), &testTopicEvent{
+		testEvent: testEvent{
+			ID:   "evt_5",
+			Name: "alice",
+		},
+		TopicName: " custom-orders ",
+	})
+	if err != nil {
+		t.Fatalf("Publish returned error: %v", err)
+	}
+	if producer.last.Topic != "custom-orders" {
+		t.Fatalf("expected topic %q, got %q", "custom-orders", producer.last.Topic)
 	}
 }
 
@@ -443,15 +533,15 @@ func TestPublisherBatchSendValidatesOutbounds(t *testing.T) {
 	producer := &fakeBatchProducer{}
 	publisher := &Publisher{
 		producer:        producer,
-		topic:           "orders",
 		eventTypeHeader: defaultEventTypeHeader,
 		eventIDHeader:   defaultEventIDHeader,
 	}
 
 	outbounds := []*xevent.Outbound{
-		{EventType: "order.created", EventID: "evt_1", Payload: []byte(`1`)},
+		{EventType: "order.created", EventID: "evt_1", Payload: []byte(`1`), Topic: "orders"},
 		nil,
 		{EventType: "", EventID: "evt_3", Payload: []byte(`3`)},
+		{EventType: "order.deleted", EventID: "evt_4", Payload: []byte(`4`)},
 	}
 
 	errs := publisher.BatchSend(context.Background(), outbounds)
@@ -463,6 +553,12 @@ func TestPublisherBatchSendValidatesOutbounds(t *testing.T) {
 	}
 	if !errors.Is(errs[2], xevent.ErrEventTypeRequired) {
 		t.Fatalf("errs[2] expected ErrEventTypeRequired, got %v", errs[2])
+	}
+	if !errors.Is(errs[3], ErrTopicRequired) {
+		t.Fatalf("errs[3] expected ErrTopicRequired, got %v", errs[3])
+	}
+	if len(producer.msgs) != 1 {
+		t.Fatalf("expected 1 produce call, got %d", len(producer.msgs))
 	}
 }
 

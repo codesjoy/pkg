@@ -154,7 +154,8 @@ func main() {
 ### `PublisherConfig`
 
 - `Producer`: required `*xkafka.Producer`
-- `Topic`: required Kafka topic name
+- `Topic`: optional default Kafka topic name, used when the outbound event does
+  not carry a topic
 - `EventTypeHeader`: optional override for the event type header name
 - `EventIDHeader`: optional override for the event ID header name
 
@@ -169,6 +170,9 @@ func main() {
 - Default Kafka headers:
   - event type: `x-event-type`
   - event ID: `x-event-id`
+- Publisher topic resolution uses `Outbound.Topic` first and falls back to
+  `PublisherConfig.Topic`; publishing fails with `ErrTopicRequired` when both
+  are empty.
 - `Subscriber.Subscribe(ctx)` is one-shot for a subscriber instance.
 - `Subscriber.Close()` is idempotent.
 - `NewSubscriber` requires a dispatcher up front; typed handlers are registered

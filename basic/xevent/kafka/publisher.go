@@ -53,9 +53,6 @@ func NewPublisher(cfg PublisherConfig) (*Publisher, error) {
 	}
 
 	topic := strings.TrimSpace(cfg.Topic)
-	if topic == "" {
-		return nil, ErrTopicRequired
-	}
 
 	return &Publisher{
 		producer:        cfg.Producer,
@@ -125,8 +122,11 @@ func (p *Publisher) buildMessage(outbound *xevent.Outbound) (*produce.Message, e
 	}
 
 	topic := p.topic
-	if outbound.Topic != "" {
-		topic = outbound.Topic
+	if outboundTopic := strings.TrimSpace(outbound.Topic); outboundTopic != "" {
+		topic = outboundTopic
+	}
+	if topic == "" {
+		return nil, ErrTopicRequired
 	}
 
 	msg := &produce.Message{
