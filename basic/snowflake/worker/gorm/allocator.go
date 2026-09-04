@@ -144,7 +144,12 @@ func (w *WorkerIDAllocator) UpdateOverLastTime(overLastTime int64) error {
 	if w.info == nil {
 		return errWorkerIDNotExist
 	}
-	if err := w.data.updateOverLastTime(w.info.WorkerID, w.business, w.flag, overLastTime); err != nil {
+	if err := w.data.updateOverLastTime(
+		w.info.WorkerID,
+		w.business,
+		w.flag,
+		overLastTime,
+	); err != nil {
 		return err
 	}
 	w.info.OverLastTime = overLastTime
@@ -158,7 +163,12 @@ func (w *WorkerIDAllocator) UpdateBackLastTime(backLastTime int64) error {
 	if w.info == nil {
 		return errWorkerIDNotExist
 	}
-	if err := w.data.updateBackLastTime(w.info.WorkerID, w.business, w.flag, backLastTime); err != nil {
+	if err := w.data.updateBackLastTime(
+		w.info.WorkerID,
+		w.business,
+		w.flag,
+		backLastTime,
+	); err != nil {
 		return err
 	}
 	w.info.BackLastTime = backLastTime

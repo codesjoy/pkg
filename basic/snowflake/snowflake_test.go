@@ -190,6 +190,7 @@ func TestSnowflake_FetchID(t *testing.T) {
 		ids[i] = sf.FetchID()
 		assert.Greater(t, ids[i], int64(0), "ID should be positive")
 		if i > 0 {
+			// #nosec G602
 			assert.Greater(t, ids[i], ids[i-1], "IDs should be monotonically increasing")
 		}
 	}

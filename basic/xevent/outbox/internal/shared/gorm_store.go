@@ -732,7 +732,10 @@ func (s *GORMStore) updateClaimedRelay(
 	}
 	if result.RowsAffected == 0 {
 		var count int64
-		if err := session.Table(s.tableName).Where("mode = ? AND id = ?", ModeRelay, id).Count(&count).Error; err != nil {
+		if err := session.Table(s.tableName).
+			Where("mode = ? AND id = ?", ModeRelay, id).
+			Count(&count).
+			Error; err != nil {
 			return err
 		}
 		if count == 0 {
