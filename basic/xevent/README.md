@@ -188,7 +188,9 @@ consumption or calling `Handle`; configuration changes during dispatch are not
 supported.
 The logger omits the complete decoded event by default; set `LogEvent: true` to
 include it. Use `xevent.Discard(err)` for explicitly non-retryable handler
-errors; unmarked errors continue through the configured Kafka/NATS retry policy.
+errors; any wrapped or joined error containing a discard marker is discarded
+as a whole. Unmarked errors continue through the configured Kafka/NATS retry
+policy.
 
 ## Optional Adapters
 

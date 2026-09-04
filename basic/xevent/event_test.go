@@ -627,7 +627,7 @@ func TestDispatcherMiddlewarePreservesJoinedErrors(t *testing.T) {
 	}
 }
 
-func TestDispatcherFiltersDiscardBranchFromMiddlewareError(t *testing.T) {
+func TestDispatcherDiscardsJoinedMiddlewareError(t *testing.T) {
 	dispatcher := newTestDispatcher()
 	discardErr := errors.New("invalid event")
 	businessErr := errors.New("backend unavailable")
@@ -645,11 +645,8 @@ func TestDispatcherFiltersDiscardBranchFromMiddlewareError(t *testing.T) {
 		EventType: "order.created",
 		Payload:   []byte(`{"id":"evt-filter"}`),
 	})
-	if !errors.Is(err, businessErr) {
-		t.Fatalf("expected business error to survive filtering, got %v", err)
-	}
-	if errors.Is(err, discardErr) {
-		t.Fatalf("expected discard branch to be removed, got %v", err)
+	if err != nil {
+		t.Fatalf("expected joined discard error to be discarded, got %v", err)
 	}
 }
 
@@ -684,7 +681,7 @@ func TestFilterDiscardErrorsPreservesUnmarkedError(t *testing.T) {
 	}
 }
 
-func TestFilterDiscardErrorsRemovesNestedDiscardBranches(t *testing.T) {
+func TestFilterDiscardErrorsDiscardsJoinedErrors(t *testing.T) {
 	discardErr := errors.New("invalid payload")
 	businessErr := errors.New("backend unavailable")
 	joined := errors.Join(
@@ -693,11 +690,8 @@ func TestFilterDiscardErrorsRemovesNestedDiscardBranches(t *testing.T) {
 	)
 
 	filtered := filterDiscardErrors(joined)
-	if filtered == nil || !errors.Is(filtered, businessErr) {
-		t.Fatalf("expected business error to survive filtering, got %v", filtered)
-	}
-	if errors.Is(filtered, discardErr) || errors.Is(filtered, ErrDiscard) {
-		t.Fatalf("expected nested discard branch to be removed, got %v", filtered)
+	if filtered != nil {
+		t.Fatalf("expected joined discard error to be removed, got %v", filtered)
 	}
 }
 

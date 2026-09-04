@@ -16,7 +16,6 @@ package xevent
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 )
@@ -194,54 +193,31 @@ func composeEventMiddleware(middlewares []Middleware, final Next) Next {
 	return chain
 }
 
-// filterDiscardErrors removes explicitly discarded branches from an error
-// tree while preserving ordinary errors and their errors.Is/errors.As chains.
+// filterDiscardErrors treats any error containing an explicitly discarded
+// branch as fully discardable, including wrapped and joined errors.
 func filterDiscardErrors(err error) error {
-	if err == nil || !IsDiscard(err) {
-		return err
-	}
-	if _, ok := err.(discardError); ok {
+	if IsDiscard(err) {
 		return nil
 	}
-	if multi, ok := err.(interface{ Unwrap() []error }); ok {
-		filtered := make([]error, 0, len(multi.Unwrap()))
-		for _, child := range multi.Unwrap() {
-			if child = filterDiscardErrors(child); child != nil {
-				filtered = append(filtered, child)
-			}
-		}
-		return errors.Join(filtered...)
-	}
-	if single, ok := err.(interface{ Unwrap() error }); ok {
-		return filterDiscardErrors(single.Unwrap())
-	}
-	return nil
+	return err
 }
 
 func bindingSpec[T Event]() (string, reflect.Type, func() Event, error) {
 	eventType := reflect.TypeFor[T]()
 	// Enforce the generic constraint: T must be a pointer-to-struct so that
 	// reflect.New can instantiate a concrete prototype.
-	if eventType == nil || eventType.Kind() != reflect.Pointer ||
+	if eventType.Kind() != reflect.Pointer ||
 		eventType.Elem().Kind() != reflect.Struct {
 		return "", nil, nil, ErrInvalidEventBinding
 	}
 
-	instance, ok := reflect.New(eventType.Elem()).Interface().(T)
-	if !ok || isNilValue(instance) {
-		return "", nil, nil, ErrInvalidEventBinding
-	}
-
-	derivedEventType := instance.EventType()
+	prototype := reflect.New(eventType.Elem()).Interface().(Event)
+	derivedEventType := prototype.EventType()
 	if derivedEventType == "" {
 		return "", nil, nil, ErrEventTypeRequired
 	}
 
 	return derivedEventType, eventType, func() Event {
-		created, ok := reflect.New(eventType.Elem()).Interface().(Event)
-		if !ok {
-			return nil
-		}
-		return created
+		return reflect.New(eventType.Elem()).Interface().(Event)
 	}, nil
 }
