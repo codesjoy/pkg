@@ -194,6 +194,6 @@ _ = relay
 
 ## Relationship To `xevent`
 
-Use `xevent` to define events, bind typed handlers, and work with
+Use `xevent` to define events, bind typed handlers before consumption starts, and work with
 transport-neutral dispatch. Use `xevent/nats` when you need to publish those
 events to JetStream or consume JetStream messages into an `xevent.Dispatcher`.

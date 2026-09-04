@@ -37,17 +37,9 @@ func (x *AuditPing) UnmarshalPayload(data []byte) error {
 
 func OnAuditPing(
 	d *xevent.Dispatcher,
-	handlers ...func(context.Context, *AuditPing) error,
+	handler func(context.Context, *AuditPing) error,
 ) error {
-	if len(handlers) == 0 {
-		return xevent.ErrInvalidEventBinding
-	}
-	for _, handler := range handlers {
-		if err := xevent.On[*AuditPing](d, handler); err != nil {
-			return err
-		}
-	}
-	return nil
+	return xevent.On[*AuditPing](d, handler)
 }
 
 var _ xevent.Event = (*OrderCreated)(nil)
@@ -84,15 +76,7 @@ func (x *OrderCreated) UnmarshalPayload(data []byte) error {
 
 func OnOrderCreated(
 	d *xevent.Dispatcher,
-	handlers ...func(context.Context, *OrderCreated) error,
+	handler func(context.Context, *OrderCreated) error,
 ) error {
-	if len(handlers) == 0 {
-		return xevent.ErrInvalidEventBinding
-	}
-	for _, handler := range handlers {
-		if err := xevent.On[*OrderCreated](d, handler); err != nil {
-			return err
-		}
-	}
-	return nil
+	return xevent.On[*OrderCreated](d, handler)
 }

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -357,31 +358,562 @@ func TestDispatcherOnAndHandle(t *testing.T) {
 	}
 }
 
-func TestDispatcherHandleMultipleHandlersOrderAndErrors(t *testing.T) {
+func TestDispatcherMiddlewareOrderAndContext(t *testing.T) {
 	dispatcher := newTestDispatcher()
-
 	var order []string
+
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			if eventCtx.Message == nil || eventCtx.Event == nil {
+				t.Fatal("expected middleware to receive message and decoded event")
+			}
+			if eventCtx.Event.EventID() != "evt-middleware" {
+				t.Fatalf("unexpected event ID: %q", eventCtx.Event.EventID())
+			}
+			order = append(order, "first-before")
+			err := next(context.WithValue(ctx, middlewareContextKey{}, "set"), eventCtx)
+			order = append(order, "first-after")
+			return err
+		}),
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			order = append(order, "second-before")
+			if ctx.Value(middlewareContextKey{}) != "set" {
+				t.Fatal("expected middleware context value")
+			}
+			err := next(ctx, eventCtx)
+			order = append(order, "second-after")
+			return err
+		}),
+	)
+
+	if err := On[*testOrderCreated](
+		dispatcher,
+		func(_ context.Context, event *testOrderCreated) error {
+			order = append(order, "handler:"+event.EventID())
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-middleware"}`),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+
+	want := []string{
+		"first-before",
+		"second-before",
+		"handler:evt-middleware",
+		"second-after",
+		"first-after",
+	}
+	if strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected middleware order: %v", order)
+	}
+}
+
+func TestDispatcherMiddlewareRunsOnceAroundHandler(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	var order []string
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			order = append(order, "before")
+			err := next(ctx, eventCtx)
+			order = append(order, "after")
+			return err
+		}),
+	)
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		order = append(order, "handler")
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	if err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-handler"}`),
+	}); err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if got, want := strings.Join(order, ","), "before,handler,after"; got != want {
+		t.Fatalf("unexpected middleware handler order: %s", got)
+	}
+}
+
+func TestDispatcherGlobalMiddlewareRoutesMultipleEvents(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	var middlewareEvents []string
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			middlewareEvents = append(middlewareEvents, eventCtx.Event.EventType())
+			return next(ctx, eventCtx)
+		}),
+	)
+
+	var orderCreated, noPartition bool
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		orderCreated = true
+		return nil
+	}); err != nil {
+		t.Fatalf("On order.created returned error: %v", err)
+	}
+	if err := On[*testNoPartitionEvent](
+		dispatcher,
+		func(context.Context, *testNoPartitionEvent) error {
+			noPartition = true
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("On order.no_partition returned error: %v", err)
+	}
+
+	for _, message := range []*Message{
+		{EventType: "order.created", Payload: []byte(`{"id":"created"}`)},
+		{EventType: "order.no_partition", Payload: []byte(`{"id":"no-partition"}`)},
+	} {
+		if err := dispatcher.Handle(context.Background(), message); err != nil {
+			t.Fatalf("Handle(%s) returned error: %v", message.EventType, err)
+		}
+	}
+
+	if !orderCreated || !noPartition {
+		t.Fatalf(
+			"expected both handlers to run: created=%v no_partition=%v",
+			orderCreated,
+			noPartition,
+		)
+	}
+	if got := strings.Join(middlewareEvents, ","); got != "order.created,order.no_partition" {
+		t.Fatalf("unexpected middleware events: %s", got)
+	}
+}
+
+func TestDispatcherMiddlewareShortCircuit(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	wantErr := errors.New("middleware stopped dispatch")
+	dispatcher.Use(MiddlewareFunc(func(context.Context, *EventContext, Next) error {
+		return wantErr
+	}))
+
+	called := false
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-short-circuit"}`),
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected middleware error, got %v", err)
+	}
+	if called {
+		t.Fatal("expected middleware to prevent handler execution")
+	}
+}
+
+func TestDispatcherUseIgnoresNilMiddlewareFunc(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	var middleware MiddlewareFunc
+	dispatcher.Use(middleware)
+
+	called := false
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-nil-middleware"}`),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if !called {
+		t.Fatal("expected handler to be called")
+	}
+}
+
+func TestDispatcherDiscardErrorsAreFiltered(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	wantErr := errors.New("invalid event payload")
+	dispatcher.Use(MiddlewareFunc(func(context.Context, *EventContext, Next) error {
+		return Discard(wantErr)
+	}))
+
+	called := false
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		called = true
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-discard"}`),
+	})
+	if err != nil {
+		t.Fatalf("expected discard error to be filtered, got %v", err)
+	}
+	if called {
+		t.Fatal("expected discard middleware to prevent handler execution")
+	}
+}
+
+func TestDispatcherHandlerBusinessError(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	businessErr := errors.New("database unavailable")
+
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return businessErr
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-mixed-errors"}`),
+	})
+	if !errors.Is(err, businessErr) {
+		t.Fatalf("expected business error, got %v", err)
+	}
+}
+
+func TestDiscardHelpers(t *testing.T) {
+	if Discard(nil) != nil {
+		t.Fatal("expected Discard(nil) to return nil")
+	}
+	baseErr := errors.New("permanent failure")
+	err := Discard(baseErr)
+	if !IsDiscard(err) || !errors.Is(err, baseErr) {
+		t.Fatalf("expected discard and cause matches, got %v", err)
+	}
+}
+
+func TestDispatcherMiddlewarePreservesJoinedErrors(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	firstErr := errors.New("first middleware error")
+	secondErr := errors.New("second middleware error")
+	dispatcher.Use(MiddlewareFunc(func(context.Context, *EventContext, Next) error {
+		return errors.Join(firstErr, secondErr)
+	}))
+
+	handler := func(context.Context, *testOrderCreated) error {
+		t.Fatal("expected middleware to short-circuit the typed handler")
+		return nil
+	}
+	if err := On[*testOrderCreated](dispatcher, handler); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-errors"}`),
+	})
+	if !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
+		t.Fatalf("expected joined middleware errors, got %v", err)
+	}
+}
+
+func TestDispatcherFiltersDiscardBranchFromMiddlewareError(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	discardErr := errors.New("invalid event")
+	businessErr := errors.New("backend unavailable")
+	dispatcher.Use(MiddlewareFunc(func(context.Context, *EventContext, Next) error {
+		return errors.Join(Discard(discardErr), businessErr)
+	}))
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		t.Fatal("middleware should short-circuit the handler")
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-filter"}`),
+	})
+	if !errors.Is(err, businessErr) {
+		t.Fatalf("expected business error to survive filtering, got %v", err)
+	}
+	if errors.Is(err, discardErr) {
+		t.Fatalf("expected discard branch to be removed, got %v", err)
+	}
+}
+
+func TestDispatcherPreservesOrdinaryErrorWrapper(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	businessErr := errors.New("backend unavailable")
+	wrappedErr := fmt.Errorf("handle order: %w", businessErr)
+	dispatcher.Use(MiddlewareFunc(func(context.Context, *EventContext, Next) error {
+		return wrappedErr
+	}))
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-wrapped"}`),
+	})
+	if err != wrappedErr || !errors.Is(err, businessErr) {
+		t.Fatalf("expected ordinary wrapper to be preserved, got %v", err)
+	}
+}
+
+func TestFilterDiscardErrorsPreservesUnmarkedError(t *testing.T) {
+	baseErr := errors.New("backend unavailable")
+	wrappedErr := fmt.Errorf("handle order: %w", baseErr)
+
+	if got := filterDiscardErrors(wrappedErr); got != wrappedErr {
+		t.Fatalf("expected unmarked error wrapper to be preserved, got %v", got)
+	}
+}
+
+func TestFilterDiscardErrorsRemovesNestedDiscardBranches(t *testing.T) {
+	discardErr := errors.New("invalid payload")
+	businessErr := errors.New("backend unavailable")
+	joined := errors.Join(
+		fmt.Errorf("validation: %w", Discard(discardErr)),
+		businessErr,
+	)
+
+	filtered := filterDiscardErrors(joined)
+	if filtered == nil || !errors.Is(filtered, businessErr) {
+		t.Fatalf("expected business error to survive filtering, got %v", filtered)
+	}
+	if errors.Is(filtered, discardErr) || errors.Is(filtered, ErrDiscard) {
+		t.Fatalf("expected nested discard branch to be removed, got %v", filtered)
+	}
+}
+
+func TestFilterDiscardErrorsReturnsNilForAllDiscardBranches(t *testing.T) {
+	filtered := filterDiscardErrors(errors.Join(
+		Discard(errors.New("first")),
+		fmt.Errorf("wrapped: %w", Discard(errors.New("second"))),
+	))
+	if filtered != nil {
+		t.Fatalf("expected all discard branches to be removed, got %v", filtered)
+	}
+}
+
+func BenchmarkDispatcherSingleHandler(b *testing.B) {
+	dispatcher := NewDispatcher()
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+	msg := &Message{EventType: "order.created", Payload: []byte(`{"id":"benchmark"}`)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := dispatcher.Handle(context.Background(), msg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDispatcherHandlerErrors(b *testing.B) {
+	dispatcher := NewDispatcher()
 	firstErr := errors.New("first")
 	secondErr := errors.New("second")
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return errors.Join(firstErr, secondErr)
+	}); err != nil {
+		b.Fatal(err)
+	}
+	msg := &Message{EventType: "order.created", Payload: []byte(`{"id":"benchmark"}`)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := dispatcher.Handle(context.Background(), msg); !errors.Is(err, firstErr) ||
+			!errors.Is(err, secondErr) {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDispatcherMiddleware(b *testing.B) {
+	dispatcher := NewDispatcher()
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			return next(ctx, eventCtx)
+		}),
+	)
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return nil
+	}); err != nil {
+		b.Fatal(err)
+	}
+	msg := &Message{EventType: "order.created", Payload: []byte(`{"id":"benchmark"}`)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := dispatcher.Handle(context.Background(), msg); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDispatcherDiscardAndBusinessErrors(b *testing.B) {
+	dispatcher := NewDispatcher()
+	discardErr := errors.New("invalid payload")
+	businessErr := errors.New("backend unavailable")
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return errors.Join(Discard(discardErr), businessErr)
+	}); err != nil {
+		b.Fatal(err)
+	}
+	msg := &Message{EventType: "order.created", Payload: []byte(`{"id":"benchmark"}`)}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := dispatcher.Handle(context.Background(), msg); !errors.Is(err, businessErr) ||
+			errors.Is(err, discardErr) {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestDispatcherMiddlewareDoesNotWrapFallback(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	middlewareCalled := false
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			middlewareCalled = true
+			return next(ctx, eventCtx)
+		}),
+	)
+	fallbackCalled := false
+	dispatcher.SetFallback(func(context.Context, *Message) error {
+		fallbackCalled = true
+		return nil
+	})
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "unknown.event",
+		Payload:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if middlewareCalled {
+		t.Fatal("expected event middleware to bypass fallback")
+	}
+	if !fallbackCalled {
+		t.Fatal("expected fallback handler to be called")
+	}
+}
+
+func TestDispatcherMiddlewarePassesDecodedEventToHandler(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	middlewareCalls := 0
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			middlewareCalls++
+			if middlewareCalls == 1 {
+				eventCtx.Event.(*testOrderCreated).ID = "mutated-by-middleware"
+			}
+			return next(ctx, eventCtx)
+		}),
+	)
+
+	var received *testOrderCreated
+	if err := On[*testOrderCreated](
+		dispatcher,
+		func(_ context.Context, event *testOrderCreated) error {
+			received = event
+			return nil
+		},
+	); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	err := dispatcher.Handle(context.Background(), &Message{
+		EventType: "order.created",
+		Payload:   []byte(`{"id":"evt-independent"}`),
+	})
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if middlewareCalls != 1 {
+		t.Fatalf("expected one middleware invocation per message, got %d", middlewareCalls)
+	}
+	if received == nil || received.EventID() != "mutated-by-middleware" {
+		t.Fatalf("expected middleware mutation to reach handler, got %#v", received)
+	}
+}
+
+func TestDispatcherConcurrentHandle(t *testing.T) {
+	dispatcher := newTestDispatcher()
+	dispatcher.Use(
+		MiddlewareFunc(func(ctx context.Context, eventCtx *EventContext, next Next) error {
+			return next(ctx, eventCtx)
+		}),
+	)
+	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("On returned error: %v", err)
+	}
+
+	payload := []byte(`{"id":"evt-concurrent"}`)
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 25; j++ {
+				if err := dispatcher.Handle(context.Background(), &Message{
+					EventType: "order.created",
+					Payload:   payload,
+				}); err != nil {
+					t.Errorf("Handle returned error: %v", err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+type middlewareContextKey struct{}
+
+func TestDispatcherHandleSingleHandlerError(t *testing.T) {
+	dispatcher := newTestDispatcher()
+
+	wantErr := errors.New("handler failed")
 
 	err := On[*testOrderCreated](
 		dispatcher,
 		func(_ context.Context, event *testOrderCreated) error {
-			order = append(order, "first:"+event.UserID)
-			return firstErr
+			if event.UserID != "u_2" {
+				t.Fatalf("unexpected user ID: %q", event.UserID)
+			}
+			return wantErr
 		},
 	)
 	if err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
-	err = On[*testOrderCreated](dispatcher, func(_ context.Context, event *testOrderCreated) error {
-		order = append(order, "second:"+event.UserID)
-		return secondErr
-	})
-	if err != nil {
-		t.Fatalf("On returned error: %v", err)
-	}
-
 	payload, err := (&testOrderCreated{
 		ID:      "evt_2",
 		OrderID: "o_456",
@@ -395,11 +927,8 @@ func TestDispatcherHandleMultipleHandlersOrderAndErrors(t *testing.T) {
 		EventType: "order.created",
 		Payload:   payload,
 	})
-	if !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
-		t.Fatalf("expected joined handler errors, got %v", err)
-	}
-	if strings.Join(order, ",") != "first:u_2,second:u_2" {
-		t.Fatalf("unexpected handler order: %v", order)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected handler error, got %v", err)
 	}
 }
 
@@ -496,22 +1025,6 @@ func TestDispatcherOnValidation(t *testing.T) {
 	}
 }
 
-func TestDispatcherHandleRejectsNilBoundEvent(t *testing.T) {
-	dispatcher := NewDispatcher()
-	dispatcher.bindings["broken"] = eventBinding{
-		newEvent: func() Event { return nil },
-		handlers: []dispatchFunc{func(context.Context, Event) error { return nil }},
-	}
-
-	err := dispatcher.Handle(context.Background(), &Message{
-		EventType: "broken",
-		Payload:   []byte("payload"),
-	})
-	if !errors.Is(err, ErrNilEvent) {
-		t.Fatalf("expected ErrNilEvent, got %v", err)
-	}
-}
-
 func TestInternalHelpers(t *testing.T) {
 	if !isNilValue((*testOrderCreated)(nil)) {
 		t.Fatal("expected typed nil pointer to be nil")
@@ -553,18 +1066,27 @@ func TestInternalHelpers(t *testing.T) {
 	}
 }
 
-func TestDispatcherOnSameTypeMultipleHandlers(t *testing.T) {
+func TestDispatcherOnSameTypeRejectsDuplicateHandler(t *testing.T) {
 	dispatcher := newTestDispatcher()
 
-	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error { return nil }); err != nil {
+	if err := On[*testOrderCreated](
+		dispatcher,
+		func(context.Context, *testOrderCreated) error { return nil },
+	); err != nil {
 		t.Fatalf("first On returned error: %v", err)
 	}
-	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error { return nil }); err != nil {
-		t.Fatalf("second On returned error: %v", err)
+	if err := On[*testOrderCreated](
+		dispatcher,
+		func(context.Context, *testOrderCreated) error { return nil },
+	); !errors.Is(
+		err,
+		ErrEventHandlerConflict,
+	) {
+		t.Fatalf("expected ErrEventHandlerConflict, got %v", err)
 	}
 
-	if got := len(dispatcher.bindings["order.created"].handlers); got != 2 {
-		t.Fatalf("expected 2 handlers, got %d", got)
+	if dispatcher.bindings["order.created"].handler == nil {
+		t.Fatal("expected handler to remain registered")
 	}
 	if dispatcher.bindings["order.created"].newEvent == nil {
 		t.Fatal("expected constructor to be registered")
@@ -574,7 +1096,10 @@ func TestDispatcherOnSameTypeMultipleHandlers(t *testing.T) {
 func TestDispatcherOnEventTypeConflict(t *testing.T) {
 	dispatcher := newTestDispatcher()
 
-	if err := On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error { return nil }); err != nil {
+	if err := On[*testOrderCreated](
+		dispatcher,
+		func(context.Context, *testOrderCreated) error { return nil },
+	); err != nil {
 		t.Fatalf("first On returned error: %v", err)
 	}
 

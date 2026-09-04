@@ -175,8 +175,8 @@ func main() {
   are empty.
 - `Subscriber.Subscribe(ctx)` is one-shot for a subscriber instance.
 - `Subscriber.Close()` is idempotent.
-- `NewSubscriber` requires a dispatcher up front; typed handlers are registered
-  on that dispatcher before consumption starts.
+- `NewSubscriber` requires a dispatcher up front; handlers and middleware must
+  be registered on that dispatcher before consumption starts.
 
 ## Use As Outbox Sender
 

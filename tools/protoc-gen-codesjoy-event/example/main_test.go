@@ -79,18 +79,15 @@ func TestGeneratedMessageDispatchRoundTrip(t *testing.T) {
 	}
 }
 
-func TestGeneratedMessageHelperRegistersMultipleHandlersInOrder(t *testing.T) {
+func TestGeneratedMessageHelperRegistersSingleHandler(t *testing.T) {
 	dispatcher := xevent.NewDispatcher()
 
-	var calls []string
 	if err := orderv1.OnOrderCreated(
 		dispatcher,
 		func(_ context.Context, event *orderv1.OrderCreated) error {
-			calls = append(calls, "first:"+event.GetUserId())
-			return nil
-		},
-		func(_ context.Context, event *orderv1.OrderCreated) error {
-			calls = append(calls, "second:"+event.GetUserId())
+			if event.GetUserId() != "u_2" {
+				t.Fatalf("unexpected user ID: %q", event.GetUserId())
+			}
 			return nil
 		},
 	); err != nil {
@@ -113,19 +110,13 @@ func TestGeneratedMessageHelperRegistersMultipleHandlersInOrder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-
-	if got := len(calls); got != 2 {
-		t.Fatalf("handler call count = %d, want 2", got)
-	}
-	if calls[0] != "first:u_2" || calls[1] != "second:u_2" {
-		t.Fatalf("handler order = %v, want [first:u_2 second:u_2]", calls)
-	}
 }
 
-func TestGeneratedMessageHelperRejectsEmptyHandlers(t *testing.T) {
+func TestGeneratedMessageHelperRejectsNilHandler(t *testing.T) {
 	dispatcher := xevent.NewDispatcher()
 
-	err := orderv1.OnOrderCreated(dispatcher)
+	var handler func(context.Context, *orderv1.OrderCreated) error
+	err := orderv1.OnOrderCreated(dispatcher, handler)
 	if !errors.Is(err, xevent.ErrInvalidEventBinding) {
 		t.Fatalf("OnOrderCreated() error = %v, want ErrInvalidEventBinding", err)
 	}
@@ -169,16 +160,31 @@ func TestBufGenerateMatchesCommittedOutput(t *testing.T) {
 	if err := copyDir(toolDir, tmpToolDir); err != nil {
 		t.Fatalf("copyDir() error = %v", err)
 	}
-	if err := copyDir(filepath.Join(repoRoot, "proto"), filepath.Join(tmpRoot, "proto")); err != nil {
+	if err := copyDir(
+		filepath.Join(repoRoot, "proto"),
+		filepath.Join(tmpRoot, "proto"),
+	); err != nil {
 		t.Fatalf("copyDir(proto) error = %v", err)
 	}
-	if err := copyDir(filepath.Join(repoRoot, "basic", "xevent"), filepath.Join(tmpRoot, "basic", "xevent")); err != nil {
+	if err := copyDir(
+		filepath.Join(repoRoot, "basic", "xevent"),
+		filepath.Join(tmpRoot, "basic", "xevent"),
+	); err != nil {
 		t.Fatalf("copyDir(xevent) error = %v", err)
+	}
+
+	pluginPath := filepath.Join(tmpRoot, "protoc-gen-codesjoy-event")
+	// #nosec G204 -- the executable path is confined to the test's temporary directory.
+	build := exec.Command("go", "build", "-o", pluginPath, ".")
+	build.Dir = tmpToolDir
+	build.Env = os.Environ()
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build protoc-gen-codesjoy-event error = %v\n%s", err, output)
 	}
 
 	cmd := exec.Command("buf", "generate")
 	cmd.Dir = filepath.Join(tmpToolDir, "example")
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "PATH="+tmpRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("buf generate error = %v\n%s", err, output)
 	}
@@ -201,10 +207,12 @@ func TestBufGenerateMatchesCommittedOutput(t *testing.T) {
 func assertSameFile(t *testing.T, wantPath string, gotPath string) {
 	t.Helper()
 
+	// #nosec G304 -- callers pass repository and test temporary paths.
 	want, err := os.ReadFile(wantPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", wantPath, err)
 	}
+	// #nosec G304 -- callers pass repository and test temporary paths.
 	got, err := os.ReadFile(gotPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", gotPath, err)
@@ -230,10 +238,12 @@ func copyDir(src string, dst string) error {
 			return os.MkdirAll(target, info.Mode())
 		}
 
+		// #nosec G122,G304 -- path is produced by walking the selected source directory.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
+		// #nosec G703 -- target is rooted in the test's temporary destination directory.
 		return os.WriteFile(target, data, info.Mode())
 	})
 }

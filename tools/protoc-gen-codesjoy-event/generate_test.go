@@ -52,8 +52,7 @@ func TestGenerateFilesEnabledMessageUsesFullNameByDefault(t *testing.T) {
 	assert.Contains(t, content, "return proto.Marshal(x)")
 	assert.Contains(t, content, "return proto.Unmarshal(data, x)")
 	assert.Contains(t, content, `func OnOrderCreated(`)
-	assert.Contains(t, content, `handlers ...func(context.Context, *OrderCreated) error`)
-	assert.Contains(t, content, `return xevent.ErrInvalidEventBinding`)
+	assert.Contains(t, content, `handler func(context.Context, *OrderCreated) error`)
 	assert.Contains(t, content, `xevent.On[*OrderCreated](d, handler)`)
 }
 

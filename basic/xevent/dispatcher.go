@@ -19,36 +19,37 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
 )
 
-type dispatchFunc func(context.Context, Event) error
+type dispatchFunc = Next
 
 type eventBinding struct {
 	prototypeType reflect.Type
 	newEvent      func() Event
-	handlers      []dispatchFunc
+	handler       dispatchFunc
 }
 
 // Dispatcher routes subscribed event messages to typed handlers.
+// Configure it with On, Use, and SetFallback before calling Handle; those
+// configuration methods are not safe to call concurrently with Handle.
 type Dispatcher struct {
-	mu       sync.RWMutex
-	bindings map[string]eventBinding
-	fallback FallbackHandler
+	bindings    map[string]eventBinding
+	fallback    FallbackHandler
+	middlewares []Middleware
+	dispatch    Next
 }
 
 // NewDispatcher creates a typed event dispatcher.
 func NewDispatcher() *Dispatcher {
-	return &Dispatcher{
+	d := &Dispatcher{
 		bindings: make(map[string]eventBinding),
 	}
+	d.dispatch = d.dispatchBoundHandler
+	return d
 }
 
-// Handle decodes one subscribed message and routes it to all bound typed handlers.
-//
-// Steps: (1) look up the binding for the event type, (2) fall back to the
-// fallback handler when no binding exists, (3) unmarshal the payload into a
-// fresh event prototype per handler and dispatch.
+// Handle decodes one subscribed message and routes it through the dispatcher
+// middleware chain to its bound typed handler.
 func (d *Dispatcher) Handle(ctx context.Context, msg *Message) error {
 	if d == nil {
 		return ErrInvalidEventBinding
@@ -60,36 +61,54 @@ func (d *Dispatcher) Handle(ctx context.Context, msg *Message) error {
 		return ErrEventTypeRequired
 	}
 
-	// Step 1: look up binding by event type.
-	binding := d.bindingFor(msg.EventType)
-	if binding.newEvent == nil || len(binding.handlers) == 0 {
-		// Step 2: no typed handlers — try fallback.
-		if fb := d.fallbackFor(); fb != nil {
-			return fb(ctx, msg)
+	binding := d.bindings[msg.EventType]
+	if binding.handler == nil {
+		// Step 2: no typed handler — try fallback.
+		if d.fallback != nil {
+			return d.fallback(ctx, msg)
 		}
 		return ErrNoHandlers
 	}
 
-	// Step 3: unmarshal & dispatch to each handler.
-	var errs []error
-	for _, handler := range binding.handlers {
-		event := binding.newEvent()
-		if isNilValue(event) {
-			return ErrNilEvent
-		}
-		if err := event.UnmarshalPayload(cloneBytes(msg.Payload)); err != nil {
-			return err
-		}
-		if err := handler(ctx, event); err != nil {
-			errs = append(errs, err)
-		}
+	// Step 3: decode one event before running the dispatcher middleware chain.
+	payload := cloneBytes(msg.Payload)
+	event := binding.newEvent()
+	if err := event.UnmarshalPayload(payload); err != nil {
+		return err
 	}
 
-	return errors.Join(errs...)
+	eventCtx := &EventContext{Message: msg, Event: event}
+	err := d.dispatch(ctx, eventCtx)
+	return filterDiscardErrors(err)
 }
 
-// On binds a typed handler to a dispatcher and automatically registers the
-// underlying event type.
+// Use appends event middleware to the dispatcher chain.
+// Middleware is executed in registration order once for each typed message.
+// A nil middleware or nil dispatcher is ignored.
+func (d *Dispatcher) Use(middlewares ...Middleware) {
+	if d == nil || len(middlewares) == 0 {
+		return
+	}
+
+	valid := make([]Middleware, 0, len(middlewares))
+	for _, middleware := range middlewares {
+		if isNilValue(middleware) {
+			continue
+		}
+		valid = append(valid, middleware)
+	}
+	if len(valid) == 0 {
+		return
+	}
+	next := make([]Middleware, len(d.middlewares)+len(valid))
+	copy(next, d.middlewares)
+	copy(next[len(d.middlewares):], valid)
+	d.middlewares = next
+	d.dispatch = composeEventMiddleware(d.middlewares, d.dispatchBoundHandler)
+}
+
+// On binds one typed handler to a dispatcher and automatically registers the
+// underlying event type. An event type can only be bound once.
 func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 	eventType, prototypeType, newEvent, err := bindingSpec[T]()
 	if err != nil {
@@ -98,9 +117,6 @@ func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 	if d == nil || isNilValue(handler) {
 		return ErrInvalidEventBinding
 	}
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	binding, exists := d.bindings[eventType]
 	// Conflict detection: reject if the same event type name was already bound
@@ -115,6 +131,13 @@ func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 				prototypeType,
 			)
 		}
+		if binding.handler != nil {
+			return fmt.Errorf(
+				"%w: eventType=%s",
+				ErrEventHandlerConflict,
+				eventType,
+			)
+		}
 	} else {
 		binding = eventBinding{
 			prototypeType: prototypeType,
@@ -124,50 +147,75 @@ func On[T Event](d *Dispatcher, handler func(context.Context, T) error) error {
 
 	// Wrap the user's typed handler in a closure that performs the
 	// Event → T type assertion before delegating.
-	binding.handlers = append(binding.handlers, func(ctx context.Context, event Event) error {
-		typed, ok := event.(T)
+	binding.handler = func(ctx context.Context, eventCtx *EventContext) error {
+		if eventCtx == nil || isNilValue(eventCtx.Event) {
+			return ErrNilEvent
+		}
+		typed, ok := eventCtx.Event.(T)
 		if !ok {
 			return fmt.Errorf(
 				"%w: handler expects %s but got %T",
 				ErrInvalidEventBinding,
 				prototypeType,
-				event,
+				eventCtx.Event,
 			)
 		}
 		return handler(ctx, typed)
-	})
+	}
 	d.bindings[eventType] = binding
 	return nil
 }
 
-func (d *Dispatcher) bindingFor(eventType string) eventBinding {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	binding, ok := d.bindings[eventType]
-	if !ok {
-		return eventBinding{}
-	}
-
-	// Copy the handlers slice so mutations during dispatch cannot affect the
-	// stored binding.
-	cloned := make([]dispatchFunc, len(binding.handlers))
-	copy(cloned, binding.handlers)
-	binding.handlers = cloned
-	return binding
-}
-
-// SetFallback registers a fallback handler for events with no registered typed handlers.
+// SetFallback registers a fallback handler for events with no registered typed handler.
 func (d *Dispatcher) SetFallback(fb FallbackHandler) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.fallback = fb
 }
 
-func (d *Dispatcher) fallbackFor() FallbackHandler {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.fallback
+func (d *Dispatcher) dispatchBoundHandler(ctx context.Context, eventCtx *EventContext) error {
+	if eventCtx == nil || eventCtx.Message == nil {
+		return ErrInvalidEventBinding
+	}
+	binding := d.bindings[eventCtx.Message.EventType]
+	if binding.handler == nil {
+		return ErrNoHandlers
+	}
+	return binding.handler(ctx, eventCtx)
+}
+
+func composeEventMiddleware(middlewares []Middleware, final Next) Next {
+	chain := final
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		middleware := middlewares[i]
+		next := chain
+		chain = func(ctx context.Context, eventCtx *EventContext) error {
+			return middleware.Handle(ctx, eventCtx, next)
+		}
+	}
+	return chain
+}
+
+// filterDiscardErrors removes explicitly discarded branches from an error
+// tree while preserving ordinary errors and their errors.Is/errors.As chains.
+func filterDiscardErrors(err error) error {
+	if err == nil || !IsDiscard(err) {
+		return err
+	}
+	if _, ok := err.(discardError); ok {
+		return nil
+	}
+	if multi, ok := err.(interface{ Unwrap() []error }); ok {
+		filtered := make([]error, 0, len(multi.Unwrap()))
+		for _, child := range multi.Unwrap() {
+			if child = filterDiscardErrors(child); child != nil {
+				filtered = append(filtered, child)
+			}
+		}
+		return errors.Join(filtered...)
+	}
+	if single, ok := err.(interface{ Unwrap() error }); ok {
+		return filterDiscardErrors(single.Unwrap())
+	}
+	return nil
 }
 
 func bindingSpec[T Event]() (string, reflect.Type, func() Event, error) {

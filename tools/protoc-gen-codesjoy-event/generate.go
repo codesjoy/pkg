@@ -326,28 +326,20 @@ func generateFileContent(g *protogen.GeneratedFile, events fileEvents) {
 		g.P("func On", message.goName, "(")
 		g.P("\td *", g.QualifiedGoIdent(xeventPackage.Ident("Dispatcher")), ",")
 		g.P(
-			"\thandlers ...func(",
+			"\thandler func(",
 			g.QualifiedGoIdent(contextPackage.Ident("Context")),
 			", *",
 			message.goName,
 			") error,",
 		)
 		g.P(") error {")
-		g.P("\tif len(handlers) == 0 {")
-		g.P("\t\treturn ", g.QualifiedGoIdent(xeventPackage.Ident("ErrInvalidEventBinding")))
-		g.P("\t}")
-		g.P("\tfor _, handler := range handlers {")
 		g.P(
-			"\t\tif err := ",
+			"\treturn ",
 			g.QualifiedGoIdent(xeventPackage.Ident("On")),
 			"[*",
 			message.goName,
-			"](d, handler); err != nil {",
+			"](d, handler)",
 		)
-		g.P("\t\t\treturn err")
-		g.P("\t\t}")
-		g.P("\t}")
-		g.P("\treturn nil")
 		g.P("}")
 		g.P()
 	}

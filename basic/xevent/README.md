@@ -2,7 +2,7 @@
 
 `xevent` is a transport-agnostic domain event contract package. It defines a
 minimal `Event` interface, transport-level message abstractions, and a typed
-dispatcher that decodes `eventType + []byte` into concrete event handlers.
+dispatcher that decodes `eventType + []byte` into a concrete event handler.
 
 ## Installation
 
@@ -86,7 +86,9 @@ func main() {
 - `Outbound`: transport-neutral outbound event payload
 - `Message`: transport-level input shape (`eventType + payload`)
 - `Handler`: transport-level message handler
-- `Dispatcher`: routes one `Message` into bound typed handlers
+- `Middleware`: event-level chain around the decoded typed handler
+- `Discard`: marks an explicit non-retryable handler error
+- `Dispatcher`: routes one `Message` into its bound typed handler
 - `Publisher`: transport-facing publish abstraction over an `Event`
 - `Sender`: transport-facing send abstraction over an `Outbound`
 - `Subscriber`: transport-facing lifecycle abstraction for consumption
@@ -121,7 +123,7 @@ This is the transport-neutral path used by the `xevent/outbox/relay` and
 
 ## Typed Dispatch
 
-Register typed handlers with `xevent.On[T]`, then hand transport messages to
+Register a typed handler with `xevent.On[T]`, then hand transport messages to
 the dispatcher:
 
 ```go
@@ -145,6 +147,48 @@ _ = dispatcher.Handle(context.Background(), &xevent.Message{
 
 `xevent.On[T](dispatcher, handler)` is a package-level function because Go does
 not support generic methods.
+
+## Event Middleware
+
+Register middleware on a dispatcher to run logic once after a payload has been
+decoded into a concrete event and around the routed typed handler. Middleware is
+constructed once for the dispatcher during configuration. Standard-library
+logging middleware is available:
+
+```go
+import (
+	"log/slog"
+
+	"github.com/codesjoy/pkg/basic/xevent"
+	eventlogger "github.com/codesjoy/pkg/basic/xevent/middleware/logger"
+)
+
+dispatcher := xevent.NewDispatcher()
+dispatcher.Use(
+	eventlogger.New(eventlogger.Config{
+		Logger:   slog.Default(),
+		LogEvent: false,
+	}),
+)
+```
+
+`EventContext` contains both the original `Message` and the concrete `Event`,
+so middleware can perform domain validation, structured logging, metrics, or
+auditing without coupling the core package to a particular framework. The
+dispatcher-level chain runs once per typed message and routes to the single
+bound business handler for that event type.
+Each event type can have only one typed handler; compose multiple business
+actions inside that handler when they share the same retry and acknowledgement
+boundary. Middleware is not invoked for unknown event types handled by a
+fallback handler. Transport concerns such as topic metadata,
+retries, ack/nak, and transport-level tracing remain in the Kafka/NATS
+middleware layers.
+Configure all handlers, middleware, and fallback behavior before starting
+consumption or calling `Handle`; configuration changes during dispatch are not
+supported.
+The logger omits the complete decoded event by default; set `LogEvent: true` to
+include it. Use `xevent.Discard(err)` for explicitly non-retryable handler
+errors; unmarked errors continue through the configured Kafka/NATS retry policy.
 
 ## Optional Adapters
 
@@ -202,7 +246,7 @@ option (codesjoy.ddd.event.v1.event) = { event_type: "order.created" };
 
 Generated messages can be used directly with:
 
-- `OnYourProtoEvent(dispatcher, handler1, handler2)`
+- `OnYourProtoEvent(dispatcher, handler)`
 - `xevent.On[*YourProtoEvent](dispatcher, handler)`
 - `publisher.Publish(ctx, protoEvent)`
 - `dispatcher.Handle(ctx, message)`

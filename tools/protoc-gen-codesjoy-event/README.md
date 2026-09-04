@@ -92,7 +92,7 @@ For each annotated message the plugin generates:
 - `func (x *<Message>) PartitionKey() string`
 - `func (x *<Message>) MarshalPayload() ([]byte, error)`
 - `func (x *<Message>) UnmarshalPayload([]byte) error`
-- `func On<Message>(d *xevent.Dispatcher, handlers ...func(context.Context, *<Message>) error) error`
+- `func On<Message>(d *xevent.Dispatcher, handler func(context.Context, *<Message>) error) error`
 
 The generated implementation uses `proto.Marshal` / `proto.Unmarshal` and has
 no extra runtime package beyond existing `xevent` and protobuf dependencies.
@@ -104,9 +104,6 @@ dispatcher := xevent.NewDispatcher()
 
 err := orderv1.OnOrderCreated(
 	dispatcher,
-	func(ctx context.Context, event *orderv1.OrderCreated) error {
-		return nil
-	},
 	func(ctx context.Context, event *orderv1.OrderCreated) error {
 		return nil
 	},
