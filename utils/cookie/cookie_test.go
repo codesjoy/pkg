@@ -183,8 +183,9 @@ func TestFormat(t *testing.T) {
 		{
 			name: "normal",
 			input: []*http.Cookie{
-				{Name: "session", Value: "abc123"},
-				{Name: "user", Value: "john"},
+				// Request cookies intentionally omit response-only security attributes.
+				{Name: "session", Value: "abc123"}, //nolint:gosec // plain request cookie fixture
+				{Name: "user", Value: "john"},      //nolint:gosec // plain request cookie fixture
 			},
 			want: []string{"session=abc123", "user=john"},
 		},
@@ -192,7 +193,8 @@ func TestFormat(t *testing.T) {
 			name: "skip nil",
 			input: []*http.Cookie{
 				nil,
-				{Name: "user", Value: "john"},
+				// Request cookies intentionally omit response-only security attributes.
+				{Name: "user", Value: "john"}, //nolint:gosec // plain request cookie fixture
 			},
 			want: []string{"user=john"},
 		},
@@ -266,10 +268,10 @@ func BenchmarkParse(b *testing.B) {
 
 func BenchmarkFormat(b *testing.B) {
 	cookies := []*http.Cookie{
-		{Name: "session", Value: "abc123"},
-		{Name: "user", Value: "john"},
-		{Name: "theme", Value: "dark"},
-		{Name: "lang", Value: "en"},
+		{Name: "session", Value: "abc123"}, //nolint:gosec // plain request cookie fixture
+		{Name: "user", Value: "john"},      //nolint:gosec // plain request cookie fixture
+		{Name: "theme", Value: "dark"},     //nolint:gosec // plain request cookie fixture
+		{Name: "lang", Value: "en"},        //nolint:gosec // plain request cookie fixture
 	}
 	for i := 0; i < b.N; i++ {
 		_ = Format(cookies)

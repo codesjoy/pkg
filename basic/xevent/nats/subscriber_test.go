@@ -99,10 +99,13 @@ func TestSubscriberSubscribeDispatchesJetStreamMessage(t *testing.T) {
 
 	dispatcher := xevent.NewDispatcher()
 	var got *testOrderCreated
-	if err := xevent.On[*testOrderCreated](dispatcher, func(_ context.Context, event *testOrderCreated) error {
-		got = event
-		return nil
-	}); err != nil {
+	if err := xevent.On[*testOrderCreated](
+		dispatcher,
+		func(_ context.Context, event *testOrderCreated) error {
+			got = event
+			return nil
+		},
+	); err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
 
@@ -140,10 +143,13 @@ func TestSubscriberSubscribeFallsBackToSubject(t *testing.T) {
 
 	dispatcher := xevent.NewDispatcher()
 	var got *testOrderCreated
-	if err := xevent.On[*testOrderCreated](dispatcher, func(_ context.Context, event *testOrderCreated) error {
-		got = event
-		return nil
-	}); err != nil {
+	if err := xevent.On[*testOrderCreated](
+		dispatcher,
+		func(_ context.Context, event *testOrderCreated) error {
+			got = event
+			return nil
+		},
+	); err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
 
@@ -204,7 +210,10 @@ func TestSubscriberSubscribeValidationAndErrors(t *testing.T) {
 
 func TestSubscriberSubscribeIsOneShot(t *testing.T) {
 	dispatcher := xevent.NewDispatcher()
-	if err := xevent.On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error { return nil }); err != nil {
+	if err := xevent.On[*testOrderCreated](
+		dispatcher,
+		func(context.Context, *testOrderCreated) error { return nil },
+	); err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
 

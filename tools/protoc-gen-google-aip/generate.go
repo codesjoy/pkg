@@ -202,7 +202,10 @@ func registerMessageResources(message *protogen.Message, registry *resourceRegis
 		return fmt.Errorf("message %s: %w", message.Desc.FullName(), err)
 	}
 	if resource != nil {
-		if err := registry.add(resource.descriptorResource, string(message.Desc.FullName())); err != nil {
+		if err := registry.add(
+			resource.descriptorResource,
+			string(message.Desc.FullName()),
+		); err != nil {
 			return err
 		}
 	}

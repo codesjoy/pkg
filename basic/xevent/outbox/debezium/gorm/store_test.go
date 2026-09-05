@@ -99,7 +99,10 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 		}
 
 		var count int64
-		if err := tx.Model(&debezium.Record{}).Where("message_id = ?", appended.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&debezium.Record{}).
+			Where("message_id = ?", appended.ID).
+			Count(&count).
+			Error; err != nil {
 			return err
 		}
 		if count != 1 {
@@ -199,7 +202,10 @@ func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("event_id = ?", "evt_rollback").Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).
+		Where("event_id = ?", "evt_rollback").
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 0 {
@@ -230,7 +236,10 @@ func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("message_id = ?", record.ID).Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).
+		Where("message_id = ?", record.ID).
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 1 {
@@ -261,7 +270,10 @@ func TestGORMStoreAppendLazilyInitializesSharedStore(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("message_id = ?", record.ID).Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).
+		Where("message_id = ?", record.ID).
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 1 {
@@ -373,7 +385,10 @@ func TestGORMStoreDeleteBefore(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&debezium.Record{}).Where("message_id = ?", "a").Count(&count).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).
+		Where("message_id = ?", "a").
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count(a) returned error: %v", err)
 	}
 	if count != 0 {
@@ -389,7 +404,10 @@ func TestGORMStoreDeleteBefore(t *testing.T) {
 	}
 
 	var remaining []string
-	if err := db.Model(&debezium.Record{}).Order("message_id ASC").Pluck("message_id", &remaining).Error; err != nil {
+	if err := db.Model(&debezium.Record{}).
+		Order("message_id ASC").
+		Pluck("message_id", &remaining).
+		Error; err != nil {
 		t.Fatalf("Pluck returned error: %v", err)
 	}
 	if len(remaining) != 1 || remaining[0] != "c" {

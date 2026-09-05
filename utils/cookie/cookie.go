@@ -49,7 +49,11 @@ func GetCookie(rawCookies, name string) (*http.Cookie, error) {
 			continue
 		}
 
-		return &http.Cookie{Name: cookieName, Value: cookieValue}, nil
+		// Request cookies do not carry response-only security attributes.
+		return &http.Cookie{ //nolint:gosec // parsed request cookie
+			Name:  cookieName,
+			Value: cookieValue,
+		}, nil
 	}
 
 	return nil, nil
@@ -76,7 +80,11 @@ func Parse(rawCookies string) []*http.Cookie {
 			continue
 		}
 
-		cookies = append(cookies, &http.Cookie{Name: name, Value: value})
+		// Request cookies do not carry response-only security attributes.
+		cookies = append(
+			cookies,
+			&http.Cookie{Name: name, Value: value}, //nolint:gosec // parsed request cookie
+		)
 	}
 
 	if len(cookies) == 0 {

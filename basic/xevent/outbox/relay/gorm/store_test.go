@@ -79,7 +79,10 @@ func TestAppendEventWithGORMStoreUsesCurrentTransaction(t *testing.T) {
 		}
 
 		var count int64
-		if err := tx.Model(&outbox.Record{}).Where("id = ?", appended.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&outbox.Record{}).
+			Where("id = ?", appended.ID).
+			Count(&count).
+			Error; err != nil {
 			return err
 		}
 		if count != 1 {
@@ -142,7 +145,10 @@ func TestAppendEventWithGORMStoreFallsBackToBaseDB(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&outbox.Record{}).Where("id = ?", record.ID).Count(&count).Error; err != nil {
+	if err := db.Model(&outbox.Record{}).
+		Where("id = ?", record.ID).
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 1 {
@@ -178,7 +184,10 @@ func TestAppendEventWithGORMStoreRollbackUsesContextSession(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&outbox.Record{}).Where("event_id = ?", "evt_rollback").Count(&count).Error; err != nil {
+	if err := db.Model(&outbox.Record{}).
+		Where("event_id = ?", "evt_rollback").
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 0 {
@@ -212,7 +221,10 @@ func TestGORMStoreSessionResolverNilFallsBackToBaseDB(t *testing.T) {
 	}
 
 	var count int64
-	if err := db.Model(&outbox.Record{}).Where("id = ?", record.ID).Count(&count).Error; err != nil {
+	if err := db.Model(&outbox.Record{}).
+		Where("id = ?", record.ID).
+		Count(&count).
+		Error; err != nil {
 		t.Fatalf("Count returned error: %v", err)
 	}
 	if count != 1 {
@@ -582,13 +594,19 @@ func TestGORMStoreNormalizeRequestsAndHelpers(t *testing.T) {
 	if !claimReq.Now.Equal(nowLocal.UTC()) {
 		t.Fatalf("unexpected claim now: %v", claimReq.Now)
 	}
-	if _, err := normalizeClaimRequest(outbox.ClaimRequest{Owner: "", Limit: 1, ClaimTTL: time.Minute}); err == nil {
+	if _, err := normalizeClaimRequest(
+		outbox.ClaimRequest{Owner: "", Limit: 1, ClaimTTL: time.Minute},
+	); err == nil {
 		t.Fatal("expected owner validation error")
 	}
-	if _, err := normalizeClaimRequest(outbox.ClaimRequest{Owner: "relay-1", Limit: 0, ClaimTTL: time.Minute}); err == nil {
+	if _, err := normalizeClaimRequest(
+		outbox.ClaimRequest{Owner: "relay-1", Limit: 0, ClaimTTL: time.Minute},
+	); err == nil {
 		t.Fatal("expected limit validation error")
 	}
-	if _, err := normalizeClaimRequest(outbox.ClaimRequest{Owner: "relay-1", Limit: 1}); err == nil {
+	if _, err := normalizeClaimRequest(
+		outbox.ClaimRequest{Owner: "relay-1", Limit: 1},
+	); err == nil {
 		t.Fatal("expected ttl validation error")
 	}
 
@@ -691,10 +709,14 @@ func TestGORMStoreNormalizeRequestsAndHelpers(t *testing.T) {
 	if got := detectGORMStoreDialect(nil); got != GORMStoreDialectStandard {
 		t.Fatalf("unexpected nil-db dialect: %q", got)
 	}
-	if got := detectGORMStoreDialect(&gorm.DB{Config: &gorm.Config{Dialector: stubDialector{name: "mariadb"}}}); got != GORMStoreDialectMySQL {
+	if got := detectGORMStoreDialect(
+		&gorm.DB{Config: &gorm.Config{Dialector: stubDialector{name: "mariadb"}}},
+	); got != GORMStoreDialectMySQL {
 		t.Fatalf("unexpected mariadb dialect: %q", got)
 	}
-	if got := detectGORMStoreDialect(&gorm.DB{Config: &gorm.Config{Dialector: stubDialector{name: "sqlite"}}}); got != GORMStoreDialectStandard {
+	if got := detectGORMStoreDialect(
+		&gorm.DB{Config: &gorm.Config{Dialector: stubDialector{name: "sqlite"}}},
+	); got != GORMStoreDialectStandard {
 		t.Fatalf("unexpected sqlite dialect: %q", got)
 	}
 }

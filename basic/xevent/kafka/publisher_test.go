@@ -150,7 +150,10 @@ func TestPublisherPublishMapsEventToKafkaMessage(t *testing.T) {
 	if string(producer.last.Value) == "" {
 		t.Fatal("expected payload")
 	}
-	if got := recordHeaderValue(producer.last.Headers, defaultEventTypeHeader); got != "order.created" {
+	if got := recordHeaderValue(
+		producer.last.Headers,
+		defaultEventTypeHeader,
+	); got != "order.created" {
 		t.Fatalf("unexpected event type header: %q", got)
 	}
 	if got := recordHeaderValue(producer.last.Headers, defaultEventIDHeader); got != "evt_1" {
@@ -185,7 +188,10 @@ func TestPublisherSendMapsOutboundToKafkaMessage(t *testing.T) {
 	if string(producer.last.Key) != "order-2" {
 		t.Fatalf("unexpected key: %q", string(producer.last.Key))
 	}
-	if got := recordHeaderValue(producer.last.Headers, defaultEventTypeHeader); got != "order.created" {
+	if got := recordHeaderValue(
+		producer.last.Headers,
+		defaultEventTypeHeader,
+	); got != "order.created" {
 		t.Fatalf("unexpected event type header: %q", got)
 	}
 	if got := recordHeaderValue(producer.last.Headers, defaultEventIDHeader); got != "evt_2" {

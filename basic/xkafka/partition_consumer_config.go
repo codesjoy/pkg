@@ -229,7 +229,11 @@ func (cfg *PartitionConsumerConfig) validateRequiredFields() error {
 
 // ensureDependencies 确保依赖项（keyExtractor、logger、sarama config、offset store）已就绪。
 func (cfg *PartitionConsumerConfig) ensureDependencies() error {
-	if err := ensureConsumeDependencies(&cfg.KeyExtractor, &cfg.Logger, &cfg.SaramaConfig); err != nil {
+	if err := ensureConsumeDependencies(
+		&cfg.KeyExtractor,
+		&cfg.Logger,
+		&cfg.SaramaConfig,
+	); err != nil {
 		return err
 	}
 	if cfg.OffsetStore == nil {

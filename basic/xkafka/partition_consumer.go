@@ -73,7 +73,12 @@ func NewPartitionConsumer(cfg PartitionConsumerConfig) (*PartitionConsumer, erro
 func (c *PartitionConsumer) Consume(ctx context.Context, business consume.HandlerFunc) error {
 	var err error
 	// 参数校验：nil receiver、nil handler、规范化 context
-	if ctx, err = prepareConsumeCall(c == nil, "partition consumer is nil", ctx, business); err != nil {
+	if ctx, err = prepareConsumeCall(
+		c == nil,
+		"partition consumer is nil",
+		ctx,
+		business,
+	); err != nil {
 		return err
 	}
 

@@ -68,13 +68,17 @@ func Apply(client redis.UniversalClient, cfg Config) error {
 	}
 
 	if normalized.EnableTracing {
-		if err := redisotel.InstrumentTracing(client, buildTracingOptions(normalized)...); err != nil {
+		if err := redisotel.InstrumentTracing(
+			client,
+			buildTracingOptions(normalized)...); err != nil {
 			return fmt.Errorf("instrument tracing: %w", err)
 		}
 	}
 
 	if normalized.EnableMetrics {
-		if err := redisotel.InstrumentMetrics(client, buildMetricsOptions(normalized)...); err != nil {
+		if err := redisotel.InstrumentMetrics(
+			client,
+			buildMetricsOptions(normalized)...); err != nil {
 			return fmt.Errorf("instrument metrics: %w", err)
 		}
 	}

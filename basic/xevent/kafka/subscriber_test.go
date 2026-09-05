@@ -99,10 +99,13 @@ func TestSubscriberSubscribeDispatchesKafkaMessage(t *testing.T) {
 	}
 	dispatcher := xevent.NewDispatcher()
 	var got *testOrderCreated
-	if err := xevent.On[*testOrderCreated](dispatcher, func(_ context.Context, event *testOrderCreated) error {
-		got = event
-		return nil
-	}); err != nil {
+	if err := xevent.On[*testOrderCreated](
+		dispatcher,
+		func(_ context.Context, event *testOrderCreated) error {
+			got = event
+			return nil
+		},
+	); err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
 	subscriber := &Subscriber{
@@ -168,7 +171,10 @@ func TestSubscriberSubscribeValidationAndErrors(t *testing.T) {
 
 func TestSubscriberSubscribeIsOneShot(t *testing.T) {
 	dispatcher := xevent.NewDispatcher()
-	if err := xevent.On[*testOrderCreated](dispatcher, func(context.Context, *testOrderCreated) error { return nil }); err != nil {
+	if err := xevent.On[*testOrderCreated](
+		dispatcher,
+		func(context.Context, *testOrderCreated) error { return nil },
+	); err != nil {
 		t.Fatalf("On returned error: %v", err)
 	}
 

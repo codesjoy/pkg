@@ -212,7 +212,11 @@ func (cfg *GroupConsumerConfig) normalizeAndValidateTopicHandlers() error {
 			return errors.New("topic handlers contain empty topic")
 		}
 		handlers.Mode = normalizeChainMode(handlers.Mode)
-		if err := validateChainMode(topicName, handlers.Mode, "topic %q uses unsupported chain mode %q"); err != nil {
+		if err := validateChainMode(
+			topicName,
+			handlers.Mode,
+			"topic %q uses unsupported chain mode %q",
+		); err != nil {
 			return err
 		}
 		cfg.TopicHandlers[topic] = handlers

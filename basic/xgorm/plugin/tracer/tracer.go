@@ -68,50 +68,86 @@ func (p *Plugin) Name() string {
 // execution and ended after execution.
 func (p *Plugin) Initialize(db *gorm.DB) error {
 	// Register create callbacks.
-	if err := db.Callback().Create().Before("gorm:create").Register("tracer:before_create", p.beforeCreate); err != nil {
+	if err := db.Callback().
+		Create().
+		Before("gorm:create").
+		Register("tracer:before_create", p.beforeCreate); err != nil {
 		return err
 	}
-	if err := db.Callback().Create().After("gorm:create").Register("tracer:after_create", p.afterCreate); err != nil {
+	if err := db.Callback().
+		Create().
+		After("gorm:create").
+		Register("tracer:after_create", p.afterCreate); err != nil {
 		return err
 	}
 
 	// Register query callbacks.
-	if err := db.Callback().Query().Before("gorm:query").Register("tracer:before_query", p.beforeQuery); err != nil {
+	if err := db.Callback().
+		Query().
+		Before("gorm:query").
+		Register("tracer:before_query", p.beforeQuery); err != nil {
 		return err
 	}
-	if err := db.Callback().Query().After("gorm:query").Register("tracer:after_query", p.afterQuery); err != nil {
+	if err := db.Callback().
+		Query().
+		After("gorm:query").
+		Register("tracer:after_query", p.afterQuery); err != nil {
 		return err
 	}
 
 	// Register update callbacks.
-	if err := db.Callback().Update().Before("gorm:update").Register("tracer:before_update", p.beforeUpdate); err != nil {
+	if err := db.Callback().
+		Update().
+		Before("gorm:update").
+		Register("tracer:before_update", p.beforeUpdate); err != nil {
 		return err
 	}
-	if err := db.Callback().Update().After("gorm:update").Register("tracer:after_update", p.afterUpdate); err != nil {
+	if err := db.Callback().
+		Update().
+		After("gorm:update").
+		Register("tracer:after_update", p.afterUpdate); err != nil {
 		return err
 	}
 
 	// Register delete callbacks.
-	if err := db.Callback().Delete().Before("gorm:delete").Register("tracer:before_delete", p.beforeDelete); err != nil {
+	if err := db.Callback().
+		Delete().
+		Before("gorm:delete").
+		Register("tracer:before_delete", p.beforeDelete); err != nil {
 		return err
 	}
-	if err := db.Callback().Delete().After("gorm:delete").Register("tracer:after_delete", p.afterDelete); err != nil {
+	if err := db.Callback().
+		Delete().
+		After("gorm:delete").
+		Register("tracer:after_delete", p.afterDelete); err != nil {
 		return err
 	}
 
 	// Register raw callbacks.
-	if err := db.Callback().Raw().Before("gorm:raw").Register("tracer:before_raw", p.beforeRaw); err != nil {
+	if err := db.Callback().
+		Raw().
+		Before("gorm:raw").
+		Register("tracer:before_raw", p.beforeRaw); err != nil {
 		return err
 	}
-	if err := db.Callback().Raw().After("gorm:raw").Register("tracer:after_raw", p.afterRaw); err != nil {
+	if err := db.Callback().
+		Raw().
+		After("gorm:raw").
+		Register("tracer:after_raw", p.afterRaw); err != nil {
 		return err
 	}
 
 	// Register row callbacks.
-	if err := db.Callback().Row().Before("gorm:row").Register("tracer:before_row", p.beforeRow); err != nil {
+	if err := db.Callback().
+		Row().
+		Before("gorm:row").
+		Register("tracer:before_row", p.beforeRow); err != nil {
 		return err
 	}
-	if err := db.Callback().Row().After("gorm:row").Register("tracer:after_row", p.afterRow); err != nil {
+	if err := db.Callback().
+		Row().
+		After("gorm:row").
+		Register("tracer:after_row", p.afterRow); err != nil {
 		return err
 	}
 

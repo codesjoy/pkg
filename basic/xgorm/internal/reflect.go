@@ -46,7 +46,7 @@ func RowSliceElement(rowsSlicePtr interface{}) (interface{}, error) {
 	}
 
 	t := reflect.TypeOf(rowsSlicePtr)
-	if t.Kind() != reflect.Ptr {
+	if t.Kind() != reflect.Pointer {
 		return nil, ErrInvalidSliceType
 	}
 	if reflect.ValueOf(rowsSlicePtr).IsNil() {
@@ -63,7 +63,7 @@ func RowSliceElement(rowsSlicePtr interface{}) (interface{}, error) {
 	sliceElementType := containerType.Elem()
 
 	// If it's a pointer type (e.g., []*User), get the underlying type
-	if sliceElementType.Kind() == reflect.Ptr {
+	if sliceElementType.Kind() == reflect.Pointer {
 		sliceElementType = sliceElementType.Elem()
 	}
 
@@ -96,7 +96,7 @@ func GetTypeName(v interface{}) string {
 	}
 
 	t := reflect.TypeOf(v)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -110,7 +110,7 @@ func IsSlice(v interface{}) bool {
 	}
 
 	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -124,7 +124,7 @@ func IsMap(v interface{}) bool {
 	}
 
 	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -139,7 +139,7 @@ func SliceLen(v interface{}) int {
 	}
 
 	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Ptr {
+	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return 0
 		}

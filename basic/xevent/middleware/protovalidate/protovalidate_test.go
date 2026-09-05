@@ -1,4 +1,4 @@
-// Copyright 2022 The codesjoy Authors.
+// Copyright 2026 The codesjoy Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -110,10 +110,14 @@ func TestNewAppliesValidatorOptions(t *testing.T) {
 	}})
 	event.Set(field, protoreflect.ValueOfString("order-1"))
 	called := false
-	if err := middleware.Handle(context.Background(), &xevent.EventContext{Event: event}, func(context.Context, *xevent.EventContext) error {
-		called = true
-		return nil
-	}); err != nil {
+	if err := middleware.Handle(
+		context.Background(),
+		&xevent.EventContext{Event: event},
+		func(context.Context, *xevent.EventContext) error {
+			called = true
+			return nil
+		},
+	); err != nil {
 		t.Fatalf("Handle returned error: %v", err)
 	}
 	if !called {
@@ -122,10 +126,14 @@ func TestNewAppliesValidatorOptions(t *testing.T) {
 
 	unknownEvent, unknownField := newTestProtoEvent(t)
 	unknownEvent.Set(unknownField, protoreflect.ValueOfString("order-2"))
-	err := middleware.Handle(context.Background(), &xevent.EventContext{Event: unknownEvent}, func(context.Context, *xevent.EventContext) error {
-		t.Fatal("expected unknown descriptor to fail with lazy validation disabled")
-		return nil
-	})
+	err := middleware.Handle(
+		context.Background(),
+		&xevent.EventContext{Event: unknownEvent},
+		func(context.Context, *xevent.EventContext) error {
+			t.Fatal("expected unknown descriptor to fail with lazy validation disabled")
+			return nil
+		},
+	)
 	var compilationErr *bufprotovalidate.CompilationError
 	if !errors.As(err, &compilationErr) {
 		t.Fatalf("expected CompilationError for unknown descriptor, got %T: %v", err, err)
