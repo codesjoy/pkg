@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
 	buf.build/go/protovalidate v1.4.0
-	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260410223318-93048fcc8093
+	github.com/codesjoy/pkg/basic/xevent v0.0.0-20260904154606-26b857e37ec1
 	google.golang.org/protobuf v1.36.12
 )
 
